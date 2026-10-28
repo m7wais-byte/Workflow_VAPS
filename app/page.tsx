@@ -2,13 +2,15 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { OperationsWorkspace, WeeklyWork, Clarification, ClarificationReview } from './operations-workspace';
-import { applyOperation, operationComplete, latest, type Operations, type Command } from './operations-model';
+import { applyOperation, operationComplete, latest, isDraft, canSeeDraft, samplingTeam, pendingActions, type Actor, type Operations, type Command } from './operations-model';
+import { readTestRouting, storedTestRouting, testRoutingKey, type TestRouting } from './test-routing';
 import { PvtLab, type LabTestProgress } from "./pvt-lab";
-import { itemLabel, labComplete, labItems, planKeys, reconcileLabScope, scopeTestGroups, scopeTestOptions, type LabItem, type LabPlan } from "./lab-work";
+import { itemLabel, labComplete, labItems, planKeys, reconcileLabScope, type LabItem, type LabPlan } from "./lab-work";
 import { ClientLogo } from "./client-logo";
 import { cylinderCatalog } from "./cylinder-catalog";
 import { syncShare } from "./job-sharing";
 import { addDays, localDate } from "./local-date";
+import { nextJobSequence } from "./job-numbering";
 import { defaultFieldData } from "./sample-defaults";
 import { containerComplete, containerId, containerLabel, containerNoun, containerTypes, isGlass, type ContainerType } from "./sample-container";
 import { buildDemoJobs, demoClient, demoLogin } from "./demo-data";
@@ -119,6 +121,9 @@ type JobDetails = {
   assignedEngineerId: string;
   assignedDriverId: string;
   requestedSampleCount: string;
+  samplingInstructions: string;
+  /** Supporting sampling employees; assignedEngineerId is the accountable lead. */
+  samplingTeamIds: string[];
   requiredTests: string[];
   otherTests: string;
   sampleCountNotes: string;
@@ -215,6 +220,11 @@ export type JobRecord = {
   assignedEngineerId?: string;
   assignedDriverId?: string;
   requestedSampleCount?: string;
+  /** Requirements and notes from the job creator for the assigned sampling employees. */
+  samplingInstructions?: string;
+  /** Supporting sampling employees; assignedEngineerId is the accountable lead. */
+  samplingTeamIds?: string[];
+  /** Laboratory tests requested at creation: reference only. The laboratory scope is selected after sampling approval. */
   requiredTests?: string[];
   otherTests?: string;
   sampleCountNotes?: string;
@@ -320,7 +330,7 @@ const emptyClientForm: ClientForm = { code: "", name: "", shortName: "", country
 const clientStorageKey = "vaps-demo-clients-v1";
 
 const emptyJobDetails = (): JobDetails => ({
-  requestedSampleCount: "3", requiredTests: [], otherTests: "", sampleCountNotes: "",
+  requestedSampleCount: "3", samplingInstructions: "", samplingTeamIds: [], requiredTests: [], otherTests: "", sampleCountNotes: "",
   countryCode: "OM", dateReceived: localDate(), fieldArea: "", employee: "", assignedEngineerId: "", assignedDriverId: "", clientFocalPoint: "", clientFocalPointContact: "", clientFocalPointEmail: "", dueDate: "", description: "",
   well: "", wellMode: "single", wells: [""], rigInstallation: "", plannedDepth: "", formation: "", perforationInterval: "", wellheadLocation: "", chokeSize: "", whp: "", wht: "",
   facility: "", separatorId: "", separatorStage: "", samplingPoint: "", separatorPressure: "", separatorTemperature: "", relatedWell: "", locationNotes: "", otherDescription: "", otherSamplingType: "",
@@ -369,9 +379,14 @@ export default function Home() {
     const stored:JobRecord[]=JSON.parse(localStorage.getItem(jobsStorageKey)||'[]');
     const target=stored.find(j=>j.id===id);if(!target)throw Error('Job no longer exists.');
     const shown=jobs.find(j=>j.id===id);if(target.operations?.revision!==shown?.operations?.revision)throw Error('This job changed in another view. Refresh before saving; your edits have been retained.');
-    const employees=loadDirectory().employees;const policy=readAuthorization(localStorage.getItem(authorizationKey),employees.map(e=>e.id));
-    const updated=applyOperation(target,command,{id:currentEmployee.id,employees,policy,roles:storedResponsibilities()});
+    const updated=applyOperation(target,command,freshActor());
     persistJobs(stored.map(j=>j.id===id?updated:j));
+  }
+  /** Settings re-read at the moment of action, so a review panel opened earlier cannot act on stale assignments. */
+  function freshActor(): Actor {
+    if(!currentEmployee)throw Error('Select an active trial profile.');
+    const employees=loadDirectory().employees;
+    return {id:currentEmployee.id,employees,policy:readAuthorization(localStorage.getItem(authorizationKey),employees.map(e=>e.id)),roles:storedResponsibilities(),routing:storedTestRouting()};
   }
   function setWorkspaceView(view: 'workflow' | WorkspaceView) { location.assign('#'+view); }
   function saveDirectory(next: Directory) {
@@ -387,6 +402,8 @@ export default function Home() {
   const [authorizationError, setAuthorizationError] = useState("");
   const [responsibilities, setResponsibilities] = useState<Responsibilities>(() => ({ ...defaultResponsibilities }));
   const [responsibilitiesError, setResponsibilitiesError] = useState("");
+  const [testRouting, setTestRouting] = useState<TestRouting>({});
+  const [testRoutingError, setTestRoutingError] = useState("");
   const hasPermission = (permission: Permission) => !directoryError && !!demoEmployees.find(e=>e.id===currentEmployee?.id && e.active) && !authorizationError && allowed(authorization, currentEmployee?.id, permission);
   const canView = (view: string) => {
     if (view === "settings") return ["settings", "company", "employees", "authorization"].some(p=>hasPermission(p as Permission));
@@ -406,9 +423,11 @@ export default function Home() {
       catch { setAuthorizationError("Saved authorization could not be loaded. Access is disabled until the settings are restored."); }
       try { const raw=window.localStorage.getItem(responsibilitiesKey); const roles=readResponsibilities(raw); if(raw===null) window.localStorage.setItem(responsibilitiesKey,JSON.stringify(roles)); setResponsibilities(roles); setResponsibilitiesError(""); }
       catch { setResponsibilities({...unassignedResponsibilities}); setResponsibilitiesError("Saved responsibilities could not be loaded. Every workflow duty is blocked until they are saved again."); }
+      try { setTestRouting(readTestRouting(window.localStorage.getItem(testRoutingKey))); setTestRoutingError(""); }
+      catch { setTestRouting({}); setTestRoutingError("Saved test routing could not be loaded. Laboratory scope release is blocked until it is restored."); }
     };
     load();
-    const onStorage = (event: StorageEvent) => { if (event.key === authorizationKey || event.key === responsibilitiesKey || event.key === null) load(); };
+    const onStorage = (event: StorageEvent) => { if (event.key === authorizationKey || event.key === responsibilitiesKey || event.key === testRoutingKey || event.key === null) load(); };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
@@ -440,7 +459,8 @@ export default function Home() {
   const [trackedSamples, setTrackedSamples] = useState<string[]>([]);
   const [dashboardFilter, setDashboardFilter] = useState<"all" | "sampling" | "reports" | "due">("all");
   const [dashboardSearch, setDashboardSearch] = useState("");
-  const [jobsRegisterFilter, setJobsRegisterFilter] = useState<"all" | "active" | "sampling" | "reports" | "completed">("all");
+  const [jobsRegisterFilter, setJobsRegisterFilter] = useState<"mine" | "active" | "drafts" | "completed" | "all">("active");
+  const [jobsRegisterStage, setJobsRegisterStage] = useState("");
   const [jobsRegisterSearch, setJobsRegisterSearch] = useState("");
   const [labJobId, setLabJobId] = useState("");
   const [samplingTab, setSamplingTab] = useState<"jobs" | "reports">("jobs");
@@ -541,7 +561,8 @@ export default function Home() {
   const selectedClient = clients.find((item) => item.code === client);
   const clientName = selectedClient?.shortName || selectedClient?.name || "";
   const clientJobPrefix = client.trim().toUpperCase().slice(0, 1);
-  const generatedJobId = `${job.countryCode}-${clientJobPrefix}-${trackingYearShort}-${String(globalCounter + 1).padStart(3, "0")}`;
+  const nextSequence = nextJobSequence(globalCounter, jobs, trackingYearShort);
+  const generatedJobId = `${job.countryCode}-${clientJobPrefix}-${trackingYearShort}-${String(nextSequence).padStart(3, "0")}`;
   const jobId = createdJobId || generatedJobId;
   const samplingTypeLabel = samplingType === "Other" && job.otherSamplingType.trim() ? `Other — ${job.otherSamplingType.trim()}` : samplingType;
   const activeClients = clients.filter((item) => item.active);
@@ -575,35 +596,42 @@ export default function Home() {
   const employeeName = (employeeId?: string) => demoEmployees.find((employee) => employee.id === employeeId)?.name ?? "Not specified";
   const formatDateTime = (value?: string) => value ? new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(value)) : "Not recorded";
   const currentJob = jobs.find((item) => item.id === jobId);
+  const opsActor: Actor | null = currentEmployee ? { id: currentEmployee.id, employees: demoEmployees, policy: authorization, roles: responsibilities, routing: testRoutingError ? null : testRouting } : null;
+  // Drafts are shown only to job creators, their author and the administrator, in every list and direct link.
+  const visibleJobs = opsActor ? jobs.filter((item) => canSeeDraft(item, opsActor)) : [];
   const progressById = new Map<string, JobProgress>(jobs.map((item) => [item.id, jobProgress(item)]));
   const prog = (item: JobRecord) => progressById.get(item.id) || jobProgress(item);
   const isClosed = (item: JobRecord) => prog(item).closed;
-  const myJobs = currentEmployee ? jobs.filter((item) => item.jobResponsibleId === currentEmployee.id || item.responsibleId === currentEmployee.id || (item.report?.reportStatus === "Awaiting Approval" && item.report.approvedBy === currentEmployee.id)) : [];
+  const myJobs = currentEmployee ? visibleJobs.filter((item) => item.jobResponsibleId === currentEmployee.id || item.responsibleId === currentEmployee.id || (!isDraft(item) && samplingTeam(item).includes(currentEmployee.id)) || (item.report?.reportStatus === "Awaiting Approval" && item.report.approvedBy === currentEmployee.id)) : [];
   const myActiveJobs = myJobs.filter((item) => item.status !== "Completed");
-  const myCompletedJobs = jobs.filter((item) => item.ownerId === currentEmployee?.id && isClosed(item));
+  const myCompletedJobs = visibleJobs.filter((item) => item.ownerId === currentEmployee?.id && isClosed(item));
   const myActivities = currentEmployee ? activities.filter((item) => item.employeeId === currentEmployee.id) : [];
   const today = localDate();
-  const activeJobs = jobs.filter((item) => !isClosed(item));
+  const activeJobs = visibleJobs.filter((item) => !isClosed(item));
   const samplingJobs = activeJobs.filter((item) => item.currentStage.startsWith("Sampling"));
   const pendingReports = activeJobs.filter((item) => item.currentStage === "Report Preview" || item.status === "Report Draft" || item.status === "Awaiting Approval");
-  const samplingWorkspaceJobs = jobs.filter((item) => item.samplingSource && item.status !== "Completed");
-  const reportsWorkspaceJobs = jobs.filter((item) => item.operations?.samplingReports.length || item.report?.preparedBy || item.report?.summary);
+  const samplingWorkspaceJobs = jobs.filter((item) => item.samplingSource && item.status !== "Completed" && !isDraft(item));
+  const reportsWorkspaceJobs = visibleJobs.filter((item) => item.operations?.samplingReports.length || item.report?.preparedBy || item.report?.summary);
   const preparationJobs = samplingWorkspaceJobs.filter((item) => item.currentStage === "Sampling Preparation");
   const dataEntryJobs = samplingWorkspaceJobs.filter((item) => item.currentStage === "Sampling Data");
   const completedDataJobs = samplingWorkspaceJobs.filter((item) => item.samples?.length && item.samples.every((sample) => sample.dataComplete));
-  const filteredJobsRegister = jobs.filter((item) => {
-    const matchesFilter = jobsRegisterFilter === "all" || (jobsRegisterFilter === "active" && !isClosed(item)) || (jobsRegisterFilter === "sampling" && item.currentStage.startsWith("Sampling")) || (jobsRegisterFilter === "reports" && (item.currentStage === "Report Preview" || item.status === "Report Draft" || item.status === "Awaiting Approval")) || (jobsRegisterFilter === "completed" && isClosed(item));
+  const actionsFor = (item: JobRecord) => opsActor && !isClosed(item) ? pendingActions(item, opsActor) : [];
+  const registerStage = (item: JobRecord) => isDraft(item) ? "Job creation (draft)" : prog(item).current?.label || "Closed";
+  const registerStages = [...new Set(visibleJobs.map(registerStage))];
+  const registerCounts = { mine: visibleJobs.filter((item) => actionsFor(item).length > 0).length, active: visibleJobs.filter((item) => !isClosed(item) && !isDraft(item)).length, drafts: visibleJobs.filter(isDraft).length, completed: visibleJobs.filter(isClosed).length, all: visibleJobs.length };
+  const filteredJobsRegister = visibleJobs.filter((item) => {
+    const matchesFilter = jobsRegisterFilter === "all" || (jobsRegisterFilter === "mine" && actionsFor(item).length > 0) || (jobsRegisterFilter === "active" && !isClosed(item) && !isDraft(item)) || (jobsRegisterFilter === "drafts" && isDraft(item)) || (jobsRegisterFilter === "completed" && isClosed(item));
     const search = jobsRegisterSearch.trim().toLowerCase();
     const normalizedSearch = search.replace(/[^a-z0-9]/g, "");
-    const searchableValues = [item.id, item.jobNumber, item.clientCode, item.clientName, item.fieldArea, item.well, ...(item.wells || []), item.clientFocalPoint, item.clientFocalPointEmail, item.clientReference, item.description, item.samplingSource, item.currentStage, item.status, employeeName(item.ownerId), employeeName(item.jobResponsibleId || item.responsibleId), employeeName(item.assignedEngineerId || item.responsibleId), employeeName(item.assignedDriverId)];
+    const searchableValues = [item.id, item.jobNumber, item.clientCode, item.clientName, item.fieldArea, item.well, ...(item.wells || []), item.clientFocalPoint, item.clientFocalPointEmail, item.clientReference, item.description, item.samplingSource, registerStage(item), item.status, employeeName(item.ownerId), employeeName(item.jobResponsibleId || item.responsibleId), ...samplingTeam(item).map(employeeName), employeeName(item.assignedDriverId)];
     const matchesSearch = !search || searchableValues.some((value) => {
       const text = value?.toLowerCase() || "";
       return text.includes(search) || (normalizedSearch && text.replace(/[^a-z0-9]/g, "").includes(normalizedSearch));
     });
-    return matchesFilter && matchesSearch;
+    return matchesFilter && matchesSearch && (!jobsRegisterStage || registerStage(item) === jobsRegisterStage);
   });
-  const workflowJob = jobs.find(item => item.id === workflowJobId);
-  const selectedJobDetails = hasPermission("jobDetails") && jobs.find((item) => item.id === selectedJobDetailsId);
+  const workflowJob = visibleJobs.find(item => item.id === workflowJobId);
+  const selectedJobDetails = hasPermission("jobDetails") && visibleJobs.find((item) => item.id === selectedJobDetailsId);
   const overdueTasks = activeJobs.filter((item) => item.dueDate && item.dueDate < today);
   const dueSoonLimit = addDays(today, 7);
   const dashboardFilteredByType = dashboardFilter === "sampling" ? myActiveJobs.filter((item) => item.currentStage.startsWith("Sampling")) : dashboardFilter === "reports" ? myActiveJobs.filter((item) => item.currentStage === "Report Preview" || item.status === "Report Draft" || item.status === "Awaiting Approval") : dashboardFilter === "due" ? myActiveJobs.filter((item) => item.dueDate && item.dueDate <= dueSoonLimit) : myActiveJobs;
@@ -662,6 +690,8 @@ export default function Home() {
       assignedEngineerId: item.assignedEngineerId || item.responsibleId || "",
       assignedDriverId: item.assignedDriverId || "",
       requestedSampleCount: item.requestedSampleCount || String(item.samples?.length || 3),
+      samplingInstructions: item.samplingInstructions || "",
+      samplingTeamIds: item.samplingTeamIds || [],
       requiredTests: item.requiredTests || [],
       otherTests: item.otherTests || "",
       sampleCountNotes: item.sampleCountNotes || "",
@@ -717,7 +747,7 @@ export default function Home() {
   }
   // Opening a #new-job/<id> link restores that draft into the editor state.
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(()=>{if(!authReady||!currentEmployee)return;if(workspaceView==='new-job'&&editorRoute[0]&&createdJobId!==decodeURIComponent(editorRoute[0])){const saved=jobs.find(j=>j.id===decodeURIComponent(editorRoute[0]));if(saved){resumeJob(saved,false);if(['job','type','bottomhole','scope','report'].includes(editorRoute[1]))setStage(editorRoute[1] as Stage);}}},[authReady,currentEmployee?.id,workspaceView,editorRoute,jobs]);
+  useEffect(()=>{if(!authReady||!currentEmployee)return;if(workspaceView==='new-job'&&editorRoute[0]&&createdJobId!==decodeURIComponent(editorRoute[0])){const saved=visibleJobs.find(j=>j.id===decodeURIComponent(editorRoute[0]));if(!saved){setNotice('Job not found or not available to your profile.');setEditorRoute([]);location.replace('#jobs');}else{resumeJob(saved,false);if(['job','type','bottomhole','scope','report'].includes(editorRoute[1]))setStage(editorRoute[1] as Stage);}}},[authReady,currentEmployee?.id,workspaceView,editorRoute,jobs]);
   useEffect(()=>{if(workspaceView==='workflow'&&workflowJobId&&location.hash==='#workflow')history.replaceState(null,'','#workflow/'+encodeURIComponent(workflowJobId)+'/overview');if(workspaceView==='new-job'&&createdJobId&&currentJob)history.replaceState(null,'','#new-job/'+encodeURIComponent(createdJobId)+'/'+stage);},[workspaceView,workflowJobId,createdJobId,stage,currentJob]);
 
   const labTeam = demoEmployees.map((employee) => ({ id: employee.id, name: employee.name, active: employee.active && eligibleForTeam(employee.id, "analysis") }));
@@ -758,11 +788,12 @@ export default function Home() {
     persistActivities(next);
   }
 
-  function updateCurrentJob(nextStage: string, nextAction: string, stageUpdates: Record<string, WorkflowStatus> = {}, action?: string, recordUpdates: Partial<JobRecord> = {}) {
+  /** Saves the editor state. With send, the job is dispatched to Sampling against freshly read settings; a refusal throws. */
+  function updateCurrentJob(nextStage: string, nextAction: string, stageUpdates: Record<string, WorkflowStatus> = {}, action?: string, recordUpdates: Partial<JobRecord> = {}, send = false) {
     if (!currentEmployee) return;
-    if (!currentJob && !hasPermission("createJob")) { setNotice("You are not authorized to create jobs."); return; }
+    if ((!currentJob || isDraft(currentJob)) && !hasPermission("createJob")) { setNotice("You are not authorized to create jobs."); return; }
     if (currentJob && (!hasPermission("jobDetails") || (stage !== "job" && !hasPermission("sampling")))) { setNotice("You do not have access to update this work area."); return; }
-    if(currentJob && !coordinator(currentEmployee.id) && currentJob.assignedEngineerId!==currentEmployee.id && !canWork(currentJob,"sampling",currentEmployee.id)){setNotice("Only the accepted sampling owner or a job coordinator can update this job workspace.");return;}
+    if(currentJob && !coordinator(currentEmployee.id) && !samplingTeam(currentJob).includes(currentEmployee.id) && !canWork(currentJob,"sampling",currentEmployee.id)){setNotice("Only the accepted sampling owner or a job coordinator can update this job workspace.");return;}
     if(currentJob?.operations?.samplingReports.some(r=>["Checking","Awaiting Approval","Approved"].includes(r.status)) && !["Draft","Changes Requested"].includes(currentJob.operations.samplingReports.at(-1)!.status)){setNotice("Submitted sampling data is locked. Request a report revision before editing.");return;}
     if (!currentJob?.operations && currentJob?.report?.reportStatus !== "Draft" && currentJob?.report && !(currentEmployee.id === "SALIM" && currentJob.report.reportStatus === "Awaiting Approval" && recordUpdates.report)) { setNotice("Reviewed data is locked. Salim must request changes before editing."); return; }
     if(currentJob?.operations && (JSON.stringify(job.requiredTests)!==JSON.stringify(currentJob.requiredTests||[]) || job.otherTests!==(currentJob.otherTests||''))){setNotice('The original request is preserved. Record scope changes in Scope → Request additional work, with a reason.');return;}
@@ -770,7 +801,7 @@ export default function Home() {
     const responsibleId = job.assignedEngineerId || currentJob?.responsibleId || job.employee || currentEmployee.id;
     const jobFields = {
       jobResponsibleId: job.employee || currentJob?.jobResponsibleId || currentJob?.responsibleId || currentEmployee.id,
-      requestedSampleCount: job.requestedSampleCount, requiredTests: job.requiredTests, otherTests: job.otherTests, sampleCountNotes: job.sampleCountNotes,
+      requestedSampleCount: job.requestedSampleCount, samplingInstructions: job.samplingInstructions, samplingTeamIds: job.samplingTeamIds.filter(id => id && id !== job.assignedEngineerId), requiredTests: job.requiredTests, otherTests: job.otherTests, sampleCountNotes: job.sampleCountNotes,
       countryCode: job.countryCode, dateReceived: job.dateReceived, description: job.description, assignedEngineerId: job.assignedEngineerId, assignedDriverId: job.assignedDriverId, clientFocalPoint: job.clientFocalPoint, clientFocalPointContact: job.clientFocalPointContact, clientFocalPointEmail: job.clientFocalPointEmail, fieldArea: job.fieldArea, well: job.well, wellMode: job.wellMode, wells: job.wells, rigInstallation: job.rigInstallation,
       plannedDepth: job.plannedDepth, formation: job.formation, perforationInterval: job.perforationInterval, wellheadLocation: job.wellheadLocation,
       chokeSize: job.chokeSize, whp: job.whp, wht: job.wht, facility: job.facility, separatorId: job.separatorId, separatorStage: job.separatorStage,
@@ -778,7 +809,7 @@ export default function Home() {
       locationNotes: job.locationNotes, otherDescription: job.otherDescription, otherSamplingType: job.otherSamplingType, oilRate: job.oilRate, gasRate: job.gasRate, waterRate: job.waterRate,
     };
     const base: JobRecord = currentJob ?? {
-      id: jobId, globalSequence: globalCounter + 1, jobNumber: jobId, clientCode: client, clientName, ...jobFields, dueDate: job.dueDate,
+      id: jobId, globalSequence: nextSequence, jobNumber: jobId, clientCode: client, clientName, ...jobFields, dueDate: job.dueDate,
       status: "Job Created" as const, currentStage: "Job Setup", nextAction: "Complete sampling preparation",
       ownerId: currentEmployee.id, responsibleId, createdById: currentEmployee.id, createdAt: now,
       lastUpdatedById: currentEmployee.id, lastUpdatedAt: now,
@@ -799,7 +830,8 @@ export default function Home() {
     });
     const automaticStatus: JobStatus = nextStage === "Sampling Preparation" ? "Sampling In Progress" : nextStage === "Sampling Data" ? "Sampling In Progress" : nextStage === "Report Preview" ? "Report Draft" : nextStage === "Final Report" && stageUpdates["Final Report"] === "Completed" ? (labComplete(base) ? "Completed" : "Sampling Completed") : base.status;
     let updated: JobRecord = { ...base, ...(!currentJob || coordinator(currentEmployee.id) ? jobFields : {}), ...(samplingRequired !== null ? { samplingRequired } : {}), ...(samplingType ? { samplingSource: samplingType } : {}), holeType, ...(scopeAttachment ? { scopeOfWorkAttachment: scopeAttachment } : {}), samples, events, report, coordinationTasks, coordinationDetails, ...recordUpdates, clientName, dueDate: job.dueDate, currentStage: nextStage, nextAction, status: recordUpdates.status || automaticStatus, lastUpdatedById: currentEmployee.id, lastUpdatedAt: now, stages };
-    if(!currentJob){updated=applyOperation(updated,{type:'dispatch',engineer:job.assignedEngineerId,driver:job.assignedDriverId},{id:currentEmployee.id,employees:demoEmployees,policy:authorization,roles:responsibilities},now);}
+    if(send){updated=applyOperation(updated,{type:'dispatch',engineer:job.assignedEngineerId,driver:job.assignedDriverId,team:job.samplingTeamIds},freshActor(),now);}
+    if(!currentJob){const stored:JobRecord[]=JSON.parse(localStorage.getItem(jobsStorageKey)||'[]');if(stored.some(item=>item.id===updated.id))throw Error(`Job ID ${updated.id} is already in use. Refresh and try again; nothing was saved.`);}
     if(currentJob?.operations && currentJob.report?.reportStatus==="Completed")updated.report=currentJob.report;
     if(updated.operations && !operationComplete(updated) && updated.status==="Completed") updated.status="Sampling Completed";
     persistJobs(jobs.some((item) => item.id === jobId) ? jobs.map((item) => item.id === jobId ? updated : item) : [updated, ...jobs]);
@@ -1385,69 +1417,92 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function submitJob(event: React.FormEvent) {
-    event.preventDefault();
- if(currentJob ? !hasPermission("jobDetails") || !coordinator(currentEmployee?.id) : !hasPermission("createJob")){setNotice("You are not authorized to save this job.");return;}
+  /** Problems that block sending (or saving a sent job). Drafts are saved without these checks. */
+  function jobSendErrors(sending: boolean): string[] {
     const errors: string[] = [];
     if(!selectedClient?.active&&!currentJob)errors.push('Select an active client.');
-    if(!demoEmployees.some(e=>e.id===job.assignedEngineerId&&e.active))errors.push('Assign an active sampling engineer.');
-    if(!demoEmployees.some(e=>e.id===job.assignedDriverId&&e.active))errors.push('Assign an active driver.');
-    if(job.assignedEngineerId && !allowed(authorization,job.assignedEngineerId,'sampling'))errors.push('The assigned engineer needs sampling permission.');
     if (!job.fieldArea.trim()) errors.push("Field is required.");
     const namedWells = job.wells.map((well) => well.trim()).filter(Boolean);
     if (job.wellMode === "single" && namedWells.length !== 1) errors.push("Enter the well name.");
     if (job.wellMode === "multiple" && (namedWells.length < 2 || namedWells.length !== job.wells.length)) errors.push("Enter at least two well names and complete every well field.");
+    if (!job.description.trim()) errors.push("Enter the job / request description.");
     if (!samplingType) errors.push("Sampling Type is required.");
     if (samplingType && !isMpsrLabTransfer(samplingType) && samplingType !== "Other") {
-      if (!job.clientFocalPoint.trim()) errors.push("Enter the Client Focal Point in Job Setup.");
-      if (!job.clientFocalPointContact.trim()) errors.push("Enter the Focal Point Contact Number in Job Setup.");
+      if (!job.clientFocalPoint.trim()) errors.push("Enter the Client Focal Point.");
+      if (!job.clientFocalPointContact.trim()) errors.push("Enter the Focal Point Contact Number.");
     }
-
-
     if (samplingType === "Other" && !job.otherSamplingType.trim()) errors.push("Specify the other sampling type.");
     const requestedCount = Number(job.requestedSampleCount);
     if (!Number.isInteger(requestedCount) || requestedCount < 1 || requestedCount > 20) errors.push("Enter a whole sample count from 1 to 20.");
-    if (!job.requiredTests.length) errors.push("Select the required work / tests for this job.");
-    if (job.requiredTests.includes("Other") && !job.otherTests.trim()) errors.push("Specify the other required work / tests.");
     if (isCasedHoleSampling(samplingType) && requestedCount < 3 && !job.sampleCountNotes.trim()) errors.push("Add a note explaining the request for fewer than 3 cased-hole samples.");
-    if (!currentJob && jobs.some((item) => item.id === generatedJobId)) errors.push("The next global job number is already in use. Refresh and try again.");
+    // Jobs sent before instructions existed stay editable without them.
+    if (sending && !job.samplingInstructions.trim()) errors.push("Write the sampling instructions for the sampling team.");
+    if (!job.assignedEngineerId) errors.push("Assign the accountable sampling employee.");
+    for (const id of [job.assignedEngineerId, ...job.samplingTeamIds].filter(Boolean)) {
+      const person = demoEmployees.find(e => e.id === id);
+      if (!person?.active) errors.push(`${person?.name || id} is not an active employee.`);
+      else if (!allowed(authorization, id, 'sampling')) errors.push(`${person.name} needs sampling permission before assignment.`);
+    }
+    if (!demoEmployees.some(e => e.id === job.assignedDriverId && e.active)) errors.push('Assign an active driver.');
+    return errors;
+  }
+
+  function saveDraft() {
+    if (!currentEmployee || !hasPermission("createJob")) { setNotice("You are not authorized to create jobs."); return; }
+    if (currentJob && !isDraft(currentJob)) return;
+    if (!currentJob && !selectedClient?.active) { setJobErrors(["Select an active client before saving a draft; it forms part of the job ID."]); return; }
+    setJobErrors([]); setDispatchReview(false);
+    const reservedId = currentJob?.id || generatedJobId;
+    try {
+      updateCurrentJob("Job Setup", "Complete the draft and send it to Sampling", {}, `${currentJob ? "Saved" : "Created"} draft ${reservedId}`, { ...(currentJob ? {} : { id: reservedId, jobNumber: reservedId, globalSequence: nextSequence }), status: "Draft" });
+    } catch (error) { setJobErrors([(error as Error).message]); return; }
+    if (!currentJob) { window.localStorage.setItem(globalCounterStorageKey, String(nextSequence)); setGlobalCounter(nextSequence); setCreatedJobId(reservedId); }
+    setNotice(`Draft ${reservedId} saved on this device. It has not been sent to Sampling.`);
+  }
+
+  function submitJob(event: React.FormEvent) {
+    event.preventDefault();
+    const sending = !currentJob || isDraft(currentJob);
+    if(sending ? !hasPermission("createJob") : !hasPermission("jobDetails") || !coordinator(currentEmployee?.id)){setNotice("You are not authorized to save this job.");return;}
+    const errors = jobSendErrors(sending);
     if (errors.length) {
-      setJobErrors(errors);
+      setJobErrors(errors); setDispatchReview(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
     setJobErrors([]);
-    if(!currentJob&&!dispatchReview){setDispatchReview(true);return;}
-    if(currentJob?.operations && JSON.stringify(job.requiredTests)!==JSON.stringify(currentJob.requiredTests)){setJobErrors(["Record scope additions in the job Scope page, with a reason and manager confirmation."]);return;}
-    if (currentJob) {
-      updateCurrentJob(currentJob.currentStage, currentJob.nextAction, {}, `Updated job details and scope for ${currentJob.id}`);
+    if(sending&&!dispatchReview){setDispatchReview(true);return;}
+    if (!sending && currentJob) {
+      updateCurrentJob(currentJob.currentStage, currentJob.nextAction, {}, `Updated job details for ${currentJob.id}`);
       setWorkflowJobId(currentJob.id);
       setWorkspaceView("workflow");
       return;
     }
-    const reservedJobId = generatedJobId;
-    const reservedSequence = globalCounter + 1;
+    const reservedJobId = currentJob?.id || generatedJobId;
+    const reservedSequence = currentJob?.globalSequence || nextSequence;
+    const requestedCount = Number(job.requestedSampleCount);
     const requiresSampling = samplingIsRequired(samplingType);
-    setSamplingRequired(requiresSampling);
     const sampleNature = isCasedHoleSampling(samplingType) ? "BHS" : isSpmcFieldSampling(samplingType) ? "SPMC" : isMpsrLabTransfer(samplingType) ? "MPSR" : samplingType === "Wellhead Sampling" ? "WHS" : samplingType === "Separator Sampling" ? "SEP" : samplingType === "Station Sampling" ? "STN" : "";
     const plannedSamples = Array.from({ length: requestedCount }, (_, index) => ({
       ...(samples[index] || emptySamples()[0]), id: `1.${String(index + 1).padStart(2, "0")}`,
       sampler: isSpmcFieldSampling(samplingType) ? "SPMC" : isCasedHoleSampling(samplingType) ? "SPS" : "",
       fieldData: { ...(samples[index]?.fieldData || defaultFieldData()), sampleNature },
     }));
+    const nextAction = requiresSampling ? "Complete sampling preparation" : "Complete pre-job coordination";
+    try {
+      updateCurrentJob("Sampling Preparation", nextAction, { "Job Setup": "Completed", "Sampling Preparation": "In Progress" }, `Sent job ${reservedJobId} to Sampling`, { id: reservedJobId, jobNumber: reservedJobId, globalSequence: reservedSequence, samplingRequired: requiresSampling, samplingSource: samplingType as SamplingSource, holeType: "", scopeOfWorkAttachment: scopeAttachment || undefined, samples: plannedSamples, coordinationTasks: createCoordinationTasks(samplingType, coordinationTasks), coordinationDetails, status: "Job Created" }, true);
+    } catch (error) { setJobErrors([(error as Error).message]); setDispatchReview(false); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+    setSamplingRequired(requiresSampling);
     setSamples(plannedSamples);
     setExpanded("1.01");
-    const nextStage = "Sampling Preparation";
-    const nextAction = requiresSampling ? "Complete sampling preparation" : "Complete pre-job coordination";
-    const stageUpdates: Record<string, WorkflowStatus> = { "Job Setup": "Completed", "Sampling Preparation": "In Progress" };
-    updateCurrentJob(nextStage, nextAction, stageUpdates, `Created Job ${reservedJobId}`, { id: reservedJobId, jobNumber: reservedJobId, globalSequence: reservedSequence, samplingRequired: requiresSampling, samplingSource: samplingType as SamplingSource, holeType: "", scopeOfWorkAttachment: scopeAttachment || undefined, samples: plannedSamples, coordinationTasks: createCoordinationTasks(samplingType, coordinationTasks), coordinationDetails, status: "Job Created" });
-    window.localStorage.setItem(globalCounterStorageKey, String(reservedSequence));
-    setGlobalCounter(reservedSequence);
-    setCreatedJobId(reservedJobId);
-    setNotice(`Job ${reservedJobId} created in local demo data`);
+    if (!currentJob) { window.localStorage.setItem(globalCounterStorageKey, String(reservedSequence)); setGlobalCounter(reservedSequence); }
+    setDispatchReview(false);
+    const team = [job.assignedEngineerId, ...job.samplingTeamIds.filter(id => id !== job.assignedEngineerId)];
+    setNotice(`Job ${reservedJobId} sent to Sampling. Received by ${team.map((id, index) => employeeName(id) + (index === 0 ? " (accountable)" : "")).join(", ")}; driver ${employeeName(job.assignedDriverId)}. New stage: Sampling · Next action: ${nextAction}. No email was sent.`);
+    // Leave the editor first so its URL sync cannot pull the view back to the sampling form.
+    setCreatedJobId("");
     setWorkflowJobId(reservedJobId);
-    setWorkspaceView("workflow");
-    setStage("type");
+    location.assign('#workflow/' + encodeURIComponent(reservedJobId) + '/overview');
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -1548,7 +1603,7 @@ export default function Home() {
   }
 
   const stageTitle = stage === "job" ? "Create a new laboratory job" : stage === "type" ? "Sampling preparation" : stage === "bottomhole" ? "Sampling data" : stage === "scope" ? "Final report" : "Report preview";
-  const stageCopy = stage === "job" ? "Register the client, sampling type, sample quantity, and required work. The job number is reserved automatically." : stage === "type" ? "Prepare equipment and verify field readiness for the sampling type selected at Job Setup." : stage === "bottomhole" ? "Capture the sample register and field event details for the prepared sample set." : stage === "scope" ? "The final Sampling and Analysis Report is ready to view or print." : "Review, approve, and generate the final Sampling and Analysis Report.";
+  const stageCopy = stage === "job" ? "Register the client, location, sampling scope, assignment and sampling instructions. Save a draft at any time; Send to Sampling when ready." : stage === "type" ? "Prepare equipment and verify field readiness for the sampling type selected at Job Setup." : stage === "bottomhole" ? "Capture the sample register and field event details for the prepared sample set." : stage === "scope" ? "The final Sampling and Analysis Report is ready to view or print." : "Review, approve, and generate the final Sampling and Analysis Report.";
 
   if (!authReady) return <div className="login-loading"><img src="/vaps-logo.png" alt="VAPS" /><span>Loading local workspace…</span></div>;
 
@@ -1621,8 +1676,8 @@ export default function Home() {
 
         <div className="page-wrap">
           {workspaceView !== "settings" && !!notice && <div className="notice" role="alert">{notice}<button type="button" aria-label="Dismiss" onClick={() => setNotice("")}>×</button></div>}
-          {!canView(workspaceView) ? <section className="panel authorization-panel"><h1>Access restricted</h1><p>Ask Mohammed Al Awaisi to enable access in Settings → Authorization.</p><button className="primary-button" type="button" onClick={() => setWorkspaceView("dashboard")}>Back to dashboard</button></section> : workspaceView === "workflow" ? (workflowJob ? (!legacyView ? <OperationsWorkspace key={workflowJob.id+operationTab} job={workflowJob} actor={{id:currentEmployee.id,employees:demoEmployees,policy:authorization,roles:responsibilities}} tab={operationTab} onNavigate={tab=>openOperation(workflowJob,tab)} onCommand={c=>runOperation(workflowJob.id,c)} onSampling={()=>{resumeJob(workflowJob);setStage('type');}} onSetup={()=>{resumeJob(workflowJob);setStage('job');}} onLegacy={()=>setLegacyView(true)} /> : <JobWorkflow key={workflowJob.id} job={workflowJob} today={today} employeeName={employeeName} onBack={() => setWorkspaceView("jobs")} onOpenStage={(stageId) => stageId === "closed" ? resumeJob(workflowJob) : openStage(workflowJob, stageId)} />) : <section className="panel"><h1>Job not found</h1><button type="button" onClick={() => setWorkspaceView("jobs")}>Back to jobs</button></section>) : workspaceView === "dashboard" && !hasPermission("jobDetails") ? (<section className="panel authorization-panel"><h1>Welcome, {currentEmployee.name.split(" ")[0]}</h1><p>Choose an authorized workspace from the menu. Contact Mohammed Al Awaisi to request additional access.</p></section>) : workspaceView === "dashboard" ? (
-            <>{jobs.length===0&&<section className="panel ops-panel demo-banner"><div><h2>Explore the workflow with demo jobs</h2><p>This browser has no jobs yet. Load four example jobs (sampling, report approval, laboratory work and a completed job) to see how work moves through the system. All names and values are fictional and marked DEMO; they are saved only in this browser.</p></div><button type="button" className="primary-button" disabled={demoLoading} onClick={() => void loadDemoData()}>{demoLoading ? "Loading…" : "Load demo data"}</button></section>}{hasPermission('createJob')&&<div className="ops-dashboard-actions"><button className="primary-button" onClick={startNewJob}>+ Create job</button></div>}<WeeklyWork jobs={hasPermission('jobDetails')?jobs:[]} actor={{id:currentEmployee.id,employees:demoEmployees,policy:authorization,roles:responsibilities}} onOpen={openOperation}/>{currentEmployee.id==='MA001'&&<details className="panel ops-panel"><summary>Administrator · workflow clarification review</summary><ClarificationReview/></details>}<details className="company-summary"><summary>Company overview and activity</summary>
+          {!canView(workspaceView) ? <section className="panel authorization-panel"><h1>Access restricted</h1><p>Ask Mohammed Al Awaisi to enable access in Settings → Authorization.</p><button className="primary-button" type="button" onClick={() => setWorkspaceView("dashboard")}>Back to dashboard</button></section> : workspaceView === "workflow" ? (workflowJob ? (!legacyView ? <OperationsWorkspace key={workflowJob.id+operationTab} job={workflowJob} actor={opsActor!} tab={operationTab} onNavigate={tab=>openOperation(workflowJob,tab)} onCommand={c=>runOperation(workflowJob.id,c)} onSampling={()=>{resumeJob(workflowJob);setStage('type');}} onSetup={()=>{resumeJob(workflowJob);setStage('job');}} onLegacy={()=>setLegacyView(true)} /> : <JobWorkflow key={workflowJob.id} job={workflowJob} today={today} employeeName={employeeName} onBack={() => setWorkspaceView("jobs")} onOpenStage={(stageId) => stageId === "closed" ? resumeJob(workflowJob) : openStage(workflowJob, stageId)} />) : <section className="panel"><h1>Job not found</h1><button type="button" onClick={() => setWorkspaceView("jobs")}>Back to jobs</button></section>) : workspaceView === "dashboard" && !hasPermission("jobDetails") ? (<section className="panel authorization-panel"><h1>Welcome, {currentEmployee.name.split(" ")[0]}</h1><p>Choose an authorized workspace from the menu. Contact Mohammed Al Awaisi to request additional access.</p></section>) : workspaceView === "dashboard" ? (
+            <>{jobs.length===0&&<section className="panel ops-panel demo-banner"><div><h2>Explore the workflow with demo jobs</h2><p>This browser has no jobs yet. Load four example jobs (sampling, report approval, laboratory work and a completed job) to see how work moves through the system. All names and values are fictional and marked DEMO; they are saved only in this browser.</p></div><button type="button" className="primary-button" disabled={demoLoading} onClick={() => void loadDemoData()}>{demoLoading ? "Loading…" : "Load demo data"}</button></section>}{hasPermission('createJob')&&<div className="ops-dashboard-actions"><button className="primary-button" onClick={startNewJob}>+ Create job</button></div>}<WeeklyWork jobs={hasPermission('jobDetails')?visibleJobs:[]} actor={{id:currentEmployee.id,employees:demoEmployees,policy:authorization,roles:responsibilities}} onOpen={openOperation}/>{currentEmployee.id==='MA001'&&<details className="panel ops-panel"><summary>Administrator · workflow clarification review</summary><ClarificationReview/></details>}<details className="company-summary"><summary>Company overview and activity</summary>
               <section className="cockpit-header">
                 <div><h1>{timeGreeting}, {currentEmployee.name.split(" ")[0]}</h1><p>Here’s what needs your attention today.</p></div>
                 <div className="cockpit-header-actions"><time>{dashboardShortDate}</time><button className="icon-button" type="button" aria-label="Notifications"><Bell size={18} strokeWidth={1.8} /><span className="notification-dot" /></button><button className="top-avatar" type="button" onClick={() => setWorkspaceView("profile")} aria-label="Open my profile">{currentEmployee.initials}</button></div>
@@ -1660,16 +1715,16 @@ export default function Home() {
             </details></>
           ) : workspaceView === "jobs" ? (
             <>
-              <section className="page-intro operations-page-intro"><div><span className="eyebrow">JOBS · MASTER REGISTER</span><h1>Jobs</h1><p>View every laboratory job, its ownership, current stage, status, and next action.</p></div>{hasPermission("createJob") && <button type="button" className="primary-button" onClick={startNewJob}><Plus size={16} /> New Job</button>}</section>
-              <section className="operations-page-metrics"><article><span><BriefcaseBusiness size={18} /></span><div><small>TOTAL JOBS</small><strong>{jobs.length}</strong><em>All recorded jobs</em></div></article><article><span><Gauge size={18} /></span><div><small>ACTIVE</small><strong>{activeJobs.length}</strong><em>Currently open</em></div></article><article><span><ShieldCheck size={18} /></span><div><small>COMPLETED</small><strong>{jobs.filter(isClosed).length}</strong><em>Workflow finished</em></div></article><article><span><TriangleAlert size={18} /></span><div><small>OVERDUE</small><strong>{overdueTasks.length}</strong><em>Past due date</em></div></article></section>
-              <section className="panel operations-register jobs-register"><div className="panel-heading premium-heading"><div><span className="eyebrow">JOB CONTROL</span><h2>All Jobs</h2><p>Search, filter, and continue work from one master register.</p></div><span className="event-count">{filteredJobsRegister.length} SHOWN</span></div>
-                <div className="jobs-register-tools"><div className="cockpit-filters"><button className={jobsRegisterFilter === "all" ? "active" : ""} type="button" onClick={() => setJobsRegisterFilter("all")}>All Jobs</button><button className={jobsRegisterFilter === "active" ? "active" : ""} type="button" onClick={() => setJobsRegisterFilter("active")}>Active</button><button className={jobsRegisterFilter === "sampling" ? "active" : ""} type="button" onClick={() => setJobsRegisterFilter("sampling")}>Sampling</button><button className={jobsRegisterFilter === "reports" ? "active" : ""} type="button" onClick={() => setJobsRegisterFilter("reports")}>Sampling Reports</button><button className={jobsRegisterFilter === "completed" ? "active" : ""} type="button" onClick={() => setJobsRegisterFilter("completed")}>Completed</button></div><label className="cockpit-search jobs-id-search"><Search size={16} /><span>JOB ID SEARCH</span><input value={jobsRegisterSearch} onChange={(event) => setJobsRegisterSearch(event.target.value)} placeholder="OM-P-26-001 or any job detail" aria-label="Search by Job ID or job details" /></label></div>
-                <div className="operations-table-wrap"><table className="operations-table jobs-register-table"><thead><tr><th>Job ID</th><th>Client</th><th>Field / Well</th><th>Sampling Type</th><th>Current Stage</th><th>Stage Responsible</th><th>Due Date</th><th>Progress / Status</th><th /></tr></thead><tbody>{filteredJobsRegister.map((item) => <tr key={item.id}><td><button type="button" className="table-job-link" onClick={() => setSelectedJobDetailsId(item.id)}>{item.id}</button><small>Created {reportDate(item.createdAt)}</small></td><td><strong>{item.clientName}</strong></td><td><strong>{item.fieldArea || "Not specified"}</strong><small>{item.well || "Well not specified"}</small></td><td><strong>{item.samplingSource === "Other" && item.otherSamplingType ? `Other — ${item.otherSamplingType}` : item.samplingSource || "Not selected"}</strong></td><td><span className="stage-chip">{prog(item).current?.label || "Closed"}</span><small>{prog(item).current?.nextAction || "No action required"}</small></td><td><strong>{stageOwner(item)}</strong></td><td><strong className={isOverdue(item) ? "overdue-text" : ""}>{item.dueDate || "No due date"}</strong></td><td><div className="register-progress"><span><i style={{ width: `${progressFor(item)}%` }} /></span><strong>{progressFor(item)}%</strong></div><span className={`status-pill flow-${statusTone(item)}`}>{displayStatus(item)}</span>{isOverdue(item) && <span className="status-pill overdue">Overdue</span>}</td><td><button type="button" className="continue-button" onClick={() => { setWorkflowJobId(item.id); setWorkspaceView("workflow"); }}>Workflow <ChevronRight size={14} /></button><button type="button" className="continue-button" onClick={() => openStage(item)}>{isClosed(item) ? "Open" : "Continue"} <ChevronRight size={14} /></button></td></tr>)}{filteredJobsRegister.length === 0 && <tr className="operations-empty-row"><td colSpan={9}><BriefcaseBusiness size={22} /><strong>{jobs.length ? "No jobs match this view." : "No jobs created yet."}</strong><span>{jobs.length ? "Try another Job ID or search detail." : "Create a new job to begin the workflow."}</span></td></tr>}</tbody></table></div>
+              <section className="page-intro operations-page-intro"><div><span className="eyebrow">JOBS · MASTER REGISTER</span><h1>Jobs</h1><p>Every job, where it stands, and who acts next.</p></div>{hasPermission("createJob") && <button type="button" className="primary-button create-job-button" onClick={startNewJob}><Plus size={16} /> Create Job</button>}</section>
+              <section className="operations-page-metrics"><article><span><Bell size={18} /></span><div><small>NEEDS MY ACTION</small><strong>{registerCounts.mine}</strong><em>Waiting for you</em></div></article><article><span><Gauge size={18} /></span><div><small>ACTIVE</small><strong>{registerCounts.active}</strong><em>Sent and in progress</em></div></article><article><span><ShieldCheck size={18} /></span><div><small>COMPLETED</small><strong>{registerCounts.completed}</strong><em>Workflow finished</em></div></article><article><span><TriangleAlert size={18} /></span><div><small>OVERDUE</small><strong>{overdueTasks.filter((item) => !isDraft(item)).length}</strong><em>Past due date</em></div></article></section>
+              <section className="panel operations-register jobs-register"><div className="panel-heading premium-heading"><div><span className="eyebrow">JOB CONTROL</span><h2>Job register</h2><p>Search, filter, and open a job or its next action.</p></div><span className="event-count">{filteredJobsRegister.length} SHOWN</span></div>
+                <div className="jobs-register-tools"><div className="cockpit-filters" role="group" aria-label="Job filters">{([["mine", "Needs my action"], ["active", "Active"], ...(hasPermission("createJob") || registerCounts.drafts ? [["drafts", "Drafts"]] : []), ["completed", "Completed"], ["all", "All jobs"]] as [typeof jobsRegisterFilter, string][]).map(([id, label]) => <button key={id} className={jobsRegisterFilter === id ? "active" : ""} aria-pressed={jobsRegisterFilter === id} type="button" onClick={() => setJobsRegisterFilter(id)}>{label} <span className="filter-count">{registerCounts[id]}</span></button>)}</div><label className="register-stage-filter"><span>STAGE</span><select value={jobsRegisterStage} onChange={(event) => setJobsRegisterStage(event.target.value)} aria-label="Filter by current stage"><option value="">All stages</option>{registerStages.map((label) => <option key={label}>{label}</option>)}</select></label><label className="cockpit-search jobs-id-search"><Search size={16} /><span>SEARCH</span><input value={jobsRegisterSearch} onChange={(event) => setJobsRegisterSearch(event.target.value)} placeholder="Job ID, client, field, well or person" aria-label="Search by Job ID or job details" /></label></div>
+                <div className="operations-table-wrap"><table className="operations-table jobs-register-table"><thead><tr><th>Job ID</th><th>Client · Field / Well</th><th>Current stage</th><th>Next action by</th><th>Status · Due</th><th aria-label="Action" /></tr></thead><tbody>{filteredJobsRegister.map((item) => { const actions = actionsFor(item); const draft = isDraft(item); const next = actions[0]; const actionLabel = draft ? (hasPermission("createJob") ? "Continue draft" : "View draft") : next ? ({ overview: "Send to Sampling", sampling: "Open sampling", "sampling-report": "Sampling report", handover: "Record handover", scope: "Release lab scope", laboratory: "Plan lab work", reporting: "Final report" } as Record<string, string>)[next.id] || "Open job" : "Open job"; return <tr key={item.id} className={actions.length ? "needs-action" : undefined}><td><button type="button" className="table-job-link" onClick={() => setSelectedJobDetailsId(item.id)}>{item.id}</button><small>Created {reportDate(item.createdAt)}</small></td><td><strong>{item.clientName}</strong><small>{[item.fieldArea, item.wellMode === "multiple" ? (item.wells || []).filter(Boolean).join(", ") : item.well].filter(Boolean).join(" · ") || "Location not recorded"}</small></td><td><span className="stage-chip">{registerStage(item)}</span><small>{draft ? "Not sent to Sampling" : next ? next.next : prog(item).current?.nextAction || "No action required"}</small></td><td><strong>{draft ? employeeName(item.createdById) : stageOwner(item)}</strong>{actions.length > 0 && <small className="your-action">Your action</small>}</td><td>{draft ? <span className="status-pill flow-pending">Draft</span> : <span className={`status-pill flow-${statusTone(item)}`}>{displayStatus(item)}</span>}{isOverdue(item) && !draft && <span className="status-pill overdue">Overdue</span>}<small className={isOverdue(item) && !draft ? "overdue-text" : ""}>Due {item.dueDate ? reportDate(item.dueDate) : "not set"}</small></td><td><button type="button" className={actions.length || (draft && hasPermission("createJob")) ? "primary-button register-action" : "continue-button"} onClick={() => draft ? (hasPermission("createJob") ? resumeJob(item) : openOperation(item)) : openOperation(item, next ? next.id : "overview")}>{actionLabel} <ChevronRight size={14} /></button></td></tr>; })}{filteredJobsRegister.length === 0 && <tr className="operations-empty-row"><td colSpan={6}><BriefcaseBusiness size={22} /><strong>{visibleJobs.length ? "No jobs match this view." : "No jobs yet."}</strong><span>{visibleJobs.length ? "Try another filter, stage or search." : hasPermission("createJob") ? "Choose Create Job to register the first job." : "Jobs assigned to you will appear here."}</span></td></tr>}</tbody></table></div>
               </section>
               {selectedJobDetails && <div className="job-details-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setSelectedJobDetailsId(""); }} role="presentation"><aside className="job-details-drawer" aria-label={`Job details for ${selectedJobDetails.id}`}>
                 <header><div><span className="eyebrow">COMPLETE JOB RECORD</span><h2>{selectedJobDetails.id}</h2><p>{selectedJobDetails.clientName} · {prog(selectedJobDetails).current?.label || "Closed"}</p></div><button type="button" onClick={() => setSelectedJobDetailsId("")} aria-label="Close job details">×</button></header>
                 <div className="job-details-scroll"><button type="button" className="primary-button" onClick={() => { setWorkflowJobId(selectedJobDetails.id); setSelectedJobDetailsId(""); setWorkspaceView("workflow"); }}>View job workflow</button>
-                  <section className="job-details-section"><h3>Scope of Work</h3><p><strong>Samples requested:</strong> {selectedJobDetails.requestedSampleCount || "Not recorded"}</p><p><strong>Required work:</strong> {(selectedJobDetails.requiredTests || []).map((test) => test === "Other" ? selectedJobDetails.otherTests : test).join(" · ") || "Not recorded"}</p>{selectedJobDetails.sampleCountNotes && <p>{selectedJobDetails.sampleCountNotes}</p>}</section>
+                  <section className="job-details-section"><h3>Sampling scope &amp; instructions</h3><p><strong>Samples requested:</strong> {selectedJobDetails.requestedSampleCount || "Not recorded"}</p><p className="instructions-text"><strong>Sampling instructions:</strong> {selectedJobDetails.samplingInstructions || "Not recorded"}</p>{(selectedJobDetails.requiredTests || []).length > 0 && <p><strong>Initial laboratory request (reference only):</strong> {(selectedJobDetails.requiredTests || []).map((test) => test === "Other" ? selectedJobDetails.otherTests : test).join(" · ")}</p>}{selectedJobDetails.sampleCountNotes && <p>{selectedJobDetails.sampleCountNotes}</p>}</section>
                   <section className="job-details-status"><div><small>STATUS</small><span className={`status-pill flow-${statusTone(selectedJobDetails)}`}>{displayStatus(selectedJobDetails)}</span>{isOverdue(selectedJobDetails) && <span className="status-pill overdue">Overdue</span>}</div><div><small>PROGRESS</small><strong>{progressFor(selectedJobDetails)}%</strong><span className="job-details-progress"><i style={{ width: `${progressFor(selectedJobDetails)}%` }} /></span></div><div><small>NEXT ACTION</small><strong>{prog(selectedJobDetails).current?.nextAction || "No action required"}</strong></div></section>
                   <section className="job-details-section"><h3>Job Information</h3><div className="job-details-grid"><div><small>CLIENT</small><strong>{selectedJobDetails.clientName}</strong></div><div><small>COUNTRY</small><strong>{jobCountries.find((country) => country.code === (selectedJobDetails.countryCode || selectedJobDetails.id.split("-")[0]))?.name || selectedJobDetails.countryCode || "Not specified"}</strong></div><div><small>DATE RECEIVED</small><strong>{reportDate(selectedJobDetails.dateReceived)}</strong></div><div><small>FIELD</small><strong>{selectedJobDetails.fieldArea || "Not specified"}</strong></div><div><small>WELL</small><strong>{selectedJobDetails.wellMode === "multiple" ? (selectedJobDetails.wells || []).filter(Boolean).join(", ") || "Not specified" : selectedJobDetails.well || "Not specified"}</strong></div><div><small>INSTALLATION / RIG</small><strong>{selectedJobDetails.rigInstallation || "Not specified"}</strong></div><div><small>DUE DATE</small><strong>{reportDate(selectedJobDetails.dueDate)}</strong></div><div><small>CLIENT FOCAL POINT</small><strong>{selectedJobDetails.clientFocalPoint || "Not specified"}</strong></div><div><small>FOCAL POINT CONTACT</small><strong>{selectedJobDetails.clientFocalPointContact || "Not specified"}</strong></div><div><small>FOCAL POINT EMAIL</small><strong>{selectedJobDetails.clientFocalPointEmail || selectedJobDetails.clientReference || "Not specified"}</strong></div></div><div className="job-details-description"><small>JOB / REQUEST DESCRIPTION</small><p>{selectedJobDetails.description || "Not specified"}</p></div></section>
                   <section className="job-details-section"><h3>Responsibility &amp; Tracking</h3><div className="job-details-grid"><div><small>JOB RESPONSIBLE PERSON</small><strong>{employeeName(selectedJobDetails.jobResponsibleId || selectedJobDetails.responsibleId)}</strong></div><div><small>JOB OWNER</small><strong>{employeeName(selectedJobDetails.ownerId)}</strong></div><div><small>ASSIGNED ENGINEER</small><strong>{employeeName(selectedJobDetails.assignedEngineerId || selectedJobDetails.responsibleId)}</strong></div><div><small>ASSIGNED DRIVER</small><strong>{employeeName(selectedJobDetails.assignedDriverId)}</strong></div><div><small>CREATED BY</small><strong>{employeeName(selectedJobDetails.createdById)}</strong></div><div><small>CREATED</small><strong>{formatDateTime(selectedJobDetails.createdAt)}</strong></div><div><small>LAST UPDATED BY</small><strong>{employeeName(selectedJobDetails.lastUpdatedById)}</strong></div><div><small>LAST UPDATED</small><strong>{formatDateTime(selectedJobDetails.lastUpdatedAt)}</strong></div></div></section>
@@ -1690,7 +1745,7 @@ export default function Home() {
               {samplingTab === "jobs" ? <>
               <section className="operations-page-metrics"><article><span><FlaskConical size={18} /></span><div><small>ACTIVE SAMPLING JOBS</small><strong>{samplingWorkspaceJobs.length}</strong><em>Across all sampling types</em></div></article><article><span><ListChecks size={18} /></span><div><small>IN PREPARATION</small><strong>{preparationJobs.length}</strong><em>Equipment and readiness</em></div></article><article><span><ClipboardList size={18} /></span><div><small>DATA ENTRY</small><strong>{dataEntryJobs.length}</strong><em>Sample sheets in progress</em></div></article><article><span><ShieldCheck size={18} /></span><div><small>DATA COMPLETE</small><strong>{completedDataJobs.length}</strong><em>Ready for reporting</em></div></article></section>
               <section className="panel operations-register"><div className="panel-heading premium-heading"><div><span className="eyebrow">LIVE SAMPLE REGISTER</span><h2>Sampling Jobs</h2><p>Review each job’s sample and data-sheet readiness.</p></div><span className="event-count">{samplingWorkspaceJobs.length} JOBS</span></div>
-                <div className="operations-table-wrap"><table className="operations-table"><thead><tr><th>Job</th><th>Sampling Type</th><th>Current Stage</th><th>Sample Records</th><th>Data Sheet</th><th>Responsible</th><th>Last Updated</th><th /></tr></thead><tbody>{samplingWorkspaceJobs.map((item) => { const total = item.samples?.length || 0; const complete = item.samples?.filter((sample) => sample.dataComplete).length || 0; const dataState = total === 0 ? "Not Started" : complete === total ? "Complete" : complete > 0 ? "Partially Filled" : "Not Started"; return <tr key={item.id}><td><button type="button" className="table-job-link" onClick={() => resumeJob(item)}>{item.id}</button><small>{item.clientName} · {item.well || "Well not specified"}</small></td><td><strong>{item.samplingSource === "Other" && item.otherSamplingType ? `Other — ${item.otherSamplingType}` : item.samplingSource}</strong></td><td><span className="stage-chip">{item.currentStage}</span></td><td><strong>{complete} / {total}</strong><small>records complete</small></td><td><span className={`data-sheet-pill ${dataState.toLowerCase().replaceAll(" ", "-")}`}>{dataState}</span></td><td><strong>{employeeName(item.jobResponsibleId || item.responsibleId)}</strong></td><td><span>{formatDateTime(item.lastUpdatedAt)}</span></td><td><button type="button" className="continue-button" onClick={() => { resumeJob(item); setStage("bottomhole"); setWorkspaceView("new-job"); }}>Review Data <ChevronRight size={14} /></button></td></tr>; })}{samplingWorkspaceJobs.length === 0 && <tr className="operations-empty-row"><td colSpan={8}><FlaskConical size={22} /><strong>No sampling jobs yet.</strong><span>Create a job to begin the sampling workflow.</span></td></tr>}</tbody></table></div>
+                <div className="operations-table-wrap"><table className="operations-table"><thead><tr><th>Job</th><th>Sampling Type</th><th>Current Stage</th><th>Sample Records</th><th>Data Sheet</th><th>Responsible</th><th>Last Updated</th><th /></tr></thead><tbody>{samplingWorkspaceJobs.map((item) => { const total = item.samples?.length || 0; const complete = item.samples?.filter((sample) => sample.dataComplete).length || 0; const dataState = total === 0 ? "Not Started" : complete === total ? "Complete" : complete > 0 ? "Partially Filled" : "Not Started"; return <tr key={item.id}><td><button type="button" className="table-job-link" onClick={() => resumeJob(item)}>{item.id}</button><small>{item.clientName} · {item.well || "Well not specified"}</small></td><td><strong>{item.samplingSource === "Other" && item.otherSamplingType ? `Other — ${item.otherSamplingType}` : item.samplingSource}</strong></td><td><span className="stage-chip">{item.currentStage}</span></td><td><strong>{complete} / {total}</strong><small>records complete</small></td><td><span className={`data-sheet-pill ${dataState.toLowerCase().replaceAll(" ", "-")}`}>{dataState}</span></td><td><strong>{employeeName(item.jobResponsibleId || item.responsibleId)}</strong></td><td><span>{formatDateTime(item.lastUpdatedAt)}</span></td><td><button type="button" className="continue-button" onClick={() => { resumeJob(item); setStage("bottomhole"); setWorkspaceView("new-job"); }}>Review Data <ChevronRight size={14} /></button></td></tr>; })}{samplingWorkspaceJobs.length === 0 && <tr className="operations-empty-row"><td colSpan={8}><FlaskConical size={22} /><strong>No sampling jobs yet.</strong><span>{hasPermission("createJob") ? "Jobs appear here after you send them to Sampling." : "Jobs sent to Sampling will appear here."}</span></td></tr>}</tbody></table></div>
               </section>
               </> : <>
 
@@ -1700,7 +1755,7 @@ export default function Home() {
               </>}
             </>
 ) : workspaceView === "pvt-lab" ? (
-            <><WeeklyWork jobs={jobs} actor={{id:currentEmployee.id,employees:demoEmployees,policy:authorization,roles:responsibilities}} onOpen={openOperation} teamView={currentEmployee.id==='MA001'||(['scopeSelector','pvtSupervisor','pvtTeamLead','chemicalTeamLead'] as const).some(key=>roleHolder(responsibilities,key,demoEmployees)===currentEmployee.id)}/><details className="panel ops-panel"><summary>Historical PVT plans and progress</summary><Clarification id="legacy"/><PvtLab key={labJobId || "lab-list"} initialJobId={labJobId} jobs={jobs} today={today} employeeName={employeeName} team={labTeam}
+            <><WeeklyWork jobs={visibleJobs} actor={{id:currentEmployee.id,employees:demoEmployees,policy:authorization,roles:responsibilities}} onOpen={openOperation} teamView={currentEmployee.id==='MA001'||(['scopeSelector','pvtSupervisor','pvtTeamLead','chemicalTeamLead'] as const).some(key=>roleHolder(responsibilities,key,demoEmployees)===currentEmployee.id)}/><details className="panel ops-panel"><summary>Historical PVT plans and progress</summary><Clarification id="legacy"/><PvtLab key={labJobId || "lab-list"} initialJobId={labJobId} jobs={jobs.filter(item => !isDraft(item))} today={today} employeeName={employeeName} team={labTeam}
               canPlan={canPlanLab} lockReason={labLockReason}
               onOpenJob={(item) => { setWorkflowJobId(item.id); setWorkspaceView("workflow"); }} onEditScope={(item) => { resumeJob(item); setStage("job"); }}
               onSavePlan={(id, plan) => {
@@ -1761,7 +1816,11 @@ export default function Home() {
               {settingsPage==='employees' && hasPermission('employees') && <EmployeeSettings directory={directory} onSave={saveDirectory} jobs={jobs} onReview={item=>{setWorkflowJobId(item.id);setWorkspaceView('workflow');}} />}
               {settingsPage==='departments' && hasPermission('employees') && <OptionSettings directory={directory} onSave={saveDirectory} />}
               {settingsPage==='company' && hasPermission('company') && <CompanySettings company={company} onSave={next=>{if(!hasPermission('company')) throw Error('You cannot manage company details.'); localStorage.setItem('vaps-company-v1',JSON.stringify(next));setCompany(next);}} />}
-              {settingsPage === "authorization" && hasPermission("authorization") && <AuthorizationSettings key={JSON.stringify([authorization,responsibilities])} policy={authorization} roles={responsibilities} rolesError={responsibilitiesError} employees={demoEmployees} departments={directory.departments} error={authorizationError} onSaveRoles={next => {
+              {settingsPage === "authorization" && hasPermission("authorization") && <AuthorizationSettings key={JSON.stringify([authorization,responsibilities,testRouting])} routing={testRouting} routingError={testRoutingError} onSaveRouting={next => {
+                if (!hasPermission("authorization") || testRoutingError) return false;
+                try { const validated = readTestRouting(JSON.stringify(next)); window.localStorage.setItem(testRoutingKey, JSON.stringify(validated)); setTestRouting(validated); recordActivity("Updated laboratory test routing", "Settings"); setNotice("Test routing saved."); return true; }
+                catch { setNotice("Test routing could not be saved. Please try again."); return false; }
+              }} policy={authorization} roles={responsibilities} rolesError={responsibilitiesError} employees={demoEmployees} departments={directory.departments} error={authorizationError} onSaveRoles={next => {
                 if (!hasPermission("authorization")) return false;
                 try { const validated = readResponsibilities(JSON.stringify(next)); window.localStorage.setItem(responsibilitiesKey, JSON.stringify(validated)); setResponsibilities(validated); setResponsibilitiesError(""); recordActivity("Updated responsibilities: " + (Object.keys(validated) as (keyof Responsibilities)[]).filter(key => validated[key] !== responsibilities[key]).map(key => responsibilityLabels[key] + " → " + (demoEmployees.find(e => e.id === validated[key])?.name || "Not assigned")).join("; "), "Settings"); setNotice("Responsibilities saved."); return true; }
                 catch { setNotice("Responsibilities could not be saved. Please try again."); return false; }
@@ -1840,69 +1899,86 @@ export default function Home() {
 
           {stage !== "job" && stage !== "type" && currentJob && <details className="workflow-details"><summary><span>Workflow responsibility</span><strong>{currentJob.currentStage} · {currentJob.stages.filter((item) => item.status === "Completed" || item.status === "Skipped").length} of {workflowStageNames.length} stages resolved</strong><i>⌄</i></summary><section className="stage-tracking" aria-label="Workflow responsibility">{currentJob.stages.map((item) => <article key={item.name} className={item.status.toLowerCase().replace(" ", "-")}><div><span>{item.status === "Completed" ? "✓" : item.status === "Skipped" ? "—" : "•"}</span><strong>{item.name}</strong></div><dl><div><dt>Assigned to</dt><dd>{employeeName(item.assignedTo)}</dd></div><div><dt>Status</dt><dd>{item.status}</dd></div><div><dt>Started</dt><dd>{formatDateTime(item.started)}</dd></div><div><dt>Completed</dt><dd>{formatDateTime(item.completed)}</dd></div><div><dt>Last updated by</dt><dd>{employeeName(item.lastUpdatedBy)}</dd></div></dl></article>)}</section></details>}
 
-          {(stage === "job" || job.requiredTests.length > 0) && <section className="panel scope-plan-summary"><h2>Job Scope Summary</h2><p><strong>Sampling:</strong> {samplingTypeLabel || "Select a sampling type"} · <strong>Samples requested:</strong> {job.requestedSampleCount || "Not specified"}</p><p><strong>Required work:</strong> {job.requiredTests.map((test) => test === "Other" ? job.otherTests.trim() || "Other — specify below" : test).join(" · ") || "Select required work in Scope of Work"}</p>{job.sampleCountNotes && <p>{job.sampleCountNotes}</p>}</section>}
+          {stage !== "job" && <section className="panel scope-plan-summary"><h2>Sampling scope</h2><p><strong>Sampling:</strong> {samplingTypeLabel || "Not selected"} · <strong>Samples requested:</strong> {job.requestedSampleCount || "Not specified"}</p>{job.sampleCountNotes && <p>{job.sampleCountNotes}</p>}</section>}
+          {stage !== "job" && <section className="panel instructions-panel"><div className="panel-heading"><div><h2>Sampling instructions</h2><p>From {employeeName(currentJob?.createdById)} · Assigned: {[job.assignedEngineerId, ...job.samplingTeamIds.filter((id) => id !== job.assignedEngineerId)].filter(Boolean).map((id, index) => employeeName(id) + (index === 0 ? " (accountable)" : "")).join(", ") || "Not assigned"}</p></div></div><p className="instructions-text">{job.samplingInstructions || "No specific sampling instructions recorded for this job."}</p></section>}
           {stage !== "job" && currentJob && <div className="track-job-link"><button type="button" className="outline-button" onClick={() => { setWorkflowJobId(currentJob.id); setWorkspaceView("workflow"); }}>View job workflow & summary</button></div>}
           {stage !== "job" && <section className="panel"><div className="panel-heading"><div><h2>Client Focal Point</h2><p>Recorded at Job Setup · Reference for the sampling team</p></div></div><div className="job-details-grid"><div><small>NAME</small><strong>{job.clientFocalPoint || "Not specified"}</strong></div><div><small>CONTACT NUMBER</small><strong>{job.clientFocalPointContact || "Not specified"}</strong></div><div><small>EMAIL</small><strong>{job.clientFocalPointEmail || "Not specified"}</strong></div></div></section>}
-          {stage === "job" && (
-            <form onSubmit={submitJob}>
+          {stage === "job" && (() => {
+            const editingDraft = !currentJob || isDraft(currentJob);
+            const positionName = (e: Employee) => directory.positions.find((p) => p.id === e.positionId)?.name || e.role;
+            const personLabel = (e: Employee) => `${e.name} — ${positionName(e)}`;
+            const samplingCandidates = demoEmployees.filter((e) => e.active && allowed(authorization, e.id, "sampling"));
+            const samplingDepartment = (e: Employee) => e.departmentId === "sampling" || e.role === "sampling";
+            const driverCandidates = demoEmployees.filter((e) => e.active);
+            const isDriver = (e: Employee) => e.departmentId === "transport" || e.role === "transport";
+            const approver = roleHolder(responsibilities, "samplingApproval", demoEmployees);
+            const team = [job.assignedEngineerId, ...job.samplingTeamIds.filter((id) => id !== job.assignedEngineerId)].filter(Boolean);
+            const toggleMember = (id: string, on: boolean) => { setJob((current) => ({ ...current, samplingTeamIds: on ? [...current.samplingTeamIds.filter((x) => x !== id), id] : current.samplingTeamIds.filter((x) => x !== id) })); setDispatchReview(false); setJobErrors([]); };
+            const memberBox = (e: Employee) => <label key={e.id} className="ops-check"><input type="checkbox" checked={job.samplingTeamIds.includes(e.id)} onChange={(event) => toggleMember(e.id, event.target.checked)} />{personLabel(e)}</label>;
+            return <form onSubmit={submitJob} className="job-create-form">
               <section className="panel client-panel">
-                <div className="panel-heading"><span className="section-number">01</span><div><h2>Client &amp; focal point</h2><p>Choose the client, then enter their focal point’s name and contact details.</p></div><span className="required-chip">CLIENT *</span></div>
+                <div className="panel-heading"><span className="section-number">01</span><div><h2>Client &amp; location</h2><p>Choose the client, their focal point, and where the sampling takes place.</p></div><span className="required-chip">CLIENT *</span></div>
                 <div className="client-grid">
-                  {activeClients.map((item) => <button type="button" key={item.code} className={client === item.code ? "client-option selected" : "client-option"} aria-pressed={client === item.code} onClick={() => { setClient(item.code); if (!currentJob) setCreatedJobId(""); }}><ClientLogo client={item} /><strong>{item.shortName}</strong><small>{item.name !== item.shortName ? item.name : item.country}</small><span className="client-code">Code {item.code}</span><i aria-hidden="true">✓</i></button>)}
-                  <button type="button" className="client-option add-client-card" onClick={openAddClient}><span>+</span><strong>Add New Client</strong><small>Create a local client record</small></button>
+                  {activeClients.map((item) => <button type="button" key={item.code} disabled={!!currentJob} className={client === item.code ? "client-option selected" : "client-option"} aria-pressed={client === item.code} onClick={() => { setClient(item.code); if (!currentJob) setCreatedJobId(""); }}><ClientLogo client={item} /><strong>{item.shortName}</strong><small>{item.name !== item.shortName ? item.name : item.country}</small><span className="client-code">Code {item.code}</span><i aria-hidden="true">✓</i></button>)}
+                  {!currentJob && <button type="button" className="client-option add-client-card" onClick={openAddClient}><span>+</span><strong>Add New Client</strong><small>Create a local client record</small></button>}
                 </div>
                 <div className="form-grid">
                   <label className="full-field"><span>Client Focal Point</span><input autoComplete="section-client name" value={job.clientFocalPoint} onChange={(e) => updateJob("clientFocalPoint", e.target.value)} placeholder="e.g. Ahmed Al Harthy" /></label>
                   <label><span>Focal Point Contact Number</span><input type="tel" autoComplete="section-client tel" value={job.clientFocalPointContact} onChange={(e) => updateJob("clientFocalPointContact", e.target.value)} placeholder="e.g. +968 9XXX XXXX" /></label>
                   <label><span>Focal Point Email</span><input type="email" autoComplete="section-client email" value={job.clientFocalPointEmail} onChange={(e) => updateJob("clientFocalPointEmail", e.target.value)} placeholder="e.g. focal.point@client.com" /></label>
-                </div>
-                <div className="id-preview job-id-only"><div><small>JOB ID</small><strong>{jobId}</strong></div></div>
-              </section>
-
-              <section className="panel">
-                <div className="panel-heading"><span className="section-number">02</span><div><h2>Operational details</h2><p>Record the general request details. Sampling locations are captured later when relevant.</p></div></div>
-                <div className="form-grid">
-                  <label><span>Country *</span><select required value={job.countryCode} onChange={(event) => { updateJob("countryCode", event.target.value); setCreatedJobId(""); }}>{jobCountries.map((country) => <option value={country.code} key={country.code}>{country.name} ({country.code})</option>)}</select></label>
-                  <label><span>Job Date *</span><input required type="date" value={job.dateReceived} onChange={(e) => updateJob("dateReceived", e.target.value)} /></label>
+                  <label><span>Country *</span><select required disabled={!!currentJob} value={job.countryCode} onChange={(event) => { updateJob("countryCode", event.target.value); setCreatedJobId(""); }}>{jobCountries.map((country) => <option value={country.code} key={country.code}>{country.name} ({country.code})</option>)}</select></label>
                   <label><span>Field *</span><input required value={job.fieldArea} onChange={(e) => updateJob("fieldArea", e.target.value)} placeholder="e.g. Lekhwair" /></label>
-                  <div className="well-selection-field">
+                  <div className="well-selection-field full-field">
                     <span>Well *</span>
                     <div className="well-mode-toggle" role="group" aria-label="Choose single or multiple wells"><button type="button" className={job.wellMode === "single" ? "selected" : ""} onClick={() => selectWellMode("single")}>Single Well</button><button type="button" className={job.wellMode === "multiple" ? "selected" : ""} onClick={() => selectWellMode("multiple")}>Multiple Wells</button></div>
                     {job.wellMode === "single" ? <input required value={job.wells[0] || ""} onChange={(event) => updateWell(0, event.target.value)} placeholder="e.g. LKW-501" /> : <div className="multiple-well-list">{job.wells.map((well, index) => <div className="multiple-well-row" key={index}><span>{index + 1}</span><input required value={well} onChange={(event) => updateWell(index, event.target.value)} placeholder={`Well ${index + 1} name`} />{job.wells.length > 2 && <button type="button" onClick={() => removeWell(index)} aria-label={`Remove well ${index + 1}`}>Remove</button>}</div>)}<button type="button" className="add-well-button" onClick={addWell}>+ Add another well</button></div>}
                   </div>
-<p>Select the sampling engineer and driver below. Dispatch sends the job directly to their work lists; physical bottle receipt is recorded separately.</p>
-
-                  <label><span>Due Date</span><input type="date" value={job.dueDate} onBlur={e=>{if(e.currentTarget.value!==job.dueDate)updateJob("dueDate",e.currentTarget.value);}} onChange={(e) => updateJob("dueDate", e.target.value)} /></label>
-                  <label className="full-field"><span>Job / Request Description *</span><textarea required rows={4} value={job.description} onChange={(e) => updateJob("description", e.target.value)} placeholder="Describe the internal request, required work, and expected deliverables…" /><small>{job.description.length} / 500</small></label>
                 </div>
               </section>
 
-              <section className="panel scope-attachment-panel">
-                <div className="panel-heading"><span className="section-number">03</span><div><h2>Scope of Work</h2><p>Specify the sample quantity and required work. A supporting document is optional.</p></div><span className="required-chip">REQUIRED</span></div>
-                <div className="form-grid scope-plan-fields"><label><span>Number of Samples Required *</span><input type="number" min="1" max="20" step="1" required value={job.requestedSampleCount} onChange={(event) => updateJob("requestedSampleCount", event.target.value)} /><small>Creates the records for preparation and sample data.</small></label><label className="full-field"><span>Sample Quantity Notes</span><input value={job.sampleCountNotes} onChange={(event) => updateJob("sampleCountNotes", event.target.value)} placeholder="Quantity requirements or reason for fewer than 3 cased-hole samples" /></label></div>
-                <div className="scope-test-groups">{scopeTestGroups.map((group) => <fieldset className="scope-test-options" key={group.name}><legend>{group.name}</legend>{group.tests.map((label) => { const test = `${group.name} — ${label}`; return <label key={test}><input type="checkbox" checked={job.requiredTests.includes(test)} onChange={(event) => { const checked = event.target.checked; setJob((current) => ({ ...current, requiredTests: checked ? [...current.requiredTests, test] : current.requiredTests.filter((item) => item !== test) })); setJobErrors([]); }} /><span>{label}</span></label>; })}</fieldset>)}</div>
-                <fieldset className="scope-test-options"><legend>Additional work</legend><label><input type="checkbox" checked={job.requiredTests.includes("Other")} onChange={(event) => { setJob((current) => ({ ...current, requiredTests: event.target.checked ? [...current.requiredTests, "Other"] : current.requiredTests.filter((test) => test !== "Other") })); setJobErrors([]); }} /><span>Other — specify</span></label>{job.requiredTests.filter((test) => test !== "Other" && !scopeTestOptions.includes(test)).map((test) => <label key={test}><input type="checkbox" checked onChange={(event) => { const checked = event.target.checked; setJob((current) => ({ ...current, requiredTests: checked ? [...current.requiredTests, test] : current.requiredTests.filter((item) => item !== test) })); setJobErrors([]); }} /><span>{test} (previous selection)</span></label>)}</fieldset>
-                {job.requiredTests.includes("Other") && <div className="form-grid scope-plan-fields"><label className="full-field"><span>Other Required Work / Tests *</span><textarea required rows={3} value={job.otherTests} onChange={(event) => updateJob("otherTests", event.target.value)} placeholder="List each additional test or activity required" /></label></div>}
-                <label className="scope-upload"><input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp" onChange={(event) => attachScopeOfWork(event.target.files?.[0])} /><span>{scopeAttachment ? "Replace file" : "Attach Scope of Work (optional)"}</span><small>PDF, Word, Excel, or image · You can continue without a file.</small></label>
-                {scopeAttachment && <div className="attachment-record"><div><strong>{scopeAttachment.name}</strong><small>{Math.max(1, Math.round(scopeAttachment.size / 1024))} KB · Stored in local demo data</small></div><a href={scopeAttachment.dataUrl} download={scopeAttachment.name}>Open / download</a><button type="button" onClick={() => setScopeAttachment(null)}>Remove</button></div>}
+              <section className="panel">
+                <div className="panel-heading"><span className="section-number">02</span><div><h2>Job ID &amp; dates</h2><p>The job ID follows the existing numbering rule (country · client code · year · global sequence) and is reserved when the job is first saved.</p></div></div>
+                <div className="form-grid">
+                  <div className="id-preview job-id-only"><div><small>JOB ID{currentJob ? "" : " · RESERVED ON FIRST SAVE"}</small><strong>{jobId}</strong></div></div>
+                  <label><span>Job Date *</span><input required type="date" value={job.dateReceived} onChange={(e) => updateJob("dateReceived", e.target.value)} /></label>
+                  <label><span>Due Date</span><input type="date" value={job.dueDate} onBlur={e=>{if(e.currentTarget.value!==job.dueDate)updateJob("dueDate",e.currentTarget.value);}} onChange={(e) => updateJob("dueDate", e.target.value)} /></label>
+                </div>
               </section>
 
               <section className="panel job-sampling-panel">
-                <div className="panel-heading"><span className="section-number">04</span><div><h2>Sampling Type</h2><p>Select the sampling type once. It will be carried through preparation, data capture, and the report.</p></div><span className="required-chip">REQUIRED</span></div>
+                <div className="panel-heading"><span className="section-number">03</span><div><h2>Sampling type &amp; sampling scope</h2><p>What the sampling team must collect. Laboratory tests are selected per sample after the sampling report is approved.</p></div><span className="required-chip">REQUIRED</span></div>
                 <div className="prep-type-grid compact-job-types">
-                  {samplingSources.map((type) => <button key={type} type="button" className={`prep-type-card functional ${samplingType === type ? "selected" : ""}`} onClick={() => selectSamplingType(type)}><div><strong>{type}</strong><small>{samplingType === type ? (samplingIsRequired(type) ? "SAMPLING REQUIRED" : "NO FIELD SAMPLING") : "SELECT TYPE"}</small></div><i>{samplingType === type ? "✓" : ""}</i></button>)}
+                  {samplingSources.map((type) => <button key={type} type="button" disabled={!editingDraft} className={`prep-type-card functional ${samplingType === type ? "selected" : ""}`} onClick={() => selectSamplingType(type)}><div><strong>{type}</strong><small>{samplingType === type ? (samplingIsRequired(type) ? "SAMPLING REQUIRED" : "NO FIELD SAMPLING") : "SELECT TYPE"}</small></div><i>{samplingType === type ? "✓" : ""}</i></button>)}
                 </div>
                 {samplingType === "Other" && <label className="other-sampling-type-field"><span>Specify Other Type *</span><input value={job.otherSamplingType} onChange={(event) => updateJob("otherSamplingType", event.target.value)} placeholder="Enter the job or transfer type" /></label>}
-                {samplingType && <div className={`automatic-sampling-route ${samplingIsRequired(samplingType) ? "required" : "not-required"}`}><strong>{samplingIsRequired(samplingType) ? "Field sampling and coordination required" : "Pre-job coordination required — no field sampling"}</strong><span>{samplingIsRequired(samplingType) ? "The job will continue to Sampling Preparation for team coordination and equipment readiness." : "The job will continue to Sampling Preparation for the transfer checklist, then proceed to Sampling Data."}</span></div>}
+                <div className="form-grid scope-plan-fields"><label><span>Number of Samples Required *</span><input type="number" min="1" max="20" step="1" required disabled={!editingDraft} value={job.requestedSampleCount} onChange={(event) => updateJob("requestedSampleCount", event.target.value)} /><small>Creates one record per sample (1.01, 1.02 …) when sent.</small></label><label className="full-field"><span>Sample Quantity Notes</span><input value={job.sampleCountNotes} onChange={(event) => updateJob("sampleCountNotes", event.target.value)} placeholder="Quantity requirements or reason for fewer than 3 cased-hole samples" /></label></div>
+                <label className="scope-upload"><input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp" onChange={(event) => attachScopeOfWork(event.target.files?.[0])} /><span>{scopeAttachment ? "Replace file" : "Attach client request / scope document (optional)"}</span><small>PDF, Word, Excel, or image · You can continue without a file.</small></label>
+                {scopeAttachment && <div className="attachment-record"><div><strong>{scopeAttachment.name}</strong><small>{Math.max(1, Math.round(scopeAttachment.size / 1024))} KB · Stored in local demo data</small></div><a href={scopeAttachment.dataUrl} download={scopeAttachment.name}>Open / download</a><button type="button" onClick={() => setScopeAttachment(null)}>Remove</button></div>}
+                {job.requiredTests.length > 0 && <div className="reference-note"><strong>Initial laboratory request (reference only)</strong><p>{job.requiredTests.map((test) => test === "Other" ? job.otherTests.trim() || "Other" : test).join(" · ")}</p><small>Recorded when the job was created. It is not the approved laboratory scope, which is released per sample after sampling approval.</small></div>}
               </section>
 
-              <section className="panel ops-panel"><div className="panel-heading"><span className="section-number">05</span><div><h2>Sampling team assignment</h2><p>Assign the people who will receive this job in their work lists.</p></div></div><div className="form-grid">{(['assignedEngineerId','assignedDriverId'] as const).map(key=><label key={key}><span>{key==='assignedEngineerId'?'Sampling engineer':'Driver'} *</span><select required value={job[key]} onChange={e=>{updateJob(key,e.target.value);setDispatchReview(false);}}><option value="">Select active employee</option>{demoEmployees.filter(e=>e.active).map(e=><option key={e.id} value={e.id}>{e.name}</option>)}</select></label>)}</div><Clarification id="initial-scope"/></section>
-              {dispatchReview&&!currentJob&&<section className="panel ops-panel"><h2>Review dispatch</h2><p>{jobId} · {clientName} · {job.well}</p><p>{job.requiredTests.join(', ')}</p><p>{samplingType} · {job.requestedSampleCount} samples</p><p>Engineer: {employeeName(job.assignedEngineerId)} · Driver: {employeeName(job.assignedDriverId)}</p><p>Due: {job.dueDate||'Not recorded'}</p><button type="button" className="text-button" onClick={()=>setDispatchReview(false)}>Back to editing</button></section>}
-              {jobErrors.length > 0 && <div className="preparation-validation" role="alert"><span>!</span><div><strong>Job cannot be created</strong><ul>{jobErrors.map((error) => <li key={error}>{error}</li>)}</ul></div></div>}
+              <section className="panel ops-panel">
+                <div className="panel-heading"><span className="section-number">04</span><div><h2>Sampling assignment</h2><p>Only the people named here receive the job. Nobody is assigned automatically.</p></div><span className="required-chip">REQUIRED TO SEND</span></div>
+                <div className="form-grid">
+                  <label><span>Accountable sampling employee *</span><select value={job.assignedEngineerId} onChange={e=>{const id=e.target.value;setJob(current=>({...current,assignedEngineerId:id,samplingTeamIds:current.samplingTeamIds.filter(x=>x!==id)}));setDispatchReview(false);setJobErrors([]);}}><option value="">Select employee</option><optgroup label="Sampling team">{samplingCandidates.filter(samplingDepartment).map(e=><option key={e.id} value={e.id}>{personLabel(e)}</option>)}</optgroup><optgroup label="Other employees with sampling access">{samplingCandidates.filter(e=>!samplingDepartment(e)).map(e=><option key={e.id} value={e.id}>{personLabel(e)}</option>)}</optgroup></select><small>Owns the sampling work and its report.</small></label>
+                  <label><span>Driver *</span><select value={job.assignedDriverId} onChange={e=>{updateJob("assignedDriverId",e.target.value);setDispatchReview(false);}}><option value="">Select driver</option><optgroup label="Drivers">{driverCandidates.filter(isDriver).map(e=><option key={e.id} value={e.id}>{personLabel(e)}</option>)}</optgroup><optgroup label="Other active employees">{driverCandidates.filter(e=>!isDriver(e)).map(e=><option key={e.id} value={e.id}>{personLabel(e)}</option>)}</optgroup></select><small>Transports the samples after sampling-report approval.</small></label>
+                  <fieldset className="full-field team-members"><legend>Supporting sampling employees (optional)</legend>{samplingCandidates.filter(e=>samplingDepartment(e)&&e.id!==job.assignedEngineerId).map(memberBox)}{samplingCandidates.some(e=>!samplingDepartment(e)&&e.id!==job.assignedEngineerId)&&<details><summary>Other employees with sampling access</summary>{samplingCandidates.filter(e=>!samplingDepartment(e)&&e.id!==job.assignedEngineerId).map(memberBox)}</details>}<small>Supporting employees see the job, its instructions and the sampling data. The accountable employee remains the single owner.</small></fieldset>
+                </div>
+                <p className="assignment-summary"><strong>Receives this job:</strong> {team.length ? team.map((id, index) => employeeName(id) + (index === 0 ? " (accountable)" : "")).join(", ") : "Nobody assigned yet"}{job.assignedDriverId ? ` · Driver: ${employeeName(job.assignedDriverId)}` : ""}</p>
+              </section>
 
-              <div className="form-actions"><button type="submit" className="primary-button">{currentJob ? "Save job & scope changes" : dispatchReview ? "Confirm & send to Sampling" : "Review dispatch"} <span>→</span></button></div>
-            </form>
-          )}
+              <section className="panel instructions-panel">
+                <div className="panel-heading"><span className="section-number">05</span><div><h2>Sampling instructions</h2><p>Explain the specific requirements and important notes for this job. The assigned sampling employees see this text with the job.</p></div><span className="required-chip">REQUIRED TO SEND</span></div>
+                <label className="full-field instructions-field"><span>Sampling instructions *</span><textarea rows={6} value={job.samplingInstructions} onChange={(e) => updateJob("samplingInstructions", e.target.value)} placeholder="e.g. Collect 3 bottomhole samples at the stated depth. Confirm the sampling point with the client focal point before rig-up. Report any H₂S readings immediately." /></label>
+                <label className="full-field"><span>Job / request description *</span><textarea rows={3} value={job.description} onChange={(e) => updateJob("description", e.target.value)} placeholder="Internal request summary and expected deliverables" /><small>{job.description.length} / 500</small></label>
+              </section>
+
+              {dispatchReview && editingDraft && <section className="panel ops-panel send-review" aria-live="polite"><h2>Review before sending to Sampling</h2><dl className="review-grid"><div><dt>Job</dt><dd>{jobId} · {clientName}</dd></div><div><dt>Location</dt><dd>{locationSummary(job, samplingType)}</dd></div><div><dt>Sampling</dt><dd>{samplingTypeLabel} · {job.requestedSampleCount} sample{job.requestedSampleCount === "1" ? "" : "s"}</dd></div><div><dt>Due date</dt><dd>{job.dueDate || "Not recorded"}</dd></div><div><dt>Receives the job</dt><dd>{team.map((id, index) => employeeName(id) + (index === 0 ? " (accountable)" : "")).join(", ")}</dd></div><div><dt>Driver</dt><dd>{employeeName(job.assignedDriverId)}</dd></div><div className="full-field"><dt>Sampling instructions</dt><dd className="instructions-text">{job.samplingInstructions}</dd></div><div className="full-field"><dt>Sign-off</dt><dd>No sign-off is recorded at job creation. The sampling report is approved later by {approver ? employeeName(approver) : "the sampling approver (not configured; ask an administrator)"}.</dd></div></dl><p>After sending, the job moves to <strong>Sampling</strong>; next action: {samplingIsRequired(samplingType) ? "complete sampling preparation" : "complete pre-job coordination"}. It appears in the assigned employees’ work lists. No email is sent.</p><Clarification id="initial-scope"/></section>}
+              {jobErrors.length > 0 && <div className="preparation-validation" role="alert"><span>!</span><div><strong>{editingDraft ? "Job cannot be sent yet" : "Job cannot be saved"}</strong><ul>{jobErrors.map((error) => <li key={error}>{error}</li>)}</ul></div></div>}
+
+              <div className="form-actions">{editingDraft ? <>{dispatchReview ? <button type="button" className="outline-button" onClick={() => setDispatchReview(false)}>Back to editing</button> : <button type="button" className="outline-button" onClick={saveDraft}>Save Draft</button>}<button type="submit" className="primary-button">{dispatchReview ? "Confirm & send to Sampling" : "Send to Sampling"} <span>→</span></button></> : <button type="submit" className="primary-button">Save job details <span>→</span></button>}</div>
+            </form>;
+          })()}
 
           {stage === "type" && (
             <>
@@ -1914,7 +1990,6 @@ export default function Home() {
                   <div><small>WELL</small><strong>{job.wellMode === "multiple" ? job.wells.filter(Boolean).join(", ") || "Not specified" : job.well || "Not specified"}</strong></div>
                   <div className="carried-job-note"><small>JOB / REQUEST DESCRIPTION</small><p>{job.description || "No description recorded in Job Setup."}</p></div>
                   <div className="carried-job-note"><small>SAMPLE QUANTITY NOTES</small><p>{job.sampleCountNotes || "No sample quantity notes recorded."}</p></div>
-                  {job.requiredTests.includes("Other") && <div className="carried-job-note"><small>OTHER REQUIRED WORK / TESTS</small><p>{job.otherTests || "Not specified"}</p></div>}
                   {scopeAttachment && <a href={scopeAttachment.dataUrl} download={scopeAttachment.name}>Open Scope of Work · {scopeAttachment.name}</a>}
                 </div>
               </section>
