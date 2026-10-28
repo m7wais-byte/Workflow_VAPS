@@ -3,7 +3,7 @@
 import type { JobRecord } from './page';
 import { applyOperation, type Command } from './operations-model';
 import { initialDirectory } from './employee-directory';
-import { defaultAuthorization } from './authorization';
+import { defaultAuthorization, defaultResponsibilities } from './authorization';
 import { cylinderCatalog } from './cylinder-catalog';
 import { defaultFieldData } from './sample-defaults';
 import { addDays, localDate } from './local-date';
@@ -36,7 +36,10 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
    stages: stageNames.map((name, i) => ({ name, assignedTo: details.assignedEngineerId || 'SALIM', status: i < stageDone ? 'Completed' : i === stageDone ? 'In Progress' : 'Not Started', ...(i <= stageDone ? { started: created } : {}), ...(i < stageDone ? { completed: created } : {}) })),
    events: [], dueDate: addDays(day, 14), ...details } as JobRecord;
  };
- const run = (j: JobRecord, by: string, command: Command, at: string) => applyOperation(j, command, { id: by, employees, policy }, at);
+ /** Fictional demo-only configuration, passed to the model and never saved to Settings: real QC, receipt and team settings start unassigned. */
+ const demoRoles = { ...defaultResponsibilities, qcReviewer: 'AHAD', labReceipt: 'SHEREIQI' };
+ const demoTeams = { PVT: ['NASSER', 'AHAD', 'RANJITH'], Chemical: ['YAQEEN'] };
+ const run = (j: JobRecord, by: string, command: Command, at: string) => applyOperation(j, command, { id: by, employees, policy, roles: demoRoles, teams: demoTeams }, at);
  const workbook = (title: string, sampleId: string) => storeFile(`DEMO ${title} ${sampleId}.csv`, `DEMO workbook,fictional data\nActivity,${title}\nSample,${sampleId}\n`);
  /** Data submitted and reviewed first; the report is generated from approved data and approved separately. */
  const samplingReport = (j: JobRecord, engineer: string, tick: () => string, upTo: 'data-submitted' | 'report-approved') => {
@@ -49,7 +52,7 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
  };
  const handover = (j: JobRecord, driver: string, tick: () => string) => {
   j = run(j, driver, { type: 'handover-send', sampleIds: j.samples!.map(s => s.id), notes: 'DEMO transfer to the laboratory.' }, tick());
-  return run(j, 'SALIM', { type: 'handover-receive', notes: 'Bottle serials checked against the sampling report.' }, tick());
+  return run(j, 'SHEREIQI', { type: 'handover-receive', notes: 'Bottle serials checked against the sampling report.' }, tick());
  };
  const conditions = (pressure: string, temperature: string) => ({ pressure, pressureUnit: 'psi', temperature, temperatureUnit: '°C', notes: 'DEMO reservoir conditions, fictional.' });
  /** Schedules every activity; completes the first `complete` of them with a workbook and starts the next one. */
@@ -65,7 +68,8 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
    j = run(j, owner, { type: 'progress', id: a.id, status: 'In Progress', notes: 'Started.' }, tick());
    if (i === complete) break;
    j = run(j, owner, { type: 'workbook', id: a.id, file: await workbook(a.title, a.sampleId), notes: 'Workbook submitted.' }, tick());
-   j = run(j, owner, { type: 'progress', id: a.id, status: 'Completed', notes: 'Completed.' }, tick());
+   j = run(j, a.stream === 'PVT' ? 'SHEREIQI' : 'BAHRI', { type: 'lead-review', id: a.id, decision: 'approve', target: '', comments: 'DEMO team-lead approval.' }, tick());
+   j = run(j, 'AHAD', { type: 'qc-review', id: a.id, decision: 'approve', target: '', comments: 'DEMO QC approval.' }, tick());
   }
   return j;
  }
@@ -96,7 +100,7 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
  j3 = run(j3, 'SALIM', { type: 'dispatch', engineer: 'MOHSIN', driver: 'ALI' }, t());
  j3 = handover(samplingReport(j3, 'MOHSIN', t, 'report-approved'), 'ALI', t);
  j3 = run(j3, 'SALIM', { type: 'scope', reason: 'Confirm the original request.', conditions: conditions('3150', '92'), items: [{ title: 'Black Oil — Validation', sampleIds: ['1.01', '1.02'], stream: 'PVT' }, { title: 'Black Oil — DL', sampleIds: ['1.01'], stream: 'PVT' }, { title: 'Others — Water Analysis', sampleIds: ['1.02'], stream: 'Chemical' }] }, t());
- j3 = await labWork(j3, { PVT: ['NASSER', 'AHAD'], Chemical: ['YAQEEN'] }, t, 6);
+ j3 = await labWork(j3, { PVT: ['NASSER', 'RANJITH'], Chemical: ['YAQEEN'] }, t, 6);
  const water = j3.operations!.activities.find(a => a.stream === 'Chemical')!;
  j3 = run(j3, water.owner, { type: 'progress', id: water.id, status: 'In Progress', notes: 'Started.' }, t());
 

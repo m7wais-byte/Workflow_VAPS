@@ -130,3 +130,37 @@ Verification: TypeScript and lint passed. 80 automated tests passed and 1 enviro
 - No horizontal overflow at 390 px.
 
 Not verified in the browser: preparation checklists and full data sheets were seeded into storage rather than typed field by field; those forms are unchanged existing code. Exported PDF layouts were not re-checked.
+
+## Prompt 3 — PVT Lab (30 October 2026)
+
+Builds on Step 0, Jobs (`c51e6b9`) and Sampling (`3d5db3c`). New fields are additive: activity `history` and `progressNotes`, file-version review stamps, the `labReceipt` duty and the `vaps-lab-teams-v1` setting.
+
+- **Per-test sequence:** the assigned employee submits a workbook attachment. The stream's team lead (Ahmed Al Shereiqi for PVT, Al Yaqdhan Al Bahri for Chemical, by configured duty) approves it into QC or returns it with a target (sheet, section or attachment reference) and a specific comment. The configured QC reviewer then approves the exact version or returns it to the team lead. The team lead returns it to the employee, and the corrected version passes team-lead review again. Employees can no longer mark their own work complete: "Completed" now means QC approved.
+- **QC gate:** only workbooks the team lead has approved can be QC reviewed. If the QC duty is unassigned, inactive or lacks the laboratory permission, approval is refused and a configuration message is shown. The work keeps waiting and final reporting stays blocked. QC approval records the reviewer, the time and the version. Team-lead approval, QC approval and final approval are separate records.
+- **Teams:** PVT and Chemical team lists live in Settings → Authorization and start empty. A team lead can assign only active members of their own team who also have laboratory permission; membership grants no permission. Reassignment is logged with the previous owner and keeps progress and files. Assignments that no longer match the team lists are flagged, never changed.
+- **Laboratory receipt:** a new configurable duty, initially unassigned. Only its active holder with laboratory permission can confirm "samples/containers received", and the recipient and time are recorded. While it is unassigned, receipt is blocked with an explanation. Historical receipts are unchanged. Only the job's assigned engineer or driver can record samples as sent.
+- **PVT Lab page:**
+  - My tests, with New assignment and Returned indicators (one per event), linking directly to the test.
+  - Team-lead queues for the lead's own section: Awaiting assignment, Assigned / in progress, Awaiting workbook review, Returned for correction, Awaiting QC, Approved / completed. The view opens on the most urgent queue and shows job progress.
+  - QC queue for the QC reviewer.
+  - Read-only supervisory overview for Wilfred, the scope selector and the administrator, with no team-lead actions.
+  - The PVT Lab menu item shows a count.
+- **Test workspace:** shows the test, sample and container (bottle or glass), released scope version, scope notes, team-lead instructions, planned dates, what to submit (the workbook attachment; no criteria are invented), status and next action, versions with review stamps, and the full review history. Progress notes are kept separate from the team lead's instructions.
+- **Final reporting:** required tests are shown in six states (Not assigned, In progress, Under team-lead review, Returned, Awaiting QC, QC approved), each with its QC-approved version. Submission and approval of the final laboratory report stay blocked until every required test is QC approved. Ahmed prepares the report (reporting duty) and Wilfred approves it (finalApproval duty).
+- **Historical work:** work completed before QC existed is shown as "QC approved / completed before QC existed" and is never asked for new approvals.
+- **Sampling reopen:** reopening sampling data after handover or scope release stays blocked, with the existing explanation.
+- **Demo data:** uses a fictional demo-only configuration (QC reviewer Ahad, laboratory receipt Ahmed Al Shereiqi, PVT team Nasser/Ahad/Ranjith, Chemical team Yaqeen). It is passed to the model and never saved to Settings, so real QC, receipt and team settings stay unassigned.
+
+Verification: TypeScript and lint passed. 86 automated tests passed and 1 environment-dependent test was skipped; 6 of them are new laboratory tests. The production build passed. A Playwright run on the development server, using the real interface, covered:
+- The administrator setting teams, laboratory receipt, test routing and (later) QC in Settings.
+- Salim releasing a scope with PVT, Chemical and Both, including a glass container.
+- Each team lead seeing only their own section.
+- Assignments, Nasser's New badge, progress saved and reopened, and real file uploads.
+- Return with a target and comment, then resubmission.
+- Team-lead approval to QC, QC blocked while unassigned, then QC approval of version 2.
+- A QC return going to the team lead, then back to the employee, then resubmission.
+- Receipt blocked for Salim and confirmed by the configured holder.
+- Final reporting blocked and then completed by Ahmed, with Wilfred's separate approval.
+- Wilfred's overview showing no lead actions; the demo jobs; no horizontal overflow at 390 px.
+
+Setup done directly in storage: the sampling preparation checklist and data sheets were seeded before submission, as in the Sampling step. Everything from submission onward used the interface. Not checked: exported PDF layouts and phone-width screenshots of every lab panel; only overflow was measured.

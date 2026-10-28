@@ -2,6 +2,7 @@ import { useUnsaved } from './settings-pages';
 import { useState } from 'react';
 import { scopeTestGroups } from './lab-work';
 import { testSections, type TestRouting, type TestSection } from './test-routing';
+import type { LabTeams } from './lab-teams';
 import { administratorId, permissionLabels, responsibilityLabels, responsibilityPermission, invalidResponsibilities, driverOnlyIds, type Authorization, type Permission, type Responsibilities, type Responsibility } from './authorization';
 
 const roleNotes: Partial<Record<Responsibility, string>> = {
@@ -9,7 +10,8 @@ const roleNotes: Partial<Record<Responsibility, string>> = {
   pvtTeamLead: 'Receives PVT work from the approved scope, assigns tests, reviews workbooks.',
   chemicalTeamLead: 'Receives chemical work from the approved scope, assigns tests, reviews workbooks.',
   finalApproval: 'Approves and signs the final report.',
-  qcReviewer: 'QC approval is separate from team-lead workbook approval and final approval.',
+  qcReviewer: 'QC approval is separate from team-lead workbook approval and final approval. Team-lead-approved workbooks wait here until a reviewer is assigned.',
+  labReceipt: 'Confirms that samples and containers physically arrived at the laboratory. Receipt is blocked until assigned.',
 };
 type Person = { id: string; name: string; role: string; departmentId: string; active: boolean };
 /** Who carries each workflow duty. Assigning a duty never grants a permission. */
@@ -41,6 +43,23 @@ function ResponsibilitySettings({ roles, employees, policy, onSave, error }: { r
   </section>;
 }
 
+/** PVT and Chemical team members. Team leads assign only within their own team; membership grants no permission. */
+function LabTeamSettings({ teams, employees, policy, error, onSave }: { teams: LabTeams; employees: Person[]; policy: Authorization; error: string; onSave: (teams: LabTeams) => boolean }) {
+  const [draft, setDraft] = useState(teams);
+  const [saved, setSaved] = useState(false);
+  const changed = JSON.stringify(draft) !== JSON.stringify(teams);
+  useUnsaved(changed);
+  return <section className="panel authorization-panel">
+    <div className="panel-heading"><div><span className="eyebrow">LABORATORY TEAMS</span><h2>PVT and Chemical teams</h2><p>Team leads assign tests only to active members of their own team who also have “{permissionLabels.analysis}”. Membership does not grant any permission. Existing assignments are kept and flagged if they no longer match.</p></div></div>
+    {error && <p role="alert">{error}</p>}
+    <div className="lab-team-grid">{(['PVT', 'Chemical'] as const).map(stream => <fieldset key={stream} className="lab-team-list" disabled={!!error}><legend>{stream} team · {draft[stream].length} member{draft[stream].length === 1 ? '' : 's'}</legend>
+      {employees.filter(e => e.active || draft[stream].includes(e.id)).map(e => { const noAccess = e.id !== administratorId && !policy.analysis.includes(e.id); return <label key={e.id} className="ops-check"><input type="checkbox" checked={draft[stream].includes(e.id)} onChange={event => { setSaved(false); const on = event.target.checked; setDraft(old => ({ ...old, [stream]: on ? [...old[stream], e.id] : old[stream].filter(id => id !== e.id) })); }} /><span>{e.name}{!e.active ? ' (Inactive)' : ''}{draft[stream].includes(e.id) && (noAccess || !e.active) && <strong className="flag-note"> · {e.active ? 'needs laboratory access to be assigned' : 'inactive · cannot be assigned'}</strong>}</span></label>; })}
+      {!draft[stream].length && <p className="flag-note">No members yet. {stream} tests cannot be assigned until members are added.</p>}
+    </fieldset>)}</div>
+    <footer><button className="text-button" type="button" disabled={!changed} onClick={() => { setDraft(teams); setSaved(false); }}>Cancel changes</button><button type="button" className="primary-button" disabled={!changed || !!error} onClick={() => { if (onSave(draft)) setSaved(true); }}>Save Laboratory Teams</button><span role="status">{saved && !changed ? 'Laboratory teams saved.' : changed ? 'Unsaved changes' : ''}</span></footer>
+  </section>;
+}
+
 /** Which laboratory section receives each catalog test. Unclassified tests get an explicit destination per sample at scope release. */
 function TestRoutingSettings({ routing, error, onSave }: { routing: TestRouting; error: string; onSave: (routing: TestRouting) => boolean }) {
   const [draft, setDraft] = useState(routing);
@@ -59,11 +78,12 @@ function TestRoutingSettings({ routing, error, onSave }: { routing: TestRouting;
   </section>;
 }
 
-export function AuthorizationSettings({ policy, employees, onSave, error, departments, roles, rolesError, onSaveRoles, routing, routingError, onSaveRouting }: {
+export function AuthorizationSettings({ policy, employees, onSave, error, departments, roles, rolesError, onSaveRoles, routing, routingError, onSaveRouting, teams, teamsError, onSaveTeams }: {
   policy: Authorization; employees: Person[]; departments: {id:string;name:string}[];
   onSave: (policy: Authorization) => boolean; error: string;
   roles: Responsibilities; rolesError: string; onSaveRoles: (roles: Responsibilities) => boolean;
   routing: TestRouting; routingError: string; onSaveRouting: (routing: TestRouting) => boolean;
+  teams: LabTeams; teamsError: string; onSaveTeams: (teams: LabTeams) => boolean;
 }) {
   const [draft, setDraft] = useState(policy);
   const [saved, setSaved] = useState(false);
@@ -71,7 +91,7 @@ export function AuthorizationSettings({ policy, employees, onSave, error, depart
   const [search,setSearch]=useState(''),[department,setDepartment]=useState('');
   useUnsaved(changed);
   const drivers = employees.filter(p => driverOnlyIds.includes(p.id));
-  return <><ResponsibilitySettings roles={roles} employees={employees} policy={policy} onSave={onSaveRoles} error={rolesError} /><TestRoutingSettings routing={routing} error={routingError} onSave={onSaveRouting} /><section className="panel authorization-panel">
+  return <><ResponsibilitySettings roles={roles} employees={employees} policy={policy} onSave={onSaveRoles} error={rolesError} /><LabTeamSettings teams={teams} employees={employees} policy={policy} error={teamsError} onSave={onSaveTeams} /><TestRoutingSettings routing={routing} error={routingError} onSave={onSaveRouting} /><section className="panel authorization-panel">
     <div className="panel-heading"><div><span className="eyebrow">ADMINISTRATOR</span><h2>Authorization</h2><p>Select who can create jobs and access each part of the project.</p></div></div>
     <p>Managed by Mohammed Al Awaisi. Administrator access is retained for all pages. Creating jobs is assigned separately.</p>
     <div className="settings-filters"><label>Search employees<input value={search} onChange={e=>setSearch(e.target.value)} /></label><label>Department<select value={department} onChange={e=>setDepartment(e.target.value)}><option value="">All departments</option>{departments.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></label></div><p>Access permissions open the named workspace. Management permissions allow saving that category. Existing workflow ownership rules still apply. Inactive employees retain their assignments but cannot use their permissions.</p><div className="authorization-table-wrap"><table className="client-table"><thead><tr><th>Person</th>{Object.values(permissionLabels).map(label => <th key={label}>{label}</th>)}</tr></thead>

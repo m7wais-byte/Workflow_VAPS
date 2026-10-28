@@ -11,7 +11,7 @@ const {nextJobSequence}=await bundle('app/job-numbering.ts');
 
 const employees=initialDirectory().employees,policy=defaultAuthorization(employees.map(e=>e.id));
 const routing={'Black Oil — DL':'PVT','Black Oil — Validation':'PVT','Others — Water Analysis':'Chemical','Specialised Analysis — SARA':'Both'};
-const actor=(id,extra={})=>({id,employees,policy,roles:defaultResponsibilities,routing,...extra});
+const actor=(id,extra={})=>({id,employees,policy,roles:defaultResponsibilities,routing,teams:{PVT:['NASSER','AHAD','RANJITH'],Chemical:['NASSER','YAQEEN']},...extra});
 let tick=0;const at=()=>new Date(Date.UTC(2026,9,28,8,0,tick++)).toISOString();
 const step=(job,c,id,extra)=>applyOperation(job,c,actor(id,extra),at());
 const draft=(extra={})=>({id:'OM-P-26-101',jobNumber:'OM-P-26-101',globalSequence:101,clientCode:'P',clientName:'Test',fieldArea:'Field',well:'W-1',samplingSource:'Wellhead Sampling',status:'Draft',currentStage:'Job Setup',nextAction:'',dueDate:'2026-11-05',ownerId:'SALIM',responsibleId:'MOHSIN',assignedEngineerId:'MOHSIN',assignedDriverId:'HUMAID',createdById:'SALIM',createdAt:at(),lastUpdatedById:'SALIM',lastUpdatedAt:at(),stages:[],samplingInstructions:'Collect three wellhead samples; confirm choke with the client.',
@@ -134,7 +134,7 @@ test('QC stays a required gate before final reporting for per-sample scopes',()=
  assert.equal(qcPending(job),true);assert.equal(finalReady(job),false);
  assert.equal(operationMilestones(job).find(m=>m.id==='completion').done,false);
  const drafted=step(job,{type:'report-draft',kind:'final',text:'Final',checker:'SHEREIQI'},'SHEREIQI');
- assert.throws(()=>step(drafted,{type:'report-action',kind:'final',action:'submit',comments:''},'SHEREIQI'),/QC review is required before final reporting/);
+ assert.throws(()=>step(drafted,{type:'report-action',kind:'final',action:'submit',comments:''},'SHEREIQI'),/not yet QC approved/);
  assert.equal(pendingActions(job,actor('SHEREIQI')).some(a=>a.id==='reporting'),false,'no final-report action while QC is pending');
 });
 

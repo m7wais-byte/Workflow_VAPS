@@ -48,14 +48,15 @@ export const responsibilityLabels = {
   reporting: 'Final report preparation',
   finalApproval: 'Final report approval',
   qcReviewer: 'QC review',
+  labReceipt: 'Laboratory receipt',
 };
 export type Responsibility = keyof typeof responsibilityLabels;
 export type Responsibilities = Record<Responsibility, string>;
 /** Permission each duty needs in order to act; shown as a warning, never granted automatically. */
-export const responsibilityPermission: Record<Responsibility, Permission> = { scopeSelector: 'analysis', samplingApproval: 'sampling', pvtSupervisor: 'analysis', pvtTeamLead: 'analysis', chemicalTeamLead: 'analysis', reporting: 'analysis', finalApproval: 'analysis', qcReviewer: 'analysis' };
+export const responsibilityPermission: Record<Responsibility, Permission> = { scopeSelector: 'analysis', samplingApproval: 'sampling', pvtSupervisor: 'analysis', pvtTeamLead: 'analysis', chemicalTeamLead: 'analysis', reporting: 'analysis', finalApproval: 'analysis', qcReviewer: 'analysis', labReceipt: 'analysis' };
 export const responsibilitiesKey = 'vaps-responsibilities-v1';
-/** Initial setup and migration only. QC stays unassigned until an administrator names a reviewer. */
-export const defaultResponsibilities: Responsibilities = { scopeSelector: 'SALIM', samplingApproval: 'SALIM', pvtSupervisor: 'WILFRED', pvtTeamLead: 'SHEREIQI', chemicalTeamLead: 'BAHRI', reporting: 'SHEREIQI', finalApproval: 'WILFRED', qcReviewer: '' };
+/** Initial setup and migration only. QC review and laboratory receipt stay unassigned until an administrator names someone. */
+export const defaultResponsibilities: Responsibilities = { scopeSelector: 'SALIM', samplingApproval: 'SALIM', pvtSupervisor: 'WILFRED', pvtTeamLead: 'SHEREIQI', chemicalTeamLead: 'BAHRI', reporting: 'SHEREIQI', finalApproval: 'WILFRED', qcReviewer: '', labReceipt: '' };
 /** Missing settings or keys added later receive defaults; a saved empty value stays empty. */
 export function readResponsibilities(raw: string | null): Responsibilities {
   if (raw === null) return { ...defaultResponsibilities };

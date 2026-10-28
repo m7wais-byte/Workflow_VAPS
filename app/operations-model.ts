@@ -5,12 +5,15 @@ import { containerId, containerLabel, isGlass, type ContainerType } from './samp
 import { scopeTestOptions, isValidationTest } from './lab-work';
 import type { TestRouting } from './test-routing';
 import { preparationDone } from './sampling-validation';
+import type { LabTeams } from './lab-teams';
 export type Stream = 'PVT' | 'Chemical';
 /** Team lead who plans, assigns and reviews each laboratory workstream. */
 export const streamLead = (stream:Stream):Responsibility=>stream==='PVT'?'pvtTeamLead':'chemicalTeamLead';
-export type WorkState = 'Unassigned' | 'Scheduled' | 'In Progress' | 'Workbook Submitted' | 'Changes Requested' | 'Completed';
-export type FileVersion = { id:string; name:string; size:number; type:string; version:number; submittedBy:string; submittedAt:string; status:'Available'|'Changes Requested'; comments:string };
-export type ActivityRecord = { id:string; scopeId:string; /** Shared by the PVT and Chemical items created for one test sent to both sections. */linkId?:string; sampleId:string; title:string; stream:Stream; owner:string; start:string; due:string; conditions:string; notes:string; status:WorkState; files:FileVersion[]; required:boolean; kind?:'validation'|'analysis' };
+/** Workbook Submitted = awaiting team-lead review; Changes Requested = returned to the employee; QC Returned = back with the team lead; Completed = QC approved. */
+export type WorkState = 'Unassigned' | 'Scheduled' | 'In Progress' | 'Workbook Submitted' | 'Changes Requested' | 'Awaiting QC' | 'QC Returned' | 'Completed';
+export type FileVersion = { id:string; name:string; size:number; type:string; version:number; submittedBy:string; submittedAt:string; status:'Available'|'Changes Requested'; comments:string; /** Sheet, section or attachment reference named in a return. */target?:string; leadApprovedBy?:string; leadApprovedAt?:string; qcApprovedBy?:string; qcApprovedAt?:string; qcReturnedBy?:string; qcReturnedAt?:string; qcComments?:string };
+export type ActivityEvent = { at:string; by:string; action:'assigned'|'reassigned'|'submitted'|'lead-approved'|'lead-returned'|'qc-approved'|'qc-returned'; version?:number; target?:string; comments?:string; from?:string; to?:string };
+export type ActivityRecord = { id:string; scopeId:string; /** Shared by the PVT and Chemical items created for one test sent to both sections. */linkId?:string; sampleId:string; title:string; stream:Stream; owner:string; start:string; due:string; conditions:string; notes:string; status:WorkState; files:FileVersion[]; required:boolean; kind?:'validation'|'analysis'; /** Assignment, submission and review decisions, oldest first. */history?:ActivityEvent[]; /** The assigned employee's own progress notes; notes keep the team lead's instructions. */progressNotes?:string };
 export type ScopeRecord = { id:string; linkId?:string; title:string; sampleIds:string[]; stream:Stream; notes:string; addedBy:string; at:string; reason:string; source:'Original request'|'Additional work' };
 export type ReportVersion = { version:number; status:'Draft'|'Checking'|'Awaiting Approval'|'Changes Requested'|'Approved'; text:string; preparedBy:string; preparedAt:string; checker:string; checkedAt?:string; submittedAt?:string; approvedBy?:string; approvedAt?:string; comments:string; snapshot:string; file?:FileVersion };
 export type Destination = Stream | 'Both';
@@ -64,17 +67,28 @@ export const dataReviewRequired=(job:JobRecord)=>{const o=operationsFor(job);ret
 export const samplingDataLocked=(job:JobRecord)=>['Submitted','Approved'].includes(latestData(job)?.status||'');
 export const releasedScopes=(job:JobRecord)=>(operationsFor(job).labScopes||[]).filter(v=>v.status==='Released');
 export const latestLabScope=(job:JobRecord)=>(operationsFor(job).labScopes||[]).at(-1);
-/** Jobs scoped per sample need QC before final reporting. Jobs scoped in the earlier workflow keep their recorded path. */
-export const qcRequired=(job:JobRecord)=>releasedScopes(job).length>0;
-/** QC records arrive with the PVT Lab step. Until then, required QC stays pending and final reporting cannot proceed. */
-export const qcPending=(job:JobRecord)=>qcRequired(job);
+/** Required tests not yet QC approved. Work completed before QC existed keeps its recorded completion. */
+export const testsAwaitingQcApproval=(job:JobRecord)=>operationsFor(job).activities.filter(a=>a.required&&a.status!=='Completed');
+/** QC applies to per-sample scopes and to any laboratory work still open. Completed historical jobs are never asked for approvals they predate. */
+export const qcRequired=(job:JobRecord)=>releasedScopes(job).length>0||testsAwaitingQcApproval(job).length>0;
+export const qcPending=(job:JobRecord)=>testsAwaitingQcApproval(job).length>0;
+export type LabStatus='Not assigned'|'In progress'|'Under team-lead review'|'Returned'|'Awaiting QC'|'QC approved';
+export const labStatuses:LabStatus[]=['Not assigned','In progress','Under team-lead review','Returned','Awaiting QC','QC approved'];
+/** One of six understandable states per test, mapped from the work state. QC Returned sits with the team lead. */
+export function labStatus(a:ActivityRecord):LabStatus{
+ if(a.status==='Completed')return 'QC approved';if(a.status==='Awaiting QC')return 'Awaiting QC';
+ if(a.status==='Workbook Submitted'||a.status==='QC Returned')return 'Under team-lead review';
+ if(a.status==='Changes Requested')return 'Returned';if(!a.owner)return 'Not assigned';return 'In progress';
+}
+/** The assignee is no longer in the stream's configured team. Shown as a flag; the assignment is never changed automatically. */
+export const teamMismatch=(a:ActivityRecord,teams?:LabTeams|null)=>!!a.owner&&a.status!=='Completed'&&!!teams&&!teams[a.stream].includes(a.owner);
 export function samplingApproved(job:JobRecord):boolean { const reports=operationsFor(job).samplingReports;return reports.length?latest(reports)?.status==='Approved':job.report?.reportStatus==='Completed'&&!!job.report.approvedAt&&!!job.report.approvedBy; }
 /** Sampling was approved in the older workflow, before dispatch records existed. No dispatch is fabricated. */
 export function legacyDispatch(job:JobRecord):boolean { const o=operationsFor(job);return !o.dispatchedAt&&!o.samplingReports.length&&samplingApproved(job); }
 export function allWorkDone(job:JobRecord):boolean {const o=operationsFor(job);return !!o.scopeConfirmedAt && o.activities.filter(a=>a.required).every(a=>a.status==='Completed'&&a.files.some(f=>f.status==='Available')) && !o.additions.some(a=>!a.confirmedAt);}
-export function finalReady(job:JobRecord):boolean {const o=operationsFor(job);const required=[...new Set(o.scope.flatMap(s=>s.sampleIds))];return allWorkDone(job)&&samplingApproved(job)&&!qcPending(job)&&!!o.handover?.receivedAt&&required.every(id=>o.handover!.sampleIds.includes(id));}
+export function finalReady(job:JobRecord):boolean {const o=operationsFor(job);const required=[...new Set(o.scope.flatMap(s=>s.sampleIds))];return allWorkDone(job)&&samplingApproved(job)&&!!o.handover?.receivedAt&&required.every(id=>o.handover!.sampleIds.includes(id));}
 export function operationComplete(job:JobRecord):boolean {return finalReady(job)&&latest(operationsFor(job).finalReports)?.status==='Approved';}
-export type Actor = { id:string; employees:Employee[]; policy:Authorization; roles?:Responsibilities; /** Current test routing; null when the saved settings cannot be read. */routing?:TestRouting|null };
+export type Actor = { id:string; employees:Employee[]; policy:Authorization; roles?:Responsibilities; /** Current test routing; null when the saved settings cannot be read. */routing?:TestRouting|null; /** Laboratory team lists; null when the saved settings cannot be read. */teams?:LabTeams|null };
 /** The valid holder of a duty for this actor's settings ('' when unassigned or invalid). */
 export const holder=(actor:Actor,key:Responsibility)=>roleHolder(actor.roles||defaultResponsibilities,key,actor.employees);
 export function hasAccess(actor:Actor,permission:Permission) {return actor.employees.some(e=>e.id===actor.id&&e.active)&&((actor.id==='MA001'&&permission!=='createJob')||actor.policy[permission].includes(actor.id));}
@@ -134,6 +148,8 @@ export type Command =
  | {type:'progress';id:string;status:WorkState;notes:string}
  | {type:'workbook';id:string;notes?:string;file:Omit<FileVersion,'version'|'submittedBy'|'submittedAt'|'status'|'comments'>}
  | {type:'workbook-return';id:string;comments:string}
+ | {type:'lead-review';id:string;decision:'approve'|'return';target:string;comments:string}
+ | {type:'qc-review';id:string;decision:'approve'|'return';target:string;comments:string}
  | {type:'report-draft';kind:'sampling'|'final';text:string;checker:string;file?:FileVersion}
  | {type:'report-action';kind:'sampling'|'final';action:'checking'|'submit'|'return'|'approve'|'revise';comments:string}
  | {type:'handover-send';sampleIds:string[];notes:string}
@@ -256,27 +272,52 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
  case 'schedule':{
   const a=currentActivity();requireRole(actor,'analysis',streamLead(a.stream));active(actor,command.owner);
   if(!actor.policy.analysis.includes(command.owner)&&command.owner!=='MA001')throw Error('The employee needs laboratory access before assignment.');
+  if(!actor.teams)throw Error('Laboratory team settings cannot be read. Ask an administrator to restore them in Settings → Authorization.');
+  if(command.owner!==a.owner&&!actor.teams[a.stream].includes(command.owner))throw Error((actor.employees.find(e=>e.id===command.owner)?.name||command.owner)+' is not in the '+a.stream+' team. Ask an administrator to add them in Settings → Authorization.');
   if(!/^\d{4}-\d{2}-\d{2}$/.test(command.start)||!/^\d{4}-\d{2}-\d{2}$/.test(command.due)||command.due<command.start)throw Error('Enter a planned start and a due date on or after it.');
   if(a.status==='Completed')throw Error('Completed work is retained; request additional work instead.');
+  if(command.owner!==a.owner&&['Workbook Submitted','Awaiting QC','QC Returned'].includes(a.status))throw Error('This test is under review. Finish the review before reassigning it.');
   reason=`${a.owner||'Unassigned'} → ${command.owner}; ${a.start||'unscheduled'}–${a.due||''} → ${command.start}–${command.due}`;
+  if(command.owner!==a.owner)(a.history||(a.history=[])).push({at:now,by:actor.id,action:a.owner?'reassigned':'assigned',from:a.owner||undefined,to:command.owner,comments:command.notes});
   Object.assign(a,{owner:command.owner,start:command.start,due:command.due,conditions:command.conditions,notes:command.notes,status:a.status==='Unassigned'?'Scheduled':a.status});break;
  }
  case 'progress':{
   const a=currentActivity();requireAccess(actor,'analysis',a.owner||'unassigned');
-  if(!['In Progress','Completed'].includes(command.status))throw Error('Use workbook submission or correction actions for this state.');
+  if(command.status==='Completed')throw Error('A test is completed by QC approval after team-lead review. Submit the workbook to your team lead.');
+  if(command.status!=='In Progress')throw Error('Use workbook submission or correction actions for this state.');
   if(a.status==='Completed')throw Error('Completed work is immutable; request additional work.');
-  if(command.status==='Completed'&&(!a.files.length||a.files.at(-1)?.status!=='Available'))throw Error('Submit the current workbook before completing the activity.');
-  a.status=command.status;a.notes=command.notes;break;
+  if(['Workbook Submitted','Awaiting QC','QC Returned'].includes(a.status))throw Error('The submitted workbook is under review and cannot be edited.');
+  a.status=command.status;a.progressNotes=command.notes;break;
  }
  case 'workbook':{
   const a=currentActivity();requireAccess(actor,'analysis',a.owner||'unassigned');if(a.status==='Completed')throw Error('Request a correction before replacing completed work.');
+  if(['Workbook Submitted','Awaiting QC','QC Returned'].includes(a.status))throw Error('The current workbook is under review. Wait for the team lead’s decision.');
   if(!command.file.id||command.file.size<=0)throw Error('Upload a workbook first.');
-  if(command.notes!==undefined)a.notes=command.notes;
-  a.files.push({...command.file,version:a.files.length+1,submittedBy:actor.id,submittedAt:now,status:'Available',comments:''});a.status='Workbook Submitted';break;
+  if(command.notes!==undefined)a.progressNotes=command.notes;
+  a.files.push({...command.file,version:a.files.length+1,submittedBy:actor.id,submittedAt:now,status:'Available',comments:''});a.status='Workbook Submitted';
+  (a.history||(a.history=[])).push({at:now,by:actor.id,action:'submitted',version:a.files.length,comments:command.notes});break;
  }
  case 'workbook-return':{
   const a=currentActivity();requireAccess(actor,'analysis');if(![holder(actor,streamLead(a.stream)),holder(actor,'reporting')].filter(Boolean).includes(actor.id))throw Error('Only the team lead or report preparer may request a correction.');
-  requireText(command.comments,'Correction request');if(!a.files.length)throw Error('No workbook has been submitted.');a.files[a.files.length-1]={...a.files[a.files.length-1],status:'Changes Requested',comments:command.comments};a.status='Changes Requested';reason=command.comments;break;
+  requireText(command.comments,'Correction request');if(!a.files.length)throw Error('No workbook has been submitted.');if(a.status==='Completed')throw Error('QC-approved work is retained; request additional work instead.');a.files[a.files.length-1]={...a.files[a.files.length-1],status:'Changes Requested',comments:command.comments};a.status='Changes Requested';reason=command.comments;
+  (a.history||(a.history=[])).push({at:now,by:actor.id,action:'lead-returned',version:a.files.length,comments:command.comments});break;
+ }
+ case 'lead-review':case 'qc-review':{
+  const a=currentActivity();const f=a.files.at(-1);
+  if(command.type==='lead-review'){requireRole(actor,'analysis',streamLead(a.stream));if(!['Workbook Submitted','QC Returned'].includes(a.status)||!f)throw Error('There is no submitted workbook waiting for team-lead review.');}
+  else{requireRole(actor,'analysis','qcReviewer');if(a.status!=='Awaiting QC'||!f?.leadApprovedAt)throw Error('Only team-lead-approved workbooks can be QC reviewed.');}
+  if(command.decision==='return'){
+   requireText(command.target,'Affected sheet, section or attachment reference');if(command.comments.trim().length<10)throw Error('Explain the correction specifically (at least a sentence).');
+   reason=command.comments.trim();
+   if(command.type==='qc-review'){a.files[a.files.length-1]={...f,qcReturnedBy:actor.id,qcReturnedAt:now,qcComments:reason,target:command.target.trim()};a.status='QC Returned';(a.history||(a.history=[])).push({at:now,by:actor.id,action:'qc-returned',version:f.version,target:command.target.trim(),comments:reason});}
+   else{a.files[a.files.length-1]={...f,status:'Changes Requested',comments:reason,target:command.target.trim()};a.status='Changes Requested';(a.history||(a.history=[])).push({at:now,by:actor.id,action:'lead-returned',version:f.version,target:command.target.trim(),comments:reason});}
+  } else if(command.type==='lead-review'){
+   if(a.status==='QC Returned')throw Error('QC returned this workbook. Return it to the employee for correction; a corrected version needs your review again.');
+   a.files[a.files.length-1]={...f,leadApprovedBy:actor.id,leadApprovedAt:now};a.status='Awaiting QC';(a.history||(a.history=[])).push({at:now,by:actor.id,action:'lead-approved',version:f.version,comments:command.comments.trim()||undefined});
+  } else {
+   a.files[a.files.length-1]={...f,qcApprovedBy:actor.id,qcApprovedAt:now};a.status='Completed';(a.history||(a.history=[])).push({at:now,by:actor.id,action:'qc-approved',version:f.version,comments:command.comments.trim()||undefined});
+  }
+  break;
  }
  case 'report-draft':{
   if(command.kind==='final')requireRole(actor,'analysis','reporting');else requireAccess(actor,'sampling');
@@ -303,7 +344,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
    else{const ready=command.kind==='sampling'?r.status==='Checking':r.status==='Draft';
    if(actor.id!==r.checker||!ready)throw Error('Only the named checker can forward this version.');}
    if(r.snapshot!==snapshot(command.kind))throw Error('The draft or checked evidence changed. Save an updated draft or return this version for correction before submission.');
-   if(command.kind==='final'&&qcPending(next))throw Error('QC review is required before final reporting. QC is not implemented yet; it arrives with the PVT Lab step.');
+   if(command.kind==='final'&&qcPending(next))throw Error(testsAwaitingQcApproval(next).length+' required test(s) are not yet QC approved. Final reporting waits for every QC approval.');
    if(command.kind==='final'&&(!finalReady(next)||!r.file))throw Error('Complete required work, sampling approval and physical receipt, and attach the final report.');
    if(!direct)r.checkedAt=now;r.submittedAt=now;r.status='Awaiting Approval';r.snapshot=snapshot(command.kind);
   } else if(command.action==='approve'){
@@ -311,7 +352,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
    if(!approver)throw Error(responsibilityLabels[command.kind==='sampling'?'samplingApproval':'finalApproval']+' is not configured. Ask an administrator to assign it in Settings → Authorization.');
    if(actor.id!==approver||r.status!=='Awaiting Approval')throw Error('Only the named approver can approve the submitted version.');
    if(r.snapshot!==snapshot(command.kind))throw Error('The submitted evidence changed. Return this version and review a new revision.');
-   if(command.kind==='final'&&qcPending(next))throw Error('QC review is required before final approval. QC is not implemented yet.');
+   if(command.kind==='final'&&qcPending(next))throw Error(testsAwaitingQcApproval(next).length+' required test(s) are not yet QC approved. Final approval waits for every QC approval.');
    if(command.kind==='sampling'&&dataReviewRequired(job)&&latestData(job)?.status!=='Approved')throw Error('The sampling data must be approved before the report.');
    if(command.kind==='final'&&!finalReady(next))throw Error('Required work changed or remains incomplete. Return this version for correction.');
    r.approvedBy=actor.id;r.approvedAt=now;r.status='Approved';
@@ -333,7 +374,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   const sent=command.sampleIds.map(id=>job.samples!.find(s=>s.id===id)!);o.handover={sampleIds:command.sampleIds,bottles:Object.fromEntries(sent.map(s=>[s.id,containerId(s)])),containerTypes:Object.fromEntries(sent.map(s=>[s.id,isGlass(s)?'Glass container':'Bottle'])),sentBy:actor.id,sentAt:now,notes:command.notes};break;
  }
  case 'handover-receive':{
-  requireAccess(actor,'analysis');if(!o.handover||o.handover.receivedAt)throw Error('There is no outstanding transfer to receive.');
+  requireRole(actor,'analysis','labReceipt');if(!o.handover||o.handover.receivedAt)throw Error('There is no outstanding transfer to receive.');
   o.handover.receivedBy=actor.id;o.handover.receivedAt=now;o.handover.notes+="\nReceipt: "+command.notes;break;
  }
  }
@@ -369,10 +410,10 @@ export function operationMilestones(job:JobRecord,roles:Responsibilities=storedR
  {id:'overview',label:'Job creation',done:!!o.dispatchedAt||legacyDispatch(job),note:legacyDispatch(job)?'Dispatch not recorded (legacy)':undefined,owner:job.createdById,next:isDraft(job)?'Complete the draft and send it to Sampling':'Review and send the job to Sampling'},
  {id:'sampling',label:'Sampling',done:dataReviewRequired(job)?['Submitted','Approved'].includes(latestData(job)?.status||'')||samplingApproved(job):sampleDone,owner:job.assignedEngineerId,next:early?st.next:'Complete the sample data sheets'},
  {id:'sampling-report',label:'Sampling review & report approval',done:samplingApproved(job),owner:early?job.assignedEngineerId:st.owner,next:early?'Submit sampling data for review':st.next},
- {id:'handover',label:'Sample handover',done:!!o.handover?.receivedAt,owner:o.handover?.sentAt?roles.scopeSelector:job.assignedDriverId,next:o.handover?.receivedAt?'Receipt recorded':o.handover?'Confirm physical receipt':'Send approved samples'},
+ {id:'handover',label:'Sample handover',done:!!o.handover?.receivedAt,owner:o.handover?.sentAt?roles.labReceipt||undefined:job.assignedDriverId,next:o.handover?.receivedAt?'Receipt recorded':o.handover?'Confirm physical receipt':'Send approved samples'},
  {id:'scope',label:'Laboratory scope',done:!!o.scopeConfirmedAt&&lab.every(a=>a.owner&&a.start&&a.due),owner:needsScope||!unplanned?roles.scopeSelector:roles[streamLead(unplanned.stream)],next:needsScope?(samplingApproved(job)?'Select and release the laboratory scope per sample':'Laboratory scope opens after sampling-report approval'):'Team leads assign and schedule tests'},
- {id:'laboratory',label:'Laboratory work',done:allWorkDone(job),owner:lab.find(a=>a.status!=='Completed')?.owner,next:'Complete assigned activities and submit workbooks'},
- {id:'reporting',label:'Final reporting',done:latest(o.finalReports)?.status==='Approved'&&finalReady(job),owner:latest(o.finalReports)?.status==='Awaiting Approval'?roles.finalApproval:roles.reporting,next:allWorkDone(job)&&qcPending(job)?'Waiting for QC review (not implemented yet)':latest(o.finalReports)?.status||'Collect workbooks and prepare final report'},
+ {id:'laboratory',label:'Laboratory work',done:allWorkDone(job),owner:lab.find(a=>a.status!=='Completed')?.owner,next:'Complete assigned tests, team-lead review and QC'},
+ {id:'reporting',label:'Final reporting',done:latest(o.finalReports)?.status==='Approved'&&finalReady(job),owner:latest(o.finalReports)?.status==='Awaiting Approval'?roles.finalApproval:roles.reporting,next:qcPending(job)?testsAwaitingQcApproval(job).length+' test(s) awaiting QC approval':latest(o.finalReports)?.status||'Collect QC-approved workbooks and prepare the final report'},
  {id:'completion',label:'Completion',done:operationComplete(job),owner:undefined,next:operationComplete(job)?'All required work and approvals complete':'Complete required work and approvals'},
  ];}
 
@@ -395,6 +436,18 @@ export function pendingActions(job:JobRecord, actor:Actor) {
   if(!roles[streamLead(stream)]||actor.id!==roles[streamLead(stream)]||!hasAccess(actor,'analysis'))continue;
   const unplanned=o.activities.filter(a=>a.required&&a.stream===stream&&(!a.owner||!a.start||!a.due));
   if(unplanned.length)actions.push({id:'laboratory',label:stream+' planning',done:false,owner:actor.id,next:'Assign and schedule '+unplanned.length+' required activities'});
+  const submitted=o.activities.filter(a=>a.stream===stream&&a.status==='Workbook Submitted').length,qcBack=o.activities.filter(a=>a.stream===stream&&a.status==='QC Returned').length;
+  if(submitted)actions.push({id:'laboratory',label:stream+' workbook review',done:false,owner:actor.id,next:'Review '+submitted+' submitted workbook(s)'});
+  if(qcBack)actions.push({id:'laboratory',label:stream+' QC returns',done:false,owner:actor.id,next:'Review QC comments on '+qcBack+' workbook(s)'});
+ }
+ if(hasAccess(actor,'analysis')){
+  const mine=o.activities.filter(a=>a.owner===actor.id&&['Scheduled','In Progress','Changes Requested'].includes(a.status));
+  const returned=mine.filter(a=>a.status==='Changes Requested').length;
+  if(returned)actions.push({id:'laboratory',label:'Returned tests',done:false,owner:actor.id,next:'Correct and resubmit '+returned+' returned workbook(s)'});
+  if(mine.length>returned)actions.push({id:'laboratory',label:'Assigned tests',done:false,owner:actor.id,next:'Complete '+(mine.length-returned)+' test(s) and submit the workbook'});
+  const waiting=o.activities.filter(a=>a.status==='Awaiting QC').length;
+  if(waiting&&roles.qcReviewer===actor.id)actions.push({id:'reporting',label:'QC review',done:false,owner:actor.id,next:'QC review '+waiting+' team-lead-approved workbook(s)'});
+  if(waiting&&!roles.qcReviewer&&[roles.pvtTeamLead,roles.chemicalTeamLead,roles.pvtSupervisor].includes(actor.id))actions.push({id:'reporting',label:'QC not configured',done:false,owner:actor.id,next:waiting+' workbook(s) waiting: QC reviewer not configured in Settings → Authorization'});
  }
  return actions;
 }

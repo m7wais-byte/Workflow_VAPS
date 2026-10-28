@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { OperationsWorkspace, WeeklyWork, Clarification, ClarificationReview } from './operations-workspace';
-import { applyOperation, operationComplete, latest, isDraft, canSeeDraft, samplingTeam, pendingActions, samplingStatus, latestData, samplingDataLocked, dataReviewRequired, type Actor, type Operations, type Command } from './operations-model';
+import { OperationsWorkspace, WeeklyWork, Clarification, ClarificationReview, LabWorkspace } from './operations-workspace';
+import { applyOperation, operationComplete, latest, operationsFor, streamLead, type ActivityRecord, isDraft, canSeeDraft, samplingTeam, pendingActions, samplingStatus, latestData, samplingDataLocked, dataReviewRequired, type Actor, type Operations, type Command } from './operations-model';
 import { readTestRouting, storedTestRouting, testRoutingKey, type TestRouting } from './test-routing';
+import { readLabTeams, storedLabTeams, labTeamsKey, emptyLabTeams, type LabTeams } from './lab-teams';
 import { PvtLab, type LabTestProgress } from "./pvt-lab";
 import { itemLabel, labComplete, labItems, planKeys, reconcileLabScope, type LabItem, type LabPlan } from "./lab-work";
 import { ClientLogo } from "./client-logo";
@@ -396,7 +397,7 @@ export default function Home() {
   function freshActor(): Actor {
     if(!currentEmployee)throw Error('Select an active trial profile.');
     const employees=loadDirectory().employees;
-    return {id:currentEmployee.id,employees,policy:readAuthorization(localStorage.getItem(authorizationKey),employees.map(e=>e.id)),roles:storedResponsibilities(),routing:storedTestRouting()};
+    return {id:currentEmployee.id,employees,policy:readAuthorization(localStorage.getItem(authorizationKey),employees.map(e=>e.id)),roles:storedResponsibilities(),routing:storedTestRouting(),teams:storedLabTeams(employees.map(e=>e.id))};
   }
   function setWorkspaceView(view: 'workflow' | WorkspaceView) { location.assign('#'+view); }
   function saveDirectory(next: Directory) {
@@ -414,6 +415,8 @@ export default function Home() {
   const [responsibilitiesError, setResponsibilitiesError] = useState("");
   const [testRouting, setTestRouting] = useState<TestRouting>({});
   const [testRoutingError, setTestRoutingError] = useState("");
+  const [labTeams, setLabTeams] = useState<LabTeams>(emptyLabTeams);
+  const [labTeamsError, setLabTeamsError] = useState("");
   const hasPermission = (permission: Permission) => !directoryError && !!demoEmployees.find(e=>e.id===currentEmployee?.id && e.active) && !authorizationError && allowed(authorization, currentEmployee?.id, permission);
   const canView = (view: string) => {
     if (view === "settings") return ["settings", "company", "employees", "authorization"].some(p=>hasPermission(p as Permission));
@@ -435,9 +438,11 @@ export default function Home() {
       catch { setResponsibilities({...unassignedResponsibilities}); setResponsibilitiesError("Saved responsibilities could not be loaded. Every workflow duty is blocked until they are saved again."); }
       try { setTestRouting(readTestRouting(window.localStorage.getItem(testRoutingKey))); setTestRoutingError(""); }
       catch { setTestRouting({}); setTestRoutingError("Saved test routing could not be loaded. Laboratory scope release is blocked until it is restored."); }
+      try { setLabTeams(readLabTeams(window.localStorage.getItem(labTeamsKey), loadDirectory().employees.map(person => person.id))); setLabTeamsError(""); }
+      catch { setLabTeams(emptyLabTeams()); setLabTeamsError("Saved laboratory teams could not be loaded. Test assignment is blocked until they are saved again."); }
     };
     load();
-    const onStorage = (event: StorageEvent) => { if (event.key === authorizationKey || event.key === responsibilitiesKey || event.key === testRoutingKey || event.key === null) load(); };
+    const onStorage = (event: StorageEvent) => { if (event.key === authorizationKey || event.key === responsibilitiesKey || event.key === testRoutingKey || event.key === labTeamsKey || event.key === null) load(); };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
@@ -612,7 +617,7 @@ export default function Home() {
   const currentJob = jobs.find((item) => item.id === jobId);
   /** The configured sampling approver for actions taken now. Recorded approvals keep their own approver. */
   const samplingApprover = roleHolder(responsibilities, "samplingApproval", demoEmployees);
-  const opsActor: Actor | null = currentEmployee ? { id: currentEmployee.id, employees: demoEmployees, policy: authorization, roles: responsibilities, routing: testRoutingError ? null : testRouting } : null;
+  const opsActor: Actor | null = currentEmployee ? { id: currentEmployee.id, employees: demoEmployees, policy: authorization, roles: responsibilities, routing: testRoutingError ? null : testRouting, teams: labTeamsError ? null : labTeams } : null;
   // Drafts are shown only to job creators, their author and the administrator, in every list and direct link.
   const visibleJobs = opsActor ? jobs.filter((item) => canSeeDraft(item, opsActor)) : [];
   const progressById = new Map<string, JobProgress>(jobs.map((item) => [item.id, jobProgress(item)]));
@@ -641,6 +646,22 @@ export default function Home() {
     return events;
   };
   const unseenEvents = (item: JobRecord) => samplingEvents(item).filter((key) => !(seenSampling[currentEmployee?.id || ""] || []).includes(key));
+  /** Laboratory indicator events for the signed-in employee: new assignment, returned work and items awaiting their review. */
+  const labEvents = ({ a }: { job: JobRecord; a: ActivityRecord }): string[] => {
+    if (!currentEmployee) return [];
+    const me = currentEmployee.id, v = a.files.length, events: string[] = [];
+    const assignedAt = [...(a.history || [])].reverse().find((h) => h.to === me)?.at || a.start;
+    if (a.owner === me && a.status !== "Completed") events.push(`lab:assign:${a.id}:${assignedAt}`);
+    if (a.owner === me && a.status === "Changes Requested") events.push(`lab:return:${a.id}:${v}`);
+    const lead = roleHolder(responsibilities, streamLead(a.stream), demoEmployees);
+    if (lead === me && a.status === "Workbook Submitted") events.push(`lab:review:${a.id}:${v}`);
+    if (lead === me && a.status === "QC Returned") events.push(`lab:qcret:${a.id}:${v}`);
+    if (roleHolder(responsibilities, "qcReviewer", demoEmployees) === me && a.status === "Awaiting QC") events.push(`lab:qc:${a.id}:${v}`);
+    return events;
+  };
+  const labItemsVisible = visibleJobs.filter((item) => !isDraft(item)).flatMap((job) => operationsFor(job).activities.filter((a) => a.required).map((a) => ({ job, a })));
+  const unseenLab = (item: { job: JobRecord; a: ActivityRecord }) => labEvents(item).filter((key) => !(seenSampling[currentEmployee?.id || ""] || []).includes(key));
+  const labUnseen = labItemsVisible.reduce((count, item) => count + unseenLab(item).length, 0);
   const samplingUnseen = samplingJobsAll.reduce((count, item) => count + unseenEvents(item).length, 0);
   const samplingActionLabel = (item: JobRecord) => ({ draft: "Open job", preparation: "Start preparation", data: "Continue sampling data", "data-review": "Review sampling data", returned: "Correct returned work", "report-generation": "Sampling report", "report-review": "Review report", "report-approved": "Open job" } as Record<string, string>)[samplingStatus(item, responsibilities).key];
   const reportsWorkspaceJobs = visibleJobs.filter((item) => item.operations?.samplingReports.length || item.report?.preparedBy || item.report?.summary);
@@ -1202,9 +1223,10 @@ export default function Home() {
   }
 
   const [submissionNote, setSubmissionNote] = useState("");
-  function markSamplingSeen(item: JobRecord) {
-    if (!currentEmployee) return;
-    const next = { ...seenSampling, [currentEmployee.id]: [...new Set([...(seenSampling[currentEmployee.id] || []), ...samplingEvents(item)])].slice(-300) };
+  function markSamplingSeen(item: JobRecord) { markSeen(samplingEvents(item)); }
+  function markSeen(keys: string[]) {
+    if (!currentEmployee || !keys.length) return;
+    const next = { ...seenSampling, [currentEmployee.id]: [...new Set([...(seenSampling[currentEmployee.id] || []), ...keys])].slice(-500) };
     setSeenSampling(next); try { localStorage.setItem(samplingSeenKey, JSON.stringify(next)); } catch { /* not critical */ }
   }
   function openSamplingTask(item: JobRecord) {
@@ -1695,7 +1717,7 @@ export default function Home() {
           <p className="nav-label">WORKSPACE</p>{hasPermission("createJob") && <button type="button" className="nav-item" onClick={startNewJob}><Plus size={18} /> Create new job</button>}
           {navItems.map((item, index) => { const NavIcon = navIcons[index]; if (!canView(({ Dashboard: "dashboard", Jobs: "jobs", Sampling: "sampling", "PVT Lab": "pvt-lab", Inventory: "inventory", Settings: "settings" } as Record<string, string>)[item])) return null; return (
             <button key={item} className={(item === "Dashboard" && workspaceView === "dashboard") || (item === "Jobs" && (workspaceView === "jobs" || workspaceView === "workflow")) || (item === "New Job" && workspaceView === "new-job") || (item === "Sampling" && workspaceView === "sampling") || (item === "PVT Lab" && workspaceView === "pvt-lab")  || (item === "Settings" && workspaceView === "settings") || (item === "Inventory" && workspaceView === "inventory") ? "nav-item active" : "nav-item"} type="button" onClick={() => { if (item === "Dashboard") setWorkspaceView("dashboard"); if (item === "Jobs") setWorkspaceView("jobs"); if (item === "Sampling") setWorkspaceView("sampling"); if (item === "PVT Lab") { setLabJobId(""); setWorkspaceView("pvt-lab"); } if (item === "Settings") { setWorkspaceView("settings"); } if (item === "Inventory") { setWorkspaceView("inventory"); } if (item === "New Job") startNewJob(); }} aria-current={(item === "Dashboard" && workspaceView === "dashboard") || (item === "Jobs" && workspaceView === "jobs") || (item === "New Job" && workspaceView === "new-job") || (item === "Sampling" && workspaceView === "sampling") || (item === "PVT Lab" && workspaceView === "pvt-lab")  || (item === "Settings" && workspaceView === "settings") || (item === "Inventory" && workspaceView === "inventory") ? "page" : undefined}>
-              <span className="nav-icon" aria-hidden="true"><NavIcon size={19} strokeWidth={1.8} /></span>{item}{item === "Sampling" && samplingUnseen > 0 && <span className="nav-badge" aria-label={`${samplingUnseen} new sampling updates`}>{samplingUnseen}</span>}
+              <span className="nav-icon" aria-hidden="true"><NavIcon size={19} strokeWidth={1.8} /></span>{item}{item === "Sampling" && samplingUnseen > 0 && <span className="nav-badge" aria-label={`${samplingUnseen} new sampling updates`}>{samplingUnseen}</span>}{item === "PVT Lab" && labUnseen > 0 && <span className="nav-badge" aria-label={`${labUnseen} new laboratory updates`}>{labUnseen}</span>}
               {item === "Jobs" && <span className="nav-count">{jobs.length}</span>}
             </button>
           ); })}
@@ -1815,7 +1837,7 @@ export default function Home() {
               </>}
             </>
 ) : workspaceView === "pvt-lab" ? (
-            <><WeeklyWork jobs={visibleJobs} actor={{id:currentEmployee.id,employees:demoEmployees,policy:authorization,roles:responsibilities}} onOpen={openOperation} teamView={currentEmployee.id==='MA001'||(['scopeSelector','pvtSupervisor','pvtTeamLead','chemicalTeamLead'] as const).some(key=>roleHolder(responsibilities,key,demoEmployees)===currentEmployee.id)}/><details className="panel ops-panel"><summary>Historical PVT plans and progress</summary><Clarification id="legacy"/><PvtLab key={labJobId || "lab-list"} initialJobId={labJobId} jobs={jobs.filter(item => !isDraft(item))} today={today} employeeName={employeeName} team={labTeam}
+            <><LabWorkspace jobs={visibleJobs.filter((item) => !isDraft(item))} actor={opsActor!} unseen={unseenLab} onOpen={(item) => { markSeen(labEvents(item)); openOperation(item.job, "laboratory?activity=" + encodeURIComponent(item.a.id)); }} /><WeeklyWork jobs={visibleJobs} actor={{id:currentEmployee.id,employees:demoEmployees,policy:authorization,roles:responsibilities}} onOpen={openOperation} teamView={currentEmployee.id==='MA001'||(['scopeSelector','pvtSupervisor','pvtTeamLead','chemicalTeamLead'] as const).some(key=>roleHolder(responsibilities,key,demoEmployees)===currentEmployee.id)}/><details className="panel ops-panel"><summary>Historical PVT plans and progress</summary><Clarification id="legacy"/><PvtLab key={labJobId || "lab-list"} initialJobId={labJobId} jobs={jobs.filter(item => !isDraft(item))} today={today} employeeName={employeeName} team={labTeam}
               canPlan={canPlanLab} lockReason={labLockReason}
               onOpenJob={(item) => { setWorkflowJobId(item.id); setWorkspaceView("workflow"); }} onEditScope={(item) => { resumeJob(item); setStage("job"); }}
               onSavePlan={(id, plan) => {
@@ -1876,7 +1898,11 @@ export default function Home() {
               {settingsPage==='employees' && hasPermission('employees') && <EmployeeSettings directory={directory} onSave={saveDirectory} jobs={jobs} onReview={item=>{setWorkflowJobId(item.id);setWorkspaceView('workflow');}} />}
               {settingsPage==='departments' && hasPermission('employees') && <OptionSettings directory={directory} onSave={saveDirectory} />}
               {settingsPage==='company' && hasPermission('company') && <CompanySettings company={company} onSave={next=>{if(!hasPermission('company')) throw Error('You cannot manage company details.'); localStorage.setItem('vaps-company-v1',JSON.stringify(next));setCompany(next);}} />}
-              {settingsPage === "authorization" && hasPermission("authorization") && <AuthorizationSettings key={JSON.stringify([authorization,responsibilities,testRouting])} routing={testRouting} routingError={testRoutingError} onSaveRouting={next => {
+              {settingsPage === "authorization" && hasPermission("authorization") && <AuthorizationSettings key={JSON.stringify([authorization,responsibilities,testRouting,labTeams])} teams={labTeams} teamsError={labTeamsError} onSaveTeams={next => {
+                if (!hasPermission("authorization") || labTeamsError) return false;
+                try { const validated = readLabTeams(JSON.stringify(next), demoEmployees.map(person => person.id)); window.localStorage.setItem(labTeamsKey, JSON.stringify(validated)); setLabTeams(validated); recordActivity("Updated laboratory teams", "Settings"); setNotice("Laboratory teams saved."); return true; }
+                catch { setNotice("Laboratory teams could not be saved. Please try again."); return false; }
+              }} routing={testRouting} routingError={testRoutingError} onSaveRouting={next => {
                 if (!hasPermission("authorization") || testRoutingError) return false;
                 try { const validated = readTestRouting(JSON.stringify(next)); window.localStorage.setItem(testRoutingKey, JSON.stringify(validated)); setTestRouting(validated); recordActivity("Updated laboratory test routing", "Settings"); setNotice("Test routing saved."); return true; }
                 catch { setNotice("Test routing could not be saved. Please try again."); return false; }
