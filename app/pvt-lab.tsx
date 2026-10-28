@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { JobRecord } from "./page";
+import { containerId, isGlass } from "./sample-container";
 import { CircleCheck, CircleDashed, CircleDot, CirclePause, Hourglass, Pencil, UserRound } from "lucide-react";
 import {
   currentProgress, isValidationTest, itemLabel, labItems, labProgress, planKeys, requestedDetailedTests, scopeTestOptions, scopeText,
@@ -157,7 +158,7 @@ export function PvtLab({ initialJobId = "", jobs, employeeName, team, onOpenJob,
       </>}
 
       <details className="panel lab-details"><summary>Samples and bottles · {selected.samples?.length || 0} records</summary><p>These are recorded sample details; they do not confirm physical receipt by the lab.</p>
-        {selected.samples?.length ? <div className="operations-table-wrap"><table className="lab-sample-table"><thead><tr><th>Sample</th><th>Bottle / serial</th><th>Capacity</th><th>Sampling data</th><th>Notes</th></tr></thead><tbody>{selected.samples.map((sample) => <tr key={sample.id}><td>{sample.id}</td><td>{sample.bottle || "Not recorded"}<br />{sample.bottleSerial || "Serial not recorded"}</td><td>{sample.bottleCapacity || "Not recorded"}</td><td>{sample.dataComplete ? "Complete" : "Pending"}</td><td>{sample.notes || sample.preparationRemarks || "—"}</td></tr>)}</tbody></table></div> : <p>No sample records have been added yet.</p>}
+        {selected.samples?.length ? <div className="operations-table-wrap"><table className="lab-sample-table"><thead><tr><th>Sample</th><th>Bottle / container</th><th>Capacity</th><th>Sampling data</th><th>Notes</th></tr></thead><tbody>{selected.samples.map((sample) => <tr key={sample.id}><td>{sample.id}</td><td>{isGlass(sample) ? "Glass container" : sample.bottle || "Not recorded"}<br />{containerId(sample) || (isGlass(sample) ? "ID not recorded" : "Serial not recorded")}</td><td>{isGlass(sample) ? "—" : sample.bottleCapacity || "Not recorded"}</td><td>{sample.dataComplete ? "Complete" : "Pending"}</td><td>{sample.notes || sample.preparationRemarks || "—"}</td></tr>)}</tbody></table></div> : <p>No sample records have been added yet.</p>}
       </details>
       <details className="panel lab-details"><summary>Client contact and job handover</summary><dl className="lab-facts"><div><dt>Client focal point</dt><dd>{selected.clientFocalPoint || "Not recorded"}</dd></div><div><dt>Phone</dt><dd>{selected.clientFocalPointContact || "Not recorded"}</dd></div><div><dt>Email</dt><dd>{selected.clientFocalPointEmail || "Not recorded"}</dd></div><div><dt>Client reference</dt><dd>{selected.clientReference || "Not recorded"}</dd></div></dl></details>
     </div>;

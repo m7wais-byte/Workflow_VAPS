@@ -9,7 +9,7 @@ export function workflowPeople() {
 }
 export function eligibleForTeam(id:string,team:string) {
  if(typeof window==='undefined') return people.some(p=>p[0]===id&&p[2]===team);
- try { const d=loadDirectory(); const e=d.employees.find(e=>e.id===id&&e.active); if(!e)return false; const policy=readAuthorization(localStorage.getItem(authorizationKey),d.employees.map(e=>e.id)); const permission=team==='analysis'?'analysis':team==='coordination'?'createJob':'sampling'; return allowed(policy,id,permission) && (e.role===team || !e.password); } catch {return false;}
+ try { const d=loadDirectory(); const e=d.employees.find(e=>e.id===id&&e.active); if(!e)return false; const policy=readAuthorization(localStorage.getItem(authorizationKey),d.employees.map(e=>e.id)); const permission=team==='analysis'?'analysis':team==='coordination'?'createJob':team==='transport'?'jobDetails':'sampling'; return allowed(policy,id,permission) && (e.role===team || !e.password); } catch {return false;}
 }
 export type Task = {owner?:string;acceptedAt?:string;completedAt?:string};
 export type TeamWork = Record<string,Task>;

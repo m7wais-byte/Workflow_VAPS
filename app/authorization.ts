@@ -13,8 +13,15 @@ export const permissionLabels = {
 };
 export type Permission = keyof typeof permissionLabels;
 export type Authorization = Record<Permission, string[]>;
+/**
+ * There is no shared Driver permission profile; permissions are per employee. Drivers added later
+ * receive only job details, and driver actions are authorized by the job's driver assignment.
+ */
+export const driverOnlyAccess: Permission[] = ['jobDetails'];
+export const driverOnlyIds = ['HUMAID'];
 export function defaultAuthorization(ids: string[]): Authorization {
-  return { createJob: ['SALIM'], jobDetails: [...ids], sampling: [...ids], analysis: [...ids], inventory: [...ids], settings: [administratorId], company: [administratorId], employees: [administratorId], authorization: [administratorId] };
+  const broad = ids.filter(id => !driverOnlyIds.includes(id));
+  return { createJob: ['SALIM'], jobDetails: [...ids], sampling: [...broad], analysis: [...broad], inventory: [...broad], settings: [administratorId], company: [administratorId], employees: [administratorId], authorization: [administratorId] };
 }
 export function readAuthorization(raw: string | null, ids: string[]): Authorization {
   if (raw === null) return defaultAuthorization(ids);
@@ -29,4 +36,56 @@ export function readAuthorization(raw: string | null, ids: string[]): Authorizat
 export function allowed(policy: Authorization, id: string | undefined, permission: Permission): boolean {
   // The administrator retains access to the project, but job creation is explicitly assigned.
   return !!id && ((id === administratorId && permission !== 'createJob') || policy[permission].includes(id));
+}
+
+/** Workflow duties, assigned to employee IDs. A duty never grants a permission; both must pass. */
+export const responsibilityLabels = {
+  scopeSelector: 'Scope selection',
+  samplingApproval: 'Sampling approval',
+  pvtSupervisor: 'PVT Supervisor',
+  pvtTeamLead: 'PVT Team Lead',
+  chemicalTeamLead: 'Chemical Team Lead',
+  reporting: 'Final report preparation',
+  finalApproval: 'Final report approval',
+  qcReviewer: 'QC review',
+};
+export type Responsibility = keyof typeof responsibilityLabels;
+export type Responsibilities = Record<Responsibility, string>;
+/** Permission each duty needs in order to act; shown as a warning, never granted automatically. */
+export const responsibilityPermission: Record<Responsibility, Permission> = { scopeSelector: 'analysis', samplingApproval: 'sampling', pvtSupervisor: 'analysis', pvtTeamLead: 'analysis', chemicalTeamLead: 'analysis', reporting: 'analysis', finalApproval: 'analysis', qcReviewer: 'analysis' };
+export const responsibilitiesKey = 'vaps-responsibilities-v1';
+/** Initial setup and migration only. QC stays unassigned until an administrator names a reviewer. */
+export const defaultResponsibilities: Responsibilities = { scopeSelector: 'SALIM', samplingApproval: 'SALIM', pvtSupervisor: 'WILFRED', pvtTeamLead: 'SHEREIQI', chemicalTeamLead: 'BAHRI', reporting: 'SHEREIQI', finalApproval: 'WILFRED', qcReviewer: '' };
+/** Missing settings or keys added later receive defaults; a saved empty value stays empty. */
+export function readResponsibilities(raw: string | null): Responsibilities {
+  if (raw === null) return { ...defaultResponsibilities };
+  const value = JSON.parse(raw);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw Error('Invalid responsibility settings');
+  return Object.fromEntries((Object.keys(responsibilityLabels) as Responsibility[]).map(key => {
+    if (value[key] === undefined) return [key, defaultResponsibilities[key]];
+    if (typeof value[key] !== 'string') throw Error('Invalid responsibility settings');
+    return [key, value[key]];
+  })) as Responsibilities;
+}
+/** Duties assigned to an employee record that is missing or inactive. */
+export function invalidResponsibilities(roles: Responsibilities, employees: { id: string; active: boolean }[]): Responsibility[] {
+  return (Object.keys(responsibilityLabels) as Responsibility[]).filter(key => roles[key] && !employees.some(e => e.id === roles[key] && e.active));
+}
+/** The valid holder of a duty, or '' when it is unassigned or points to a missing/inactive record. */
+export function roleHolder(roles: Responsibilities, key: Responsibility, employees: { id: string; active: boolean }[]): string {
+  return invalidResponsibilities(roles, employees).includes(key) ? '' : roles[key];
+}
+/** Used when saved responsibilities cannot be read: every duty is blocked rather than defaulted. */
+export const unassignedResponsibilities = Object.fromEntries(Object.keys(responsibilityLabels).map(key => [key, ''])) as Responsibilities;
+export const driverMigrationKey = 'vaps-migration-driver-access-v1';
+/** One-time: a driver added by migration gets job details only. Later administrator edits are never re-applied. */
+export function migrateDriverAccess(policy: Authorization, ids: string[]): Authorization {
+  const added = driverOnlyIds.filter(id => ids.includes(id) && !(Object.keys(permissionLabels) as Permission[]).some(key => policy[key].includes(id)));
+  if (!added.length) return policy;
+  return { ...policy, ...Object.fromEntries(driverOnlyAccess.map(key => [key, [...policy[key], ...added]])) };
+}
+/** Saved duties for views without an actor. Unreadable settings block every duty instead of restoring defaults. */
+export function storedResponsibilities(): Responsibilities {
+  if (typeof window === 'undefined' || !window.localStorage) return { ...defaultResponsibilities };
+  try { return readResponsibilities(window.localStorage.getItem(responsibilitiesKey)); } catch { return { ...unassignedResponsibilities }; }
 }

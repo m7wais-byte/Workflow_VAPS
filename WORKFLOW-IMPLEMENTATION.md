@@ -10,13 +10,17 @@ BVT and Chemical work can run in parallel. Weekly views support multi-day and cr
 
 ## Responsibilities
 
-- Salem (existing ID SALIM): BVT scope/planning and sampling approval.
-- Al-Yaqzan (BAHRI): Chemical planning.
-- Ahmed (SHEREIQI): final report preparation/review.
-- Wilfred (WILFRED): final approval.
+Duties are assigned to employee IDs in Settings → Authorization → Responsibilities (`vaps-responsibilities-v1`). Defaults apply only at first setup or migration; a cleared duty stays empty and blocks its step. A duty never grants a permission; both must pass.
+
+- Scope selection and sampling approval: Salim (SALIM). Job creation remains the `createJob` permission.
+- PVT Supervisor: Wilfred (WILFRED) — supervisory overview of PVT work. Final report approval: Wilfred.
+- PVT Team Lead: Ahmed Al Shereiqi (SHEREIQI) — assigns PVT tests, reviews workbooks. Also final report preparation.
+- Chemical Team Lead: Al Yaqdhan (BAHRI) — assigns chemical tests, reviews workbooks.
+- QC review: not configured by default; no QC identity is assumed.
+- Drivers: Ali (ALI) and Humaid Al Habsi (HUMAID). There is no shared Driver permission profile; Humaid has job details access only, and handover actions follow the job's driver assignment.
 - Assigned active employees: execution and workbook submission, subject to existing area permissions.
 
-Positions and departments do not grant permissions. Creating an employee does not create an account.
+The laboratory stream formerly stored as "BVT" is read as "PVT". Samples are held in a bottle (inventory type + serial) or a glass container (`containerType`, `containerId`).
 
 ## Data preservation and storage
 
@@ -42,16 +46,15 @@ These are explicitly displayed as Needs clarification in the application, rather
 1. Who selects and signs off the initial request before sampling.
 2. Sampling preparer/checker eligibility and independence rules.
 3. Whether lab execution must wait for sampling approval and/or physical receipt.
-4. Whether PVT Lab should be renamed BVT Lab.
-5. Which validation steps are mandatory and whether steps may be omitted.
-6. Validation sequences for sampling methods other than Bottomhole, Wellhead and Separator.
-7. BV meaning and its relationship to historical PV entries.
-8. Workbook reviewer ownership and whether independent QC is required.
-9. Whether final reporting needs an independent reviewer in addition to Ahmed and Wilfred.
-10. Authority for additional scope; currently requests are recorded and Salem confirms lab scope.
-11. Partial shipment and receipt rules; current handover records all job bottles together.
-12. Shared execution rules; each activity currently has one accountable employee.
-13. How to reconcile missing evidence in legacy records without inventing history.
+4. Which validation steps are mandatory and whether steps may be omitted.
+5. Validation sequences for sampling methods other than Bottomhole, Wellhead and Separator.
+6. BV meaning and its relationship to historical PV entries.
+7. Workbook reviewer ownership and whether independent QC is required.
+8. Whether final reporting needs an independent reviewer in addition to Ahmed and Wilfred.
+9. Authority for additional scope; currently requests are recorded and Salem confirms lab scope.
+10. Partial shipment and receipt rules; current handover records all job bottles together.
+11. Shared execution rules; each activity currently has one accountable employee.
+12. How to reconcile missing evidence in legacy records without inventing history.
 
 ## Infrastructure limits
 

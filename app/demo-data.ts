@@ -50,11 +50,11 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
  };
  const conditions = (pressure: string, temperature: string) => ({ pressure, pressureUnit: 'psi', temperature, temperatureUnit: '°C', notes: 'DEMO reservoir conditions, fictional.' });
  /** Schedules every activity; completes the first `complete` of them with a workbook and starts the next one. */
- async function labWork(j: JobRecord, owners: Record<'BVT' | 'Chemical', string[]>, tick: () => string, complete: number) {
+ async function labWork(j: JobRecord, owners: Record<'PVT' | 'Chemical', string[]>, tick: () => string, complete: number) {
   const list = j.operations!.activities;
   for (const [i, a] of list.entries()) {
    const team = owners[a.stream], owner = team[i % team.length];
-   j = run(j, a.stream === 'BVT' ? 'SALIM' : 'BAHRI', { type: 'schedule', id: a.id, owner, start: addDays(day, -3 + Math.floor(i / 4)), due: addDays(day, -1 + Math.floor(i / 4)), conditions: a.conditions, notes: 'DEMO instructions.' }, tick());
+   j = run(j, a.stream === 'PVT' ? 'SHEREIQI' : 'BAHRI', { type: 'schedule', id: a.id, owner, start: addDays(day, -3 + Math.floor(i / 4)), due: addDays(day, -1 + Math.floor(i / 4)), conditions: a.conditions, notes: 'DEMO instructions.' }, tick());
   }
   for (const [i, a] of list.entries()) {
    if (i > complete) break;
@@ -84,7 +84,7 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
  j2 = run(j2, 'SALIM', { type: 'dispatch', engineer: 'HUSSEINI', driver: 'ALI' }, t());
  j2 = samplingReport(j2, 'HUSSEINI', 'MOHSIN', t, false);
 
- // 3 · In the laboratory: BVT validation part done, Chemical analysis started.
+ // 3 · In the laboratory: PVT validation part done, Chemical analysis started.
  t = clock(9); start = t();
  const bh = { samplingDate: addDays(day, -8), formation: 'DEMO Formation', bhp: '3150', bht: '92', sampleBottleVolume: '700', sampleVolume: '600' };
  let j3 = job(3, { samplingSource: 'Cased Hole (Bottomhole / Downhole Sampling)', holeType: 'Cased Hole', well: 'DEMO-BH-03', formation: 'DEMO Formation', plannedDepth: '2450', requiredTests: ['Black Oil — Validation', 'Black Oil — DL', 'Others — Water Analysis'], assignedEngineerId: 'MOHSIN', assignedDriverId: 'ALI',
@@ -92,8 +92,8 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
   dueDate: addDays(day, 6) }, start, 4);
  j3 = run(j3, 'SALIM', { type: 'dispatch', engineer: 'MOHSIN', driver: 'ALI' }, t());
  j3 = handover(samplingReport(j3, 'MOHSIN', 'HUSSEINI', t, true), 'ALI', t);
- j3 = run(j3, 'SALIM', { type: 'scope', reason: 'Confirm the original request.', conditions: conditions('3150', '92'), items: [{ title: 'Black Oil — Validation', sampleIds: ['1.01', '1.02'], stream: 'BVT' }, { title: 'Black Oil — DL', sampleIds: ['1.01'], stream: 'BVT' }, { title: 'Others — Water Analysis', sampleIds: ['1.02'], stream: 'Chemical' }] }, t());
- j3 = await labWork(j3, { BVT: ['NASSER', 'AHAD'], Chemical: ['YAQEEN'] }, t, 6);
+ j3 = run(j3, 'SALIM', { type: 'scope', reason: 'Confirm the original request.', conditions: conditions('3150', '92'), items: [{ title: 'Black Oil — Validation', sampleIds: ['1.01', '1.02'], stream: 'PVT' }, { title: 'Black Oil — DL', sampleIds: ['1.01'], stream: 'PVT' }, { title: 'Others — Water Analysis', sampleIds: ['1.02'], stream: 'Chemical' }] }, t());
+ j3 = await labWork(j3, { PVT: ['NASSER', 'AHAD'], Chemical: ['YAQEEN'] }, t, 6);
  const water = j3.operations!.activities.find(a => a.stream === 'Chemical')!;
  j3 = run(j3, water.owner, { type: 'progress', id: water.id, status: 'In Progress', notes: 'Started.' }, t());
 
@@ -104,8 +104,8 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
   samples: [sample('1.01', 'WHS', true, wh, 'HUSSEINI', start)], dueDate: addDays(day, -2) }, start, 4);
  j4 = run(j4, 'SALIM', { type: 'dispatch', engineer: 'HUSSEINI', driver: 'ALI' }, t());
  j4 = handover(samplingReport(j4, 'HUSSEINI', 'MOHSIN', t, true), 'ALI', t);
- j4 = run(j4, 'SALIM', { type: 'scope', reason: 'Confirm the original request.', conditions: conditions('2480', '78'), items: [{ title: 'Black Oil — Validation', sampleIds: ['1.01'], stream: 'BVT' }, { title: 'Others — Water Analysis', sampleIds: ['1.01'], stream: 'Chemical' }] }, t());
- j4 = await labWork(j4, { BVT: ['NASSER', 'RANJITH'], Chemical: ['YAQEEN'] }, t, Infinity);
+ j4 = run(j4, 'SALIM', { type: 'scope', reason: 'Confirm the original request.', conditions: conditions('2480', '78'), items: [{ title: 'Black Oil — Validation', sampleIds: ['1.01'], stream: 'PVT' }, { title: 'Others — Water Analysis', sampleIds: ['1.01'], stream: 'Chemical' }] }, t());
+ j4 = await labWork(j4, { PVT: ['NASSER', 'RANJITH'], Chemical: ['YAQEEN'] }, t, Infinity);
  const finalFile = await storeFile('DEMO Final Report.pdf', 'DEMO final report placeholder. Fictional data.');
  const submitted = t();
  j4 = run(j4, 'SHEREIQI', { type: 'report-draft', kind: 'final', text: 'DEMO final report: validation and water analysis complete. Fictional results.', checker: 'SHEREIQI', file: { ...finalFile, version: 1, submittedBy: 'SHEREIQI', submittedAt: submitted, status: 'Available', comments: '' } }, submitted);

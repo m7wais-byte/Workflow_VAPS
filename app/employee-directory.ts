@@ -4,7 +4,7 @@ export type Directory = { employees: Employee[]; departments: DirectoryOption[];
 export const directoryKey = 'vaps-directory-v1';
 export const seedPeople = [
  ['SALIM','Salim Al Maqbali','coordination'],['WILFRED','Wilfred Mendonca','coordination'],
- ['HUSSEINI','Ahmed Al Husseini','sampling'],['MOHSIN','Mohsin Al Dhuhli','sampling'],['ALI','Ali Al Hasani','transport'],
+ ['HUSSEINI','Ahmed Al Husseini','sampling'],['MOHSIN','Mohsin Al Dhuhli','sampling'],['ALI','Ali Al Hasani','transport'],['HUMAID','Humaid Al Habsi','transport'],
  ['SHEREIQI','Ahmed Al Shereiqi','analysis'],['BAHRI','Al Yaqdhan Al Bahri','analysis'],['AHAD','Ahad Al Aasmi','analysis'],['NASSER','Nasser Al Saqri','analysis'],['RANJITH','Ranjith','analysis'],['YAQEEN','Yaqeen Al Haddabi','analysis'],['MA001','Mohammed Al Awaisi','Software Developer']
 ];
 export function initialDirectory(): Directory {
@@ -17,7 +17,9 @@ export function loadDirectory(): Directory {
  if (!raw) return initialDirectory();
  const value = JSON.parse(raw) as Directory;
  if (!Array.isArray(value.employees) || !Array.isArray(value.departments) || !Array.isArray(value.positions) || !value.employees.some(e=>e.id==='MA001' && e.active)) throw Error('Employee directory could not be loaded. Saved data has been preserved.');
- return value;
+ const migrated = migrateDirectory(value);
+ if (migrated !== value) window.localStorage.setItem(directoryKey, JSON.stringify(migrated));
+ return migrated;
 }
 export function validateDirectory(next: Directory) {
  if (!next.employees.some(e=>e.id==='MA001' && e.active)) throw Error('The project administrator must remain active.');
@@ -33,4 +35,14 @@ export function validateDirectory(next: Directory) {
  for(const list of [next.departments,next.positions]) {
   if(new Set(list.map(o=>o.name.trim().toLowerCase())).size!==list.length || list.some(o=>!o.name.trim())) throw Error('Option names must be unique and cannot be empty.');
  }
+}
+const normalName = (name: string) => name.toLowerCase().replace(/[^a-z]/g, '');
+/** Adds Humaid Al Habsi as a driver beside Ali once, never duplicating an existing record by ID or name. */
+export function migrateDirectory(value: Directory): Directory {
+ if (value.employees.some(e => e.id === 'HUMAID' || normalName(e.name) === normalName('Humaid Al Habsi'))) return value;
+ const ali = value.employees.find(e => e.id === 'ALI');
+ const departmentId = ali?.departmentId || 'transport', positionId = ali?.positionId || 'transport';
+ if (!value.departments.some(o => o.id === departmentId) || !value.positions.some(o => o.id === positionId)) return value;
+ const humaid: Employee = { id: 'HUMAID', name: 'Humaid Al Habsi', role: ali?.role || 'transport', password: '1234', initials: 'HA', departmentId, positionId, employeeCode: value.employees.some(e => e.employeeCode.trim().toLowerCase() === 'humaid') ? '' : 'HUMAID', email: '', phone: '', active: true };
+ return { ...value, employees: [...value.employees, humaid] };
 }
