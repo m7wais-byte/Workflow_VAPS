@@ -36,6 +36,8 @@ export function operationsFor(job:JobRecord):Operations {
 }
 export const latest = (versions:ReportVersion[]):ReportVersion|undefined=>versions[versions.length-1];
 export function samplingApproved(job:JobRecord):boolean { const reports=operationsFor(job).samplingReports;return reports.length?latest(reports)?.status==='Approved':job.report?.reportStatus==='Completed'&&!!job.report.approvedAt&&!!job.report.approvedBy; }
+/** Sampling was approved in the older workflow, before dispatch records existed. No dispatch is fabricated. */
+export function legacyDispatch(job:JobRecord):boolean { const o=operationsFor(job);return !o.dispatchedAt&&!o.samplingReports.length&&samplingApproved(job); }
 export function allWorkDone(job:JobRecord):boolean {const o=operationsFor(job);return !!o.scopeConfirmedAt && o.activities.filter(a=>a.required).every(a=>a.status==='Completed'&&a.files.some(f=>f.status==='Available')) && !o.additions.some(a=>!a.confirmedAt);}
 export function finalReady(job:JobRecord):boolean {const o=operationsFor(job);const required=[...new Set(o.scope.flatMap(s=>s.sampleIds))];return allWorkDone(job)&&samplingApproved(job)&&!!o.handover?.receivedAt&&required.every(id=>o.handover!.sampleIds.includes(id));}
 export function operationComplete(job:JobRecord):boolean {return finalReady(job)&&latest(operationsFor(job).finalReports)?.status==='Approved';}
@@ -187,7 +189,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
  return next;
 }
 export function operationMilestones(job:JobRecord){const o=operationsFor(job);const lab=o.activities.filter(a=>a.required);const sampleDone=!!job.samples?.length&&job.samples.every(s=>s.dataComplete);return [
- {id:'overview',label:'Job setup & assignment',done:!!o.dispatchedAt,owner:job.createdById,next:'Review and send the job to Sampling'},
+ {id:'overview',label:'Job setup & assignment',done:!!o.dispatchedAt||legacyDispatch(job),note:legacyDispatch(job)?'Dispatch not recorded (legacy)':undefined,owner:job.createdById,next:'Review and send the job to Sampling'},
  {id:'sampling',label:'Sampling',done:sampleDone,owner:job.assignedEngineerId,next:'Complete the sample data sheets'},
  {id:'sampling-report',label:'Sampling report',done:samplingApproved(job),owner:latest(o.samplingReports)?.status==='Awaiting Approval'?'SALIM':latest(o.samplingReports)?.status==='Checking'?latest(o.samplingReports)?.checker:latest(o.samplingReports)?.preparedBy||job.assignedEngineerId,next:latest(o.samplingReports)?.status||'Prepare the sampling report'},
  {id:'handover',label:'Sample handover',done:!!o.handover?.receivedAt,owner:o.handover?.sentAt?'SALIM':job.assignedDriverId,next:o.handover?.receivedAt?'Receipt recorded':o.handover?'Confirm physical receipt':'Send approved samples'},
