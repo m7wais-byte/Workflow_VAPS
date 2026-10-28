@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { MyDashboard, LabSummary } from './dashboard';
 import { OperationsWorkspace, WeeklyWork, Clarification, ClarificationReview, LabWorkspace } from './operations-workspace';
-import { applyOperation, operationComplete, latest, operationsFor, streamLead, type ActivityRecord, isDraft, canSeeDraft, samplingTeam, pendingActions, samplingStatus, latestData, samplingDataLocked, dataReviewRequired, type Actor, type Operations, type Command } from './operations-model';
+import { applyOperation, operationComplete, latest, operationsFor, streamLead, labStatus, labStatuses, type ActivityRecord, isDraft, canSeeDraft, samplingTeam, pendingActions, samplingStatus, latestData, samplingDataLocked, dataReviewRequired, type Actor, type Operations, type Command } from './operations-model';
 import { readTestRouting, storedTestRouting, testRoutingKey, type TestRouting } from './test-routing';
 import { readLabTeams, storedLabTeams, labTeamsKey, emptyLabTeams, type LabTeams } from './lab-teams';
 import { PvtLab, type LabTestProgress } from "./pvt-lab";
@@ -12,6 +13,7 @@ import { cylinderCatalog } from "./cylinder-catalog";
 import { syncShare } from "./job-sharing";
 import { addDays, localDate } from "./local-date";
 import { nextJobSequence } from "./job-numbering";
+import { workItems, sortItems, samplingStage, samplingEvents as samplingEventsFor, labEvents as labEventsFor, type WorkItem } from "./work-items";
 import { standardSheetErrors, samplingIssues, samplingSummary } from "./sampling-validation";
 import { defaultFieldData } from "./sample-defaults";
 import { containerComplete, containerId, containerLabel, containerNoun, containerTypes, isGlass, type ContainerType } from "./sample-container";
@@ -377,13 +379,7 @@ export default function Home() {
     route(); window.addEventListener('hashchange',route); return ()=>window.removeEventListener('hashchange',route);
   }, []);
   /** The sampling step an employee should land on for this job's current status. */
-  function samplingStageFor(item: JobRecord): Stage {
-    const status = samplingStatus(item, responsibilities);
-    if (status.key === "preparation") return "type";
-    if (status.key === "returned" && status.tab === "sampling") { const first = latestData(item)?.comments[0]?.target || ""; return first === "preparation" || first === "job" ? "type" : "bottomhole"; }
-    if (status.key === "data") return item.samples?.length && item.samples.every((sample) => sample.dataComplete) ? "report" : "bottomhole";
-    return "report";
-  }
+  function samplingStageFor(item: JobRecord): Stage { return samplingStage(item, responsibilities); }
   function openOperation(item:JobRecord,tab='overview') {location.assign('#workflow/'+encodeURIComponent(item.id)+'/'+tab);}
   function runOperation(id:string,command:Command) {
     if(!currentEmployee)throw Error('Select an active trial profile.');
@@ -636,29 +632,12 @@ export default function Home() {
   const mySamplingWork = currentEmployee ? samplingJobsAll.filter((item) => { const status = samplingStatus(item, responsibilities); return status.key !== "report-approved" && (samplingTeam(item).includes(currentEmployee.id) || (status.owner === currentEmployee.id && ["data-review", "report-review", "report-generation", "returned"].includes(status.key))); }) : [];
   const samplingOverview = [...samplingJobsAll].sort((a, b) => (b.lastUpdatedAt || "").localeCompare(a.lastUpdatedAt || ""));
   /** In-app indicator events for the signed-in employee, keyed by the shared record so each event is flagged once. */
-  const samplingEvents = (item: JobRecord): string[] => {
-    if (!currentEmployee) return [];
-    const me = currentEmployee.id, data = latestData(item), report = latest(item.operations?.samplingReports || []), events: string[] = [];
-    if (samplingTeam(item).includes(me) && item.operations?.dispatchedAt) events.push(`assign:${item.id}:${item.operations.dispatchedAt}`);
-    if (data?.status === "Returned" && samplingTeam(item).includes(me)) events.push(`return:${item.id}:${data.version}`);
-    if (data?.status === "Submitted" && samplingApprover === me) events.push(`review:${item.id}:${data.version}`);
-    if (report?.status === "Awaiting Approval" && samplingApprover === me) events.push(`report:${item.id}:${report.version}`);
-    return events;
-  };
+  /** In-app indicator events, keyed by the shared record so each event is flagged once (shared with the Dashboard). */
+  const samplingEvents = (item: JobRecord): string[] => currentEmployee ? samplingEventsFor(item, currentEmployee.id, samplingApprover) : [];
+  const dashboardWork = opsActor ? (() => { const work = workItems(visibleJobs, opsActor, today); const seen = seenSampling[opsActor.id] || []; return { ...work, actions: sortItems(work.actions, (item) => item.events.some((key) => !seen.includes(key))) }; })() : { actions: [] as WorkItem[], waiting: [], blocked: [] };
   const unseenEvents = (item: JobRecord) => samplingEvents(item).filter((key) => !(seenSampling[currentEmployee?.id || ""] || []).includes(key));
   /** Laboratory indicator events for the signed-in employee: new assignment, returned work and items awaiting their review. */
-  const labEvents = ({ a }: { job: JobRecord; a: ActivityRecord }): string[] => {
-    if (!currentEmployee) return [];
-    const me = currentEmployee.id, v = a.files.length, events: string[] = [];
-    const assignedAt = [...(a.history || [])].reverse().find((h) => h.to === me)?.at || a.start;
-    if (a.owner === me && a.status !== "Completed") events.push(`lab:assign:${a.id}:${assignedAt}`);
-    if (a.owner === me && a.status === "Changes Requested") events.push(`lab:return:${a.id}:${v}`);
-    const lead = roleHolder(responsibilities, streamLead(a.stream), demoEmployees);
-    if (lead === me && a.status === "Workbook Submitted") events.push(`lab:review:${a.id}:${v}`);
-    if (lead === me && a.status === "QC Returned") events.push(`lab:qcret:${a.id}:${v}`);
-    if (roleHolder(responsibilities, "qcReviewer", demoEmployees) === me && a.status === "Awaiting QC") events.push(`lab:qc:${a.id}:${v}`);
-    return events;
-  };
+  const labEvents = ({ a }: { job: JobRecord; a: ActivityRecord }): string[] => currentEmployee ? labEventsFor(a, currentEmployee.id, roleHolder(responsibilities, streamLead(a.stream), demoEmployees), roleHolder(responsibilities, "qcReviewer", demoEmployees)) : [];
   const labItemsVisible = visibleJobs.filter((item) => !isDraft(item)).flatMap((job) => operationsFor(job).activities.filter((a) => a.required).map((a) => ({ job, a })));
   const unseenLab = (item: { job: JobRecord; a: ActivityRecord }) => labEvents(item).filter((key) => !(seenSampling[currentEmployee?.id || ""] || []).includes(key));
   const labUnseen = labItemsVisible.reduce((count, item) => count + unseenLab(item).length, 0);
@@ -1229,6 +1208,14 @@ export default function Home() {
     const next = { ...seenSampling, [currentEmployee.id]: [...new Set([...(seenSampling[currentEmployee.id] || []), ...keys])].slice(-500) };
     setSeenSampling(next); try { localStorage.setItem(samplingSeenKey, JSON.stringify(next)); } catch { /* not critical */ }
   }
+  /** Opens the exact task. Opening clears its "New" marker only; the task stays in My actions until it is actually done. */
+  function openWorkItem(item: WorkItem) {
+    const target = jobs.find((job) => job.id === item.jobId);
+    if (!target) return;
+    markSeen(item.events);
+    if ("editor" in item.open) { resumeJob(target); if (item.open.editor !== "job") setStage(item.open.editor); if (item.open.sample) setExpanded(item.open.sample); return; }
+    openOperation(target, item.open.tab);
+  }
   function openSamplingTask(item: JobRecord) {
     markSamplingSeen(item);
     const status = samplingStatus(item, responsibilities);
@@ -1751,7 +1738,11 @@ export default function Home() {
         <div className="page-wrap">
           {workspaceView !== "settings" && !!notice && <div className="notice" role="alert">{notice}<button type="button" aria-label="Dismiss" onClick={() => setNotice("")}>×</button></div>}
           {!canView(workspaceView) ? <section className="panel authorization-panel"><h1>Access restricted</h1><p>Ask Mohammed Al Awaisi to enable access in Settings → Authorization.</p><button className="primary-button" type="button" onClick={() => setWorkspaceView("dashboard")}>Back to dashboard</button></section> : workspaceView === "workflow" ? (workflowJob ? (!legacyView ? <OperationsWorkspace key={workflowJob.id+operationTab} job={workflowJob} actor={opsActor!} tab={operationTab} onNavigate={tab=>openOperation(workflowJob,tab)} onCommand={c=>runOperation(workflowJob.id,c)} onSampling={(target,sample)=>{resumeJob(workflowJob);setStage((target||samplingStageFor(workflowJob)) as Stage);if(sample)setExpanded(sample);}} onSetup={()=>{resumeJob(workflowJob);setStage('job');}} onLegacy={()=>setLegacyView(true)} /> : <JobWorkflow key={workflowJob.id} job={workflowJob} today={today} employeeName={employeeName} onBack={() => setWorkspaceView("jobs")} onOpenStage={(stageId) => stageId === "closed" ? resumeJob(workflowJob) : openStage(workflowJob, stageId)} />) : <section className="panel"><h1>Job not found</h1><button type="button" onClick={() => setWorkspaceView("jobs")}>Back to jobs</button></section>) : workspaceView === "dashboard" && !hasPermission("jobDetails") ? (<section className="panel authorization-panel"><h1>Welcome, {currentEmployee.name.split(" ")[0]}</h1><p>Choose an authorized workspace from the menu. Contact Mohammed Al Awaisi to request additional access.</p></section>) : workspaceView === "dashboard" ? (
-            <>{jobs.length===0&&<section className="panel ops-panel demo-banner"><div><h2>Explore the workflow with demo jobs</h2><p>This browser has no jobs yet. Load four example jobs (sampling, report approval, laboratory work and a completed job) to see how work moves through the system. All names and values are fictional and marked DEMO; they are saved only in this browser.</p></div><button type="button" className="primary-button" disabled={demoLoading} onClick={() => void loadDemoData()}>{demoLoading ? "Loading…" : "Load demo data"}</button></section>}{hasPermission('createJob')&&<div className="ops-dashboard-actions"><button className="primary-button" onClick={startNewJob}>+ Create job</button></div>}<WeeklyWork jobs={hasPermission('jobDetails')?visibleJobs:[]} actor={{id:currentEmployee.id,employees:demoEmployees,policy:authorization,roles:responsibilities}} onOpen={openOperation}/>{currentEmployee.id==='MA001'&&<details className="panel ops-panel"><summary>Administrator · workflow clarification review</summary><ClarificationReview/></details>}<details className="company-summary"><summary>Company overview and activity</summary>
+            <>{jobs.length===0&&<section className="panel ops-panel demo-banner"><div><h2>Explore the workflow with demo jobs</h2><p>This browser has no jobs yet. Load four example jobs (sampling, report approval, laboratory work and a completed job) to see how work moves through the system. All names and values are fictional and marked DEMO; they are saved only in this browser. The demo uses its own fictional QC, receipt and team setup, which is never written to Settings.</p></div><button type="button" className="primary-button" disabled={demoLoading} onClick={() => void loadDemoData()}>{demoLoading ? "Loading…" : "Load demo data"}</button></section>}
+            <MyDashboard name={employeeName} firstName={currentEmployee.name.split(" ")[0]} date={dashboardDate} actions={dashboardWork.actions} waiting={dashboardWork.waiting} blocked={dashboardWork.blocked} isNew={(item) => item.events.some((key) => !(seenSampling[currentEmployee.id] || []).includes(key))} isAdmin={hasPermission("authorization")} canCreate={hasPermission("createJob")} onCreate={startNewJob} onOpen={openWorkItem} onOpenWaiting={(item) => { const target = jobs.find((job) => job.id === item.jobId); if (target) openOperation(target, item.open.tab); }}>
+            <LabSummary onOpen={() => setWorkspaceView("pvt-lab")} rows={(["PVT", "Chemical"] as const).filter((stream) => hasPermission("analysis") && (currentEmployee.id === "MA001" || roleHolder(responsibilities, "pvtSupervisor", demoEmployees) === currentEmployee.id || roleHolder(responsibilities, streamLead(stream), demoEmployees) === currentEmployee.id)).map((stream) => ({ stream, counts: labStatuses.map((label) => [label, labItemsVisible.filter((item) => item.a.stream === stream && labStatus(item.a) === label).length] as [string, number]) }))} />
+            <details className="panel ops-panel dashboard-optional"><summary>My upcoming work · weekly plan</summary><WeeklyWork jobs={hasPermission('jobDetails')?visibleJobs:[]} actor={opsActor!} onOpen={openOperation} hidePending/></details>
+            {currentEmployee.id==='MA001'&&<details className="panel ops-panel dashboard-optional"><summary>Administrator · workflow clarification review</summary><ClarificationReview/></details>}<details className="company-summary dashboard-optional"><summary>Team and company overview</summary>
               <section className="cockpit-header">
                 <div><h1>{timeGreeting}, {currentEmployee.name.split(" ")[0]}</h1><p>Here’s what needs your attention today.</p></div>
                 <div className="cockpit-header-actions"><time>{dashboardShortDate}</time><button className="icon-button" type="button" aria-label="Notifications"><Bell size={18} strokeWidth={1.8} /><span className="notification-dot" /></button><button className="top-avatar" type="button" onClick={() => setWorkspaceView("profile")} aria-label="Open my profile">{currentEmployee.initials}</button></div>
@@ -1786,7 +1777,7 @@ export default function Home() {
               {activities[0] ? <button type="button" className="latest-activity" onClick={() => setActivityExpanded(true)}><ActivityIcon size={18} strokeWidth={1.8} /><small>Latest Activity</small><strong>{employeeName(activities[0].employeeId)} {activities[0].action.toLowerCase()}</strong><em>for {activities[0].jobId} · {formatDateTime(activities[0].timestamp)}</em><b>View Activity <ChevronRight size={14} strokeWidth={2} /></b></button> : <div className="latest-activity latest-activity-empty"><ActivityIcon size={18} strokeWidth={1.8} /><small>Latest Activity</small><strong>No activity yet.</strong></div>}
 
               {activityExpanded && <div className="activity-drawer-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setActivityExpanded(false); }} role="presentation"><aside className="activity-drawer" aria-label="Activity history"><header><div><span className="eyebrow">TEAM UPDATES</span><h2>Activity</h2></div><button type="button" onClick={() => setActivityExpanded(false)} aria-label="Close activity drawer">×</button></header><div>{activities.slice(0, 12).map((item) => <article key={item.id}><span className="activity-avatar">{demoEmployees.find((employee) => employee.id === item.employeeId)?.initials}</span><div><strong>{employeeName(item.employeeId)}</strong><p>{item.action}</p><small>{item.jobId} · {formatDateTime(item.timestamp)}</small></div></article>)}</div></aside></div>}
-            </details></>
+            </details></MyDashboard></>
           ) : workspaceView === "jobs" ? (
             <>
               <section className="page-intro operations-page-intro"><div><span className="eyebrow">JOBS · MASTER REGISTER</span><h1>Jobs</h1><p>Every job, where it stands, and who acts next.</p></div>{hasPermission("createJob") && <button type="button" className="primary-button create-job-button" onClick={startNewJob}><Plus size={16} /> Create Job</button>}</section>

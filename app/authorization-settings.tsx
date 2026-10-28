@@ -1,5 +1,5 @@
 import { useUnsaved } from './settings-pages';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { scopeTestGroups } from './lab-work';
 import { testSections, type TestRouting, type TestSection } from './test-routing';
 import type { LabTeams } from './lab-teams';
@@ -21,7 +21,7 @@ function ResponsibilitySettings({ roles, employees, policy, onSave, error }: { r
   const changed = JSON.stringify(draft) !== JSON.stringify(roles);
   const invalid = invalidResponsibilities(draft, employees);
   useUnsaved(changed);
-  return <section className="panel authorization-panel">
+  return <section className="panel authorization-panel" id="responsibilities">
     <div className="panel-heading"><div><span className="eyebrow">WORKFLOW DUTIES</span><h2>Responsibilities</h2><p>Name the employee who carries each duty. A duty does not grant access: the person also needs the listed permission below.</p></div></div>
     {error && <p role="alert">{error}</p>}
     <div className="authorization-table-wrap"><table className="client-table"><thead><tr><th>Responsibility</th><th>Assigned employee</th><th>Status</th></tr></thead><tbody>
@@ -49,7 +49,7 @@ function LabTeamSettings({ teams, employees, policy, error, onSave }: { teams: L
   const [saved, setSaved] = useState(false);
   const changed = JSON.stringify(draft) !== JSON.stringify(teams);
   useUnsaved(changed);
-  return <section className="panel authorization-panel">
+  return <section className="panel authorization-panel" id="lab-teams">
     <div className="panel-heading"><div><span className="eyebrow">LABORATORY TEAMS</span><h2>PVT and Chemical teams</h2><p>Team leads assign tests only to active members of their own team who also have “{permissionLabels.analysis}”. Membership does not grant any permission. Existing assignments are kept and flagged if they no longer match.</p></div></div>
     {error && <p role="alert">{error}</p>}
     <div className="lab-team-grid">{(['PVT', 'Chemical'] as const).map(stream => <fieldset key={stream} className="lab-team-list" disabled={!!error}><legend>{stream} team · {draft[stream].length} member{draft[stream].length === 1 ? '' : 's'}</legend>
@@ -67,7 +67,7 @@ function TestRoutingSettings({ routing, error, onSave }: { routing: TestRouting;
   const changed = JSON.stringify(draft) !== JSON.stringify(routing);
   useUnsaved(changed);
   const unclassified = scopeTestGroups.flatMap(g => g.tests.map(t => g.name + ' — ' + t)).filter(test => !draft[test]).length;
-  return <section className="panel authorization-panel">
+  return <section className="panel authorization-panel" id="test-routing">
     <div className="panel-heading"><div><span className="eyebrow">LABORATORY SCOPE</span><h2>Laboratory test routing</h2><p>Choose the section that performs each catalog test. Classified tests appear in that section’s checklist. Unclassified tests need an explicit destination from the scope selector for each sample. Released scopes keep the routing in force when they were released.</p></div></div>
     {error && <p role="alert">{error}</p>}
     <p role="status">{unclassified ? `${unclassified} test${unclassified === 1 ? '' : 's'} unclassified` : 'All catalog tests are classified.'}</p>
@@ -91,6 +91,8 @@ export function AuthorizationSettings({ policy, employees, onSave, error, depart
   const [search,setSearch]=useState(''),[department,setDepartment]=useState('');
   useUnsaved(changed);
   const drivers = employees.filter(p => driverOnlyIds.includes(p.id));
+  // Dashboard links such as #settings/authorization/lab-teams open the exact panel.
+  useEffect(() => { const section = location.hash.split('/')[2]; if (section) document.getElementById(section)?.scrollIntoView({ block: 'start' }); }, []);
   return <><ResponsibilitySettings roles={roles} employees={employees} policy={policy} onSave={onSaveRoles} error={rolesError} /><LabTeamSettings teams={teams} employees={employees} policy={policy} error={teamsError} onSave={onSaveTeams} /><TestRoutingSettings routing={routing} error={routingError} onSave={onSaveRouting} /><section className="panel authorization-panel">
     <div className="panel-heading"><div><span className="eyebrow">ADMINISTRATOR</span><h2>Authorization</h2><p>Select who can create jobs and access each part of the project.</p></div></div>
     <p>Managed by Mohammed Al Awaisi. Administrator access is retained for all pages. Creating jobs is assigned separately.</p>

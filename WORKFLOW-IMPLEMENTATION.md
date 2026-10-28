@@ -164,3 +164,46 @@ Verification: TypeScript and lint passed. 86 automated tests passed and 1 enviro
 - Wilfred's overview showing no lead actions; the demo jobs; no horizontal overflow at 390 px.
 
 Setup done directly in storage: the sampling preparation checklist and data sheets were seeded before submission, as in the Sampling step. Everything from submission onward used the interface. Not checked: exported PDF layouts and phone-width screenshots of every lab panel; only overflow was measured.
+
+## Prompt 4 — Dashboard (30 October 2026)
+
+The Dashboard is the starting point for every employee. It is built from the same workflow states as Jobs, Sampling and PVT Lab: `app/work-items.ts` derives items from `samplingStatus`, `labStatus` and the handover and report records. There is no separate status engine.
+
+- **Order:** My actions → Waiting on others → Blocked by missing settings → Laboratory progress (read-only, leads and supervisor) → My upcoming work / weekly plan (optional) → Administrator clarifications → Team and company overview (optional).
+- **Action cards** show a plain-language action, job and client, sample and container, test, status, due date (marked overdue in text), who assigned, returned, submitted or approved it, the correction comment, and one button that opens the exact page, step, sample or test. Order: returned work, then overdue, reviews, new assignments, other tasks.
+- **Counts:** the count buttons (All, Returned, Overdue, Reviews, New, Tasks) filter the same list, so counts and visible cards always agree. There is also a search box.
+- **Separation:** submitted work moves to "Waiting on others" (with the person it waits on and since when) and never appears as an action. Each duty a person holds adds its own items, with duplicates removed by a stable key.
+- **Role coverage:**
+  - Job drafts appear for job creators only.
+  - Sampling: preparation and data for the team; supporting employees are labelled and cannot submit; returned data shows the comments.
+  - Salim: data review, report preparation and approval, scope release, additional-work confirmation.
+  - Driver: handover. Laboratory receipt holder: receipt.
+  - Team leads: assignment per section, workbook review, QC returns. Employees: tests and returned workbooks. QC reviewer: exact versions.
+  - Final reports: preparation (reporting duty) and approval (finalApproval duty). Wilfred gets no team-lead actions.
+- **Notifications:** New markers reuse the Sampling and PVT Lab event keys, so the same marker is shared and never duplicated. Opening a task clears only its New marker; the task stays until it is actually done.
+- **Missing settings:** unconfigured teams, laboratory receipt, QC review or sampling approval appear as blocked work. Administrators get "Open the setting" links to the exact Settings → Authorization panel; other employees are told an administrator must configure it. Empty states distinguish: no work, waiting on review, no filter matches, and blocked by settings.
+- **Shared code:** the Sampling and PVT Lab pages now use the same event and step helpers from `work-items.ts`. The weekly plan no longer shows a second action list.
+- **Labelling:** the trial is labelled as browser-local, with no secure sign-in and no cross-device synchronization.
+- **Printable documents:** fixed unreadable header cells, words split mid-word, headings overlapping tables, raw timestamps and IDs, and separate unit rows. Direct-to-approver sampling reports now say "Checked by: not applicable" instead of "Pending". Recorded values and sign-off rules are unchanged.
+
+Verification: TypeScript and lint passed. 88 automated tests passed and 1 environment-dependent test was skipped; 2 of them are new Dashboard journey tests covering every handoff, returns, QC routing, multi-duty users and ordering. The production build passed. A Playwright run used Dashboard buttons for every step from job creation to Wilfred's final approval:
+- Draft visibility.
+- New badge cleared on opening while the task stayed.
+- A supporting employee's label.
+- Waiting versus actionable work.
+- A sampling return with its comment and the link back to the data step.
+- Driver handover and configured receipt.
+- PVT and Chemical assignment, workbook review and QC.
+- The blocked-QC message for staff, and the settings link for the administrator.
+- Empty dashboards after completion.
+
+Desktop and phone screenshots were inspected visually. Sampling-sheet completion was seeded into storage as in earlier steps; not every sampling input field was filled through the interface.
+
+Remaining limitations: all data, files and seen markers are browser-local; there is no secure authentication, no server-side authorization and no multi-device synchronization. Before operational use an administrator must configure PVT and Chemical teams, laboratory receipt and QC review, and confirm test routing.
+
+### Email integration handoff (not implemented)
+- **Confirmed trigger:** a job is sent to Sampling (the `dispatch` command succeeds).
+- **Recipients:** the accountable and supporting sampling employees on the job. CC: laboratory leaders; exact membership is still to be confirmed (for example the PVT and Chemical Team Leads and/or the PVT Supervisor).
+- **Missing before build:** employee email addresses (the directory field is mostly empty), the sender identity and address, and delivery infrastructure (a server-side mail service or API, since the app is browser-only today).
+- **Duplicates and failures:** send once per dispatch event, keyed by job ID plus `dispatchedAt` (a retry must not resend). Record a delivery status (queued, sent, failed) on the job history. Retry failures with back-off and show failed deliveries to the job creator. Sending never blocks or rolls back the dispatch.
+- **Proposals only (need confirmation):** sampling data returned; sampling report awaiting approval; laboratory scope released (to team leads); test assigned; workbook returned; QC return to a team lead; final report awaiting approval.
