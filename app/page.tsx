@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { OperationsWorkspace, WeeklyWork, Clarification, ClarificationReview } from './operations-workspace';
-import { applyOperation, operationsFor, operationComplete, latest, type Operations, type Command } from './operations-model';
+import { applyOperation, operationComplete, latest, type Operations, type Command } from './operations-model';
 import { PvtLab, type LabTestProgress } from "./pvt-lab";
 import { itemLabel, labComplete, labItems, planKeys, reconcileLabScope, scopeTestGroups, scopeTestOptions, type LabItem, type LabPlan } from "./lab-work";
 import { ClientLogo } from "./client-logo";
@@ -285,6 +285,7 @@ const trackingYearShort = String(trackingYear).slice(-2);
 const globalCounterStorageKey = `vaps-demo-global-job-counter-${trackingYear}-om-format-v2`;
 
 const defaultJobs: JobRecord[] = [];
+const newActivityId = () => `${Date.now()}-${Math.random()}`;
 const defaultActivities: Activity[] = [];
 
 const defaultClients: Client[] = [
@@ -309,7 +310,6 @@ const emptyJobDetails = (): JobDetails => ({
 });
 
 const samplerTypes = ["SPS", "SRS", "MPSR", "SPMC", "Baker BHS"];
-const bottleTypes = ["PDS", "SPS", "GSP"];
 const pressureUnits = ["kPa", "bar", "psi"];
 const temperatureUnits = ["°C", "°F"];
 const volumeUnits = ["cc", "mL"];
@@ -338,17 +338,21 @@ export default function Home() {
   const [company, setCompany] = useState<Company>(defaultCompany);
   const [editorRoute,setEditorRoute]=useState<string[]>([]);
   const [operationTab,setOperationTab]=useState('overview');
+  const [workspaceView, setWorkspaceViewState] = useState<"workflow" | WorkspaceView>("dashboard");
+  const [workflowJobId, setWorkflowJobId] = useState("");
   const [legacyView,setLegacyView]=useState(false);
   const [dispatchReview,setDispatchReview]=useState(false);
   const [settingsPage, setSettingsPage] = useState('');
   const [clientSearch, setClientSearch] = useState('');
   const [clientStatus, setClientStatus] = useState('all');
   useEffect(() => {
+    // Saved records live in browser storage, so they are loaded after mount to keep server and client HTML identical.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     try { setDirectory(loadDirectory()); const raw=localStorage.getItem('vaps-company-v1'); if(raw) setCompany(JSON.parse(raw)); } catch(e) { setDirectoryError(e instanceof Error?e.message:'Could not load settings.'); }
     const route = (event?: HashChangeEvent) => { if(event && window.confirmSettingsLeave && !window.confirmSettingsLeave()){history.replaceState(null,"",event.oldURL);return;} const parts=location.hash.slice(1).split('/'); if(parts[0]==='settings') { setWorkspaceViewState('settings'); setSettingsPage(parts[1]||''); } else {setWorkspaceViewState((parts[0] || 'dashboard') as WorkspaceView);if(parts[0]==='new-job'&&parts[1])setEditorRoute(parts.slice(1));if(parts[0]==='workflow'){if(parts[1])setWorkflowJobId(decodeURIComponent(parts[1]));setOperationTab(parts[2]?.split('?')[0]||'overview');setLegacyView(false);}}; };
     route(); window.addEventListener('hashchange',route); return ()=>window.removeEventListener('hashchange',route);
   }, []);
-  function openOperation(item:JobRecord,tab='overview') {location.hash='workflow/'+encodeURIComponent(item.id)+'/'+tab;}
+  function openOperation(item:JobRecord,tab='overview') {location.assign('#workflow/'+encodeURIComponent(item.id)+'/'+tab);}
   function runOperation(id:string,command:Command) {
     if(!currentEmployee)throw Error('Select an active trial profile.');
     const stored:JobRecord[]=JSON.parse(localStorage.getItem(jobsStorageKey)||'[]');
@@ -358,7 +362,7 @@ export default function Home() {
     const updated=applyOperation(target,command,{id:currentEmployee.id,employees,policy});
     persistJobs(stored.map(j=>j.id===id?updated:j));
   }
-  function setWorkspaceView(view: 'workflow' | WorkspaceView) { location.hash=view; }
+  function setWorkspaceView(view: 'workflow' | WorkspaceView) { location.assign('#'+view); }
   function saveDirectory(next: Directory) {
     if(!hasPermission('employees') || directoryError) throw Error('You cannot manage the employee directory.');
     for(const e of next.employees) {const old=directory.employees.find(p=>p.id===e.id);for(const [kind,key] of [['departments','departmentId'],['positions','positionId']] as const){if(e[key]!==old?.[key]&&!next[kind].some(o=>o.id===e[key]&&o.active))throw Error('Choose an active department and position.');}}
@@ -366,7 +370,6 @@ export default function Home() {
     if(currentEmployee) setCurrentEmployee(next.employees.find(e=>e.id===currentEmployee.id && e.active)||null);
   }
   const [stage, setStage] = useState<Stage>("job");
-  const [workspaceView, setWorkspaceViewState] = useState<"workflow" | WorkspaceView>("dashboard");
   const [authReady, setAuthReady] = useState(false);
   const [currentEmployee, setCurrentEmployee] = useState<Employee | null>(null);
   const [authorization, setAuthorization] = useState<Authorization>(() => defaultAuthorization(demoEmployees.map(person => person.id)));
@@ -406,6 +409,8 @@ export default function Home() {
         if (validateBottle(bottle, loaded)) throw new Error("Invalid bottle record");
         loaded.push(bottle);
       }
+      // Saved records live in browser storage, so they are loaded after mount to keep server and client HTML identical.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCustomBottles(loaded);
     } catch { setBottleLoadError("Saved bottle inventory could not be loaded. Adding bottles is disabled to protect the saved records."); }
   }, []);
@@ -416,7 +421,6 @@ export default function Home() {
   const [dashboardSearch, setDashboardSearch] = useState("");
   const [jobsRegisterFilter, setJobsRegisterFilter] = useState<"all" | "active" | "sampling" | "reports" | "completed">("all");
   const [jobsRegisterSearch, setJobsRegisterSearch] = useState("");
-  const [workflowJobId, setWorkflowJobId] = useState("");
   const [labJobId, setLabJobId] = useState("");
   const [samplingTab, setSamplingTab] = useState<"jobs" | "reports">("jobs");
   const [selectedJobDetailsId, setSelectedJobDetailsId] = useState("");
@@ -426,6 +430,8 @@ export default function Home() {
   const [clients, setClients] = useState<Client[]>(defaultClients);
   const [client, setClient] = useState("P");
   const [clientModal, setClientModal] = useState<{ mode: "add" | "edit"; originalCode?: string } | null>(null);
+  const clientNameInput = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (clientModal) clientNameInput.current?.focus(); }, [clientModal]);
   const [clientForm, setClientForm] = useState<ClientForm>(emptyClientForm);
   const [clientError, setClientError] = useState("");
   const [jobErrors, setJobErrors] = useState<string[]>([]);
@@ -433,7 +439,6 @@ export default function Home() {
   const [createdJobId, setCreatedJobId] = useState("");
   const [globalCounter, setGlobalCounter] = useState(0);
   const [samplingRequired, setSamplingRequired] = useState<boolean | null>(null);
-  const [scopeWork, setScopeWork] = useState("");
   const [samples, setSamples] = useState<Sample[]>([]);
   const [samplingType, setSamplingType] = useState<SamplingSource | "">("");
   const [holeType, setHoleType] = useState<HoleType>("");
@@ -473,6 +478,8 @@ export default function Home() {
         const storedActivities = window.localStorage.getItem(activityStorageKey);
         if (storedJobs) {
           const parsedJobs = JSON.parse(storedJobs) as JobRecord[];
+          // Saved records live in browser storage, so they are loaded after mount to keep server and client HTML identical.
+          // eslint-disable-next-line react-hooks/set-state-in-effect
           setJobs(parsedJobs);
           const storedCounter = Number(window.localStorage.getItem(globalCounterStorageKey));
           const derivedCounter = parsedJobs.reduce((maximum, item) => {
@@ -497,6 +504,8 @@ export default function Home() {
       if (!stored) return;
       const parsed = JSON.parse(stored) as Client[];
       if (Array.isArray(parsed) && parsed.length && parsed.every((item) => typeof item.code === "string" && typeof item.name === "string")) {
+        // Saved records live in browser storage, so they are loaded after mount to keep server and client HTML identical.
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setClients(parsed);
         if (!parsed.some((item) => item.code === client && item.active)) {
           setClient(parsed.find((item) => item.active)?.code ?? "P");
@@ -544,8 +553,6 @@ export default function Home() {
   const employeeName = (employeeId?: string) => demoEmployees.find((employee) => employee.id === employeeId)?.name ?? "Not specified";
   const formatDateTime = (value?: string) => value ? new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(value)) : "Not recorded";
   const currentJob = jobs.find((item) => item.id === jobId);
-  useEffect(()=>{if(!authReady||!currentEmployee)return;if(workspaceView==='new-job'&&editorRoute[0]&&createdJobId!==decodeURIComponent(editorRoute[0])){const saved=jobs.find(j=>j.id===decodeURIComponent(editorRoute[0]));if(saved){resumeJob(saved,false);if(['job','type','bottomhole','scope','report'].includes(editorRoute[1]))setStage(editorRoute[1] as Stage);}}},[authReady,currentEmployee?.id,workspaceView,editorRoute,jobs]);
-  useEffect(()=>{if(workspaceView==='workflow'&&workflowJobId&&location.hash==='#workflow')history.replaceState(null,'','#workflow/'+encodeURIComponent(workflowJobId)+'/overview');if(workspaceView==='new-job'&&createdJobId&&currentJob)history.replaceState(null,'','#new-job/'+encodeURIComponent(createdJobId)+'/'+stage);},[workspaceView,workflowJobId,createdJobId,stage,currentJob]);
   const progressById = new Map<string, JobProgress>(jobs.map((item) => [item.id, jobProgress(item)]));
   const prog = (item: JobRecord) => progressById.get(item.id) || jobProgress(item);
   const isClosed = (item: JobRecord) => prog(item).closed;
@@ -553,7 +560,6 @@ export default function Home() {
   const myActiveJobs = myJobs.filter((item) => item.status !== "Completed");
   const myCompletedJobs = jobs.filter((item) => item.ownerId === currentEmployee?.id && isClosed(item));
   const myActivities = currentEmployee ? activities.filter((item) => item.employeeId === currentEmployee.id) : [];
-  const teamActivities = currentEmployee ? activities.filter((item) => item.employeeId !== currentEmployee.id) : [];
   const today = new Date().toISOString().slice(0, 10);
   const activeJobs = jobs.filter((item) => !isClosed(item));
   const samplingJobs = activeJobs.filter((item) => item.currentStage.startsWith("Sampling"));
@@ -592,7 +598,7 @@ export default function Home() {
   const statusTone = (item: JobRecord) => prog(item).tone;
   const stageOwner = (item: JobRecord) => { const current = prog(item).current; if (!current) return employeeName(item.jobResponsibleId || item.responsibleId); return current.owner && demoEmployees.some((employee) => employee.id === current.owner) ? employeeName(current.owner) : current.ownerFallback; };
   const isOverdue = (item: JobRecord) => !isClosed(item) && Boolean(item.dueDate && item.dueDate < today);
-  const attentionJobs = activeJobs.filter((item) => item.dueDate && item.dueDate <= new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10) || item.currentStage === "Report Preview" || item.nextAction.toLowerCase().includes("sample"));
+  const attentionJobs = activeJobs.filter((item) => item.dueDate && item.dueDate <= new Date(new Date(today).getTime() + 3 * 86400000).toISOString().slice(0, 10) || item.currentStage === "Report Preview" || item.nextAction.toLowerCase().includes("sample"));
   const overviewStages = [
     { name: "Job Setup", count: activeJobs.filter((item) => item.currentStage === "Job Setup" || item.currentStage === "Sampling Decision").length },
     { name: "Sampling", count: samplingJobs.length },
@@ -687,6 +693,10 @@ export default function Home() {
     setExpandedDashboardJob("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
+  // Opening a #new-job/<id> link restores that draft into the editor state.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(()=>{if(!authReady||!currentEmployee)return;if(workspaceView==='new-job'&&editorRoute[0]&&createdJobId!==decodeURIComponent(editorRoute[0])){const saved=jobs.find(j=>j.id===decodeURIComponent(editorRoute[0]));if(saved){resumeJob(saved,false);if(['job','type','bottomhole','scope','report'].includes(editorRoute[1]))setStage(editorRoute[1] as Stage);}}},[authReady,currentEmployee?.id,workspaceView,editorRoute,jobs]);
+  useEffect(()=>{if(workspaceView==='workflow'&&workflowJobId&&location.hash==='#workflow')history.replaceState(null,'','#workflow/'+encodeURIComponent(workflowJobId)+'/overview');if(workspaceView==='new-job'&&createdJobId&&currentJob)history.replaceState(null,'','#new-job/'+encodeURIComponent(createdJobId)+'/'+stage);},[workspaceView,workflowJobId,createdJobId,stage,currentJob]);
 
   const labTeam = demoEmployees.map((employee) => ({ id: employee.id, name: employee.name, active: employee.active && eligibleForTeam(employee.id, "analysis") }));
   const canPlanLab = (_item: JobRecord) => Boolean(!_item.operations && hasPermission("analysis") && currentEmployee && (coordinator(currentEmployee.id) || labTeam.some((member) => member.id === currentEmployee.id && member.active)));
@@ -722,7 +732,7 @@ export default function Home() {
 
   function recordActivity(action: string, targetJobId = jobId, timestamp = new Date().toISOString()) {
     if (!currentEmployee) return;
-    const next = [{ id: `${Date.now()}-${Math.random()}`, employeeId: currentEmployee.id, action, jobId: targetJobId, timestamp }, ...activities].slice(0, 80);
+    const next = [{ id: newActivityId(), employeeId: currentEmployee.id, action, jobId: targetJobId, timestamp }, ...activities].slice(0, 80);
     persistActivities(next);
   }
 
@@ -1283,23 +1293,6 @@ export default function Home() {
     setExpanded((current) => current || "1.01");
   }
 
-  function changePlannedSampleCount(value: number) {
-    const count = Math.max(1, Math.min(20, Number.isFinite(value) ? value : 3));
-    const now = preparationStartedAt || new Date().toISOString();
-    if (!preparationStartedAt) setPreparationStartedAt(now);
-    setSamples((current) => {
-      if (count <= current.length) return current.slice(0, count);
-      const next = [...current];
-      while (next.length < count) {
-        const id = `1.${String(next.length + 1).padStart(2, "0")}`;
-        const sharedSampler = current[0];
-        next.push({ ...emptySamples()[0], id, sampler: isSpmcFieldSampling(samplingType) ? "SPMC" : "SPS", samplerSerial: isSpmcFieldSampling(samplingType) ? sharedSampler?.samplerSerial || "" : "", calibrationStatus: isSpmcFieldSampling(samplingType) ? sharedSampler?.calibrationStatus || "Not Checked" : "Not Checked", pressureTestStatus: isSpmcFieldSampling(samplingType) ? sharedSampler?.pressureTestStatus || "Not Checked" : "Not Checked", equipmentCondition: isSpmcFieldSampling(samplingType) ? sharedSampler?.equipmentCondition || "Not Checked" : "Not Checked", fieldData: { ...defaultFieldData(), sampleNature: isSpmcFieldSampling(samplingType) ? "SPMC" : "BHS" }, preparedBy: currentEmployee?.id || "", preparedAt: now });
-      }
-      return next;
-    });
-    setPreparationError([]);
-  }
-
   function addExtraSample() {
     if (samples.length >= 20) return;
     const now = new Date().toISOString();
@@ -1533,7 +1526,7 @@ export default function Home() {
           <h2>VAPS PVT Lab & Sampling</h2>
           <p>Internal Laboratory Workflow Management</p>
           <div className="login-fields">
-            <label><span>Employee ID</span><input autoFocus autoComplete="username" value={loginForm.id} onChange={(event) => { setLoginForm((current) => ({ ...current, id: event.target.value.toUpperCase() })); setLoginError(""); }} placeholder="e.g. MA001" /></label>
+            <label><span>Employee ID</span><input autoComplete="username" value={loginForm.id} onChange={(event) => { setLoginForm((current) => ({ ...current, id: event.target.value.toUpperCase() })); setLoginError(""); }} placeholder="e.g. MA001" /></label>
             <label><span>Password</span><div className="password-field"><input type={showPassword ? "text" : "password"} autoComplete="current-password" value={loginForm.password} onChange={(event) => { setLoginForm((current) => ({ ...current, password: event.target.value })); setLoginError(""); }} placeholder="Enter password" /><button type="button" onClick={() => setShowPassword((current) => !current)} aria-label={showPassword ? "Hide password" : "Show password"}>{showPassword ? "Hide" : "Show"}</button></div></label>
           </div>
           {loginError && <div className="login-error" role="alert"><span>!</span>{loginError}</div>}
@@ -1623,7 +1616,7 @@ export default function Home() {
               <section className="compact-pipeline"><header><div><span className="eyebrow">Live pipeline</span><h2>Workload by Stage</h2></div><span className="closed-metric">{overviewStages.find((item) => item.name === "Closed")?.count || 0} Closed</span></header><div>{overviewStages.filter((item) => item.name !== "Closed").map((item, index, visibleStages) => { const StageIcon = item.name === "Job Setup" ? ClipboardList : item.name === "Sampling" ? FlaskConical : item.name === "Scope of Work" ? ListChecks : item.name === "Laboratory Analysis" ? Gauge : item.name === "Reporting" ? FileText : ShieldCheck; return <article className={item.name === "Sampling" && item.count > 0 ? "active" : ""} key={item.name}><button type="button" onClick={() => setDashboardFilter(item.name === "Sampling" ? "sampling" : item.name === "Reporting" ? "reports" : "all")}><StageIcon size={15} strokeWidth={1.8} /><span>{item.name === "Job Setup" ? "Job Setup" : item.name === "Scope of Work" ? "Scope" : item.name === "Laboratory Analysis" ? "Analysis" : item.name}</span><strong>{item.count}</strong></button>{index < visibleStages.length - 1 && <i><ChevronRight size={13} strokeWidth={1.7} /></i>}</article>; })}</div></section>
               {activities[0] ? <button type="button" className="latest-activity" onClick={() => setActivityExpanded(true)}><ActivityIcon size={18} strokeWidth={1.8} /><small>Latest Activity</small><strong>{employeeName(activities[0].employeeId)} {activities[0].action.toLowerCase()}</strong><em>for {activities[0].jobId} · {formatDateTime(activities[0].timestamp)}</em><b>View Activity <ChevronRight size={14} strokeWidth={2} /></b></button> : <div className="latest-activity latest-activity-empty"><ActivityIcon size={18} strokeWidth={1.8} /><small>Latest Activity</small><strong>No activity yet.</strong></div>}
 
-              {activityExpanded && <div className="activity-drawer-backdrop" onClick={() => setActivityExpanded(false)} role="presentation"><aside className="activity-drawer" onClick={(event) => event.stopPropagation()} aria-label="Activity history"><header><div><span className="eyebrow">TEAM UPDATES</span><h2>Activity</h2></div><button type="button" onClick={() => setActivityExpanded(false)} aria-label="Close activity drawer">×</button></header><div>{activities.slice(0, 12).map((item) => <article key={item.id}><span className="activity-avatar">{demoEmployees.find((employee) => employee.id === item.employeeId)?.initials}</span><div><strong>{employeeName(item.employeeId)}</strong><p>{item.action}</p><small>{item.jobId} · {formatDateTime(item.timestamp)}</small></div></article>)}</div></aside></div>}
+              {activityExpanded && <div className="activity-drawer-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setActivityExpanded(false); }} role="presentation"><aside className="activity-drawer" aria-label="Activity history"><header><div><span className="eyebrow">TEAM UPDATES</span><h2>Activity</h2></div><button type="button" onClick={() => setActivityExpanded(false)} aria-label="Close activity drawer">×</button></header><div>{activities.slice(0, 12).map((item) => <article key={item.id}><span className="activity-avatar">{demoEmployees.find((employee) => employee.id === item.employeeId)?.initials}</span><div><strong>{employeeName(item.employeeId)}</strong><p>{item.action}</p><small>{item.jobId} · {formatDateTime(item.timestamp)}</small></div></article>)}</div></aside></div>}
             </details></>
           ) : workspaceView === "jobs" ? (
             <>
@@ -1633,7 +1626,7 @@ export default function Home() {
                 <div className="jobs-register-tools"><div className="cockpit-filters"><button className={jobsRegisterFilter === "all" ? "active" : ""} type="button" onClick={() => setJobsRegisterFilter("all")}>All Jobs</button><button className={jobsRegisterFilter === "active" ? "active" : ""} type="button" onClick={() => setJobsRegisterFilter("active")}>Active</button><button className={jobsRegisterFilter === "sampling" ? "active" : ""} type="button" onClick={() => setJobsRegisterFilter("sampling")}>Sampling</button><button className={jobsRegisterFilter === "reports" ? "active" : ""} type="button" onClick={() => setJobsRegisterFilter("reports")}>Sampling Reports</button><button className={jobsRegisterFilter === "completed" ? "active" : ""} type="button" onClick={() => setJobsRegisterFilter("completed")}>Completed</button></div><label className="cockpit-search jobs-id-search"><Search size={16} /><span>JOB ID SEARCH</span><input value={jobsRegisterSearch} onChange={(event) => setJobsRegisterSearch(event.target.value)} placeholder="OM-P-26-001 or any job detail" aria-label="Search by Job ID or job details" /></label></div>
                 <div className="operations-table-wrap"><table className="operations-table jobs-register-table"><thead><tr><th>Job ID</th><th>Client</th><th>Field / Well</th><th>Sampling Type</th><th>Current Stage</th><th>Stage Responsible</th><th>Due Date</th><th>Progress / Status</th><th /></tr></thead><tbody>{filteredJobsRegister.map((item) => <tr key={item.id}><td><button type="button" className="table-job-link" onClick={() => setSelectedJobDetailsId(item.id)}>{item.id}</button><small>Created {reportDate(item.createdAt)}</small></td><td><strong>{item.clientName}</strong></td><td><strong>{item.fieldArea || "Not specified"}</strong><small>{item.well || "Well not specified"}</small></td><td><strong>{item.samplingSource === "Other" && item.otherSamplingType ? `Other — ${item.otherSamplingType}` : item.samplingSource || "Not selected"}</strong></td><td><span className="stage-chip">{prog(item).current?.label || "Closed"}</span><small>{prog(item).current?.nextAction || "No action required"}</small></td><td><strong>{stageOwner(item)}</strong></td><td><strong className={isOverdue(item) ? "overdue-text" : ""}>{item.dueDate || "No due date"}</strong></td><td><div className="register-progress"><span><i style={{ width: `${progressFor(item)}%` }} /></span><strong>{progressFor(item)}%</strong></div><span className={`status-pill flow-${statusTone(item)}`}>{displayStatus(item)}</span>{isOverdue(item) && <span className="status-pill overdue">Overdue</span>}</td><td><button type="button" className="continue-button" onClick={() => { setWorkflowJobId(item.id); setWorkspaceView("workflow"); }}>Workflow <ChevronRight size={14} /></button><button type="button" className="continue-button" onClick={() => openStage(item)}>{isClosed(item) ? "Open" : "Continue"} <ChevronRight size={14} /></button></td></tr>)}{filteredJobsRegister.length === 0 && <tr className="operations-empty-row"><td colSpan={9}><BriefcaseBusiness size={22} /><strong>{jobs.length ? "No jobs match this view." : "No jobs created yet."}</strong><span>{jobs.length ? "Try another Job ID or search detail." : "Create a new job to begin the workflow."}</span></td></tr>}</tbody></table></div>
               </section>
-              {selectedJobDetails && <div className="job-details-backdrop" onClick={() => setSelectedJobDetailsId("")} role="presentation"><aside className="job-details-drawer" onClick={(event) => event.stopPropagation()} aria-label={`Job details for ${selectedJobDetails.id}`}>
+              {selectedJobDetails && <div className="job-details-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setSelectedJobDetailsId(""); }} role="presentation"><aside className="job-details-drawer" aria-label={`Job details for ${selectedJobDetails.id}`}>
                 <header><div><span className="eyebrow">COMPLETE JOB RECORD</span><h2>{selectedJobDetails.id}</h2><p>{selectedJobDetails.clientName} · {prog(selectedJobDetails).current?.label || "Closed"}</p></div><button type="button" onClick={() => setSelectedJobDetailsId("")} aria-label="Close job details">×</button></header>
                 <div className="job-details-scroll"><button type="button" className="primary-button" onClick={() => { setWorkflowJobId(selectedJobDetails.id); setSelectedJobDetailsId(""); setWorkspaceView("workflow"); }}>View job workflow</button>
                   <section className="job-details-section"><h3>Scope of Work</h3><p><strong>Samples requested:</strong> {selectedJobDetails.requestedSampleCount || "Not recorded"}</p><p><strong>Required work:</strong> {(selectedJobDetails.requiredTests || []).map((test) => test === "Other" ? selectedJobDetails.otherTests : test).join(" · ") || "Not recorded"}</p>{selectedJobDetails.sampleCountNotes && <p>{selectedJobDetails.sampleCountNotes}</p>}</section>
@@ -2096,7 +2089,7 @@ export default function Home() {
           )}
         </div>
       </main>
-      {clientModal && <div className="modal-backdrop" role="presentation"><section className="client-modal" role="dialog" aria-modal="true" aria-labelledby="client-modal-title"><header><div><span className="eyebrow">CLIENT MASTER DATA</span><h2 id="client-modal-title">{clientModal.mode === "add" ? "Add New Client" : "Edit Client"}</h2><p>{clientModal.mode === "add" ? "Create a client for local workflow use." : `Update ${clientForm.shortName || clientForm.name}.`}</p></div><button type="button" onClick={() => setClientModal(null)} aria-label="Close modal">×</button></header><form onSubmit={saveClient}><div className="modal-form-grid"><label><span>Client Name *</span><input autoFocus value={clientForm.name} onChange={(e) => { setClientForm((current) => ({ ...current, name: e.target.value })); setClientError(""); }} placeholder="e.g. XYZ Energy LLC" /></label><label><span>Client Short Name / Display Name</span><input value={clientForm.shortName} onChange={(e) => setClientForm((current) => ({ ...current, shortName: e.target.value }))} placeholder="e.g. XYZ Energy" /></label><label><span>Client Code *</span><input disabled={clientModal.mode === "edit"} maxLength={1} value={clientForm.code} onChange={(e) => { setClientForm((current) => ({ ...current, code: e.target.value.toUpperCase() })); setClientError(""); }} placeholder="X" className="code-input" /></label><label><span>Country</span><input value={clientForm.country} onChange={(e) => setClientForm((current) => ({ ...current, country: e.target.value }))} /></label><div className="modal-wide client-logo-upload"><ClientLogo client={clientForm} /><label><span>Client logo <em>Optional</em></span><input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => {
+      {clientModal && <div className="modal-backdrop" role="presentation"><section className="client-modal" role="dialog" aria-modal="true" aria-labelledby="client-modal-title"><header><div><span className="eyebrow">CLIENT MASTER DATA</span><h2 id="client-modal-title">{clientModal.mode === "add" ? "Add New Client" : "Edit Client"}</h2><p>{clientModal.mode === "add" ? "Create a client for local workflow use." : `Update ${clientForm.shortName || clientForm.name}.`}</p></div><button type="button" onClick={() => setClientModal(null)} aria-label="Close modal">×</button></header><form onSubmit={saveClient}><div className="modal-form-grid"><label><span>Client Name *</span><input ref={clientNameInput} value={clientForm.name} onChange={(e) => { setClientForm((current) => ({ ...current, name: e.target.value })); setClientError(""); }} placeholder="e.g. XYZ Energy LLC" /></label><label><span>Client Short Name / Display Name</span><input value={clientForm.shortName} onChange={(e) => setClientForm((current) => ({ ...current, shortName: e.target.value }))} placeholder="e.g. XYZ Energy" /></label><label><span>Client Code *</span><input disabled={clientModal.mode === "edit"} maxLength={1} value={clientForm.code} onChange={(e) => { setClientForm((current) => ({ ...current, code: e.target.value.toUpperCase() })); setClientError(""); }} placeholder="X" className="code-input" /></label><label><span>Country</span><input value={clientForm.country} onChange={(e) => setClientForm((current) => ({ ...current, country: e.target.value }))} /></label><div className="modal-wide client-logo-upload"><ClientLogo client={clientForm} /><label><span>Client logo <em>Optional</em></span><input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => {
   const file = event.target.files?.[0];
   event.target.value = "";
   if (!file) return;
