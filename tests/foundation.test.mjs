@@ -14,7 +14,7 @@ const employees=initialDirectory().employees,policy=defaultAuthorization(employe
 const actor=(id,extra={})=>({id,employees,policy,roles:defaultResponsibilities,...extra});let tick=0;const at=()=>new Date(Date.UTC(2026,9,28,8,0,tick++)).toISOString();
 const step=(job,c,id,extra)=>applyOperation(job,c,actor(id,extra),at());
 const fixture=(samples=[{id:'S1',bottle:'PDS',bottleSerial:'B1',dataComplete:true,fieldData:{sampleNature:'WHS'}},{id:'S2',containerType:'Glass container',containerId:'G-07',bottle:'',bottleSerial:'',dataComplete:true,fieldData:{sampleNature:'SEP'}}])=>({id:'OM-F-26-1',samplingInstructions:'Collect as specified.',jobNumber:'OM-F-26-1',clientCode:'F',clientName:'Test',samplingSource:'Wellhead Sampling',requiredTests:['Black Oil — Validation','Others — Water Analysis'],samples,stages:[],status:'Job Created',createdById:'SALIM',events:[]});
-const approvedSampling=(job,driver='ALI')=>{job=step(job,{type:'dispatch',engineer:'MOHSIN',driver},'SALIM');job=step(job,{type:'report-draft',kind:'sampling',text:'Report',checker:'HUSSEINI'},'MOHSIN');job=step(job,{type:'report-action',kind:'sampling',action:'checking',comments:''},'MOHSIN');job=step(job,{type:'report-action',kind:'sampling',action:'submit',comments:''},'HUSSEINI');return step(job,{type:'report-action',kind:'sampling',action:'approve',comments:''},'SALIM');};
+const approvedSampling=(job,driver='ALI')=>{job=step(job,{type:'dispatch',engineer:'MOHSIN',driver},'SALIM');job=step(job,{type:'data-submit',note:''},'MOHSIN');job=step(job,{type:'data-approve'},'SALIM');job=step(job,{type:'report-draft',kind:'sampling',text:'Report',checker:''},'MOHSIN');job=step(job,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN');return step(job,{type:'report-action',kind:'sampling',action:'approve',comments:''},'SALIM');};
 const scoped=()=>step(fixture(),{type:'scope',items:[{title:'Black Oil — Validation',sampleIds:['S1'],stream:'PVT'},{title:'Others — Water Analysis',sampleIds:['S1'],stream:'Chemical'}],conditions:{pressure:'2000',pressureUnit:'psi',temperature:'80',temperatureUnit:'°C',notes:''},reason:'Confirm'},'SALIM');
 const schedule=a=>({type:'schedule',id:a.id,owner:'NASSER',start:'2026-10-28',due:'2026-10-29',conditions:'',notes:''});
 
@@ -93,6 +93,6 @@ test('legacy bottles and glass containers pass handover, validation and labels',
  assert.equal(containerComplete({containerType:'Glass container',containerId:' '}),false);assert.equal(containerComplete({bottleSerial:'B1'}),false,'bottles still need a type');
  let j=approvedSampling(fixture());j=step(j,{type:'handover-send',sampleIds:['S1','S2'],notes:''},'ALI');
  assert.deepEqual(j.operations.handover.bottles,{S1:'B1',S2:'G-07'});assert.deepEqual(j.operations.handover.containerTypes,{S1:'Bottle',S2:'Glass container'});
- const missing=approvedSampling(fixture([{id:'S1',bottle:'PDS',bottleSerial:'B1',dataComplete:true,fieldData:{}},{id:'S2',containerType:'Glass container',containerId:'',dataComplete:true,fieldData:{}}]));
- assert.throws(()=>step(missing,{type:'handover-send',sampleIds:['S1','S2'],notes:''},'ALI'),/glass-container ID/);
+ // A glass container without its ID is now caught when the sampling data is submitted, before any report or handover.
+ assert.throws(()=>approvedSampling(fixture([{id:'S1',bottle:'PDS',bottleSerial:'B1',dataComplete:true,fieldData:{}},{id:'S2',containerType:'Glass container',containerId:'',dataComplete:true,fieldData:{}}])),/record the container for sample S2/);
 });

@@ -20,7 +20,8 @@ test('four fictional demo jobs use the DEMO client and unique ids', () => {
 test('each demo job sits at a different workflow stage', () => {
  assert.equal(current(byId['OM-X-26-001']), 'sampling');
  assert.equal(current(byId['OM-X-26-002']), 'sampling-report');
- assert.equal(byId['OM-X-26-002'].operations.samplingReports.at(-1).status, 'Awaiting Approval');
+ assert.equal(byId['OM-X-26-002'].operations.samplingData.at(-1).status, 'Submitted', 'waiting for the data review');
+ assert.equal(byId['OM-X-26-002'].operations.samplingReports.length, 0, 'no report before data approval');
  assert.equal(current(byId['OM-X-26-003']), 'laboratory');
  assert.equal(samplingApproved(byId['OM-X-26-003']), true);
  assert.equal(operationComplete(byId['OM-X-26-004']), true);

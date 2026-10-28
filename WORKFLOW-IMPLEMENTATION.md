@@ -102,3 +102,31 @@ Unchanged by this step: Sampling, PVT Lab and Dashboard layouts; legacy sampling
 Verification: TypeScript and lint passed; 73 automated tests passed and one environment-dependent shared-summary API test was skipped (including 10 new Jobs tests). The production build passed. A Playwright browser run on the development server covered draft save/reopen, send validation and review, assignment visibility for both sampling employees, blocked draft links, scope gating, a PVT/Both/unclassified release, draft and approved PDF downloads, revision blocking, the QC gate, team-lead queues, and no horizontal overflow at 390 px on the overview, register and form.
 
 Limitations: the earlier `scope` command remains in the model for additional-work confirmation and existing records; the new interface no longer offers original-request confirmation. Supporting sampling employees can view and enter sampling data, but handover and report ownership stay with the accountable employee. All data remains browser-local.
+
+## Prompt 2 — Sampling (29 October 2026)
+
+Builds on Step 0 and Jobs (`c51e6b9`). New records are additive (`operations.samplingData`). Older records are not migrated.
+
+- **Sequence:** the accountable sampling employee submits the sampling data. The configured sampling approver (`samplingApproval`, Salim by default) approves it or returns it with comments. The accountable employee then generates the sampling report from the approved data and sends it directly to the approver, with no checker step. The approver approves the report separately. Only report approval (`samplingApproved`) unlocks laboratory scope and handover. Data approval alone unlocks nothing.
+- **Responsibilities:** only the accountable employee (`assignedEngineerId`) can submit data, prepare the report and resubmit. Supporting employees can view, enter and save data. Drivers keep transport-only access. Every review and approval checks the configured duty plus the `sampling` permission at action time.
+- **Sampling queue** (Sampling → My sampling work): jobs assigned to me and reviews waiting for me. Each row shows the job, client, field/well, sampling type, accountable and supporting employees, sent and due dates, status, next action and a direct action button. "New assignment", "Returned" and "New for review" indicators come from the shared records and are marked as seen per employee in this browser, so each event is flagged once. The Sampling menu item shows a count. A read-only team overview is available to authorised users. Drafts never appear.
+- **Guided workspace:** four steps — Preparation, Sample records & data, Review & submit, Review status & report — labelled for transfer types where relevant. Each step shows what is required, its status and the next action. Salim's instructions are shown on every step. Lab test lists, including reference requests, are kept out of sampling screens.
+- **Submission checks:** submission requires completed preparation, a container for every sample (`containerComplete`; glass containers need only their ID) and every data sheet marked complete. The same checks run in the model.
+- **Consolidated review** (job page → Sampling review & report): built from the submitted snapshot. It shows a status timeline, missing information, job details, instructions, assignments, preparation and coordination, samples and containers, sampling data per sample, events, attachments, handover, the submission note and the submission history.
+- **Return for correction:** the approver must add at least one comment naming a section or sample, plus a correction explanation. The accountable employee sees the comments with links to the right section. Supporting employees can help correct. Earlier submissions and comments are kept.
+- **Corrections after approval:** approved data is read-only. Correcting it requires an explicit reopen with a reason, by the accountable employee or the approver. A reopen invalidates any pending report. If the report was already approved, a new report version is required and the approved version is kept. A reopen is refused after handover or scope release (needs clarification).
+- **Legacy approval checks:** every hardcoded `"SALIM"` check in `page.tsx` now uses the configured approver plus the `sampling` permission. A recorded approval displays its actual signer and timestamp. Changing the configured approver moves pending work only and never rewrites a past signature.
+- **Older reports:** reports already in checking keep their recorded preparer → checker → approver path.
+- **Confirmations:** each submission or approval shows one message: what happened, who acts next and the new status. The duplicate notice in the job editor (the same cause as the job-form duplicate) was removed.
+
+Verification: TypeScript and lint passed. 80 automated tests passed and 1 environment-dependent test was skipped; 7 of them are new sampling tests. Existing fixtures were updated to the new sequence; two tests keep an explicit "in-flight older report" fixture for the checker path. Production build passed. A Playwright run on the development server covered:
+- Salim sending a job; Mohsin and Ahmed Al Husseini seeing it with indicators.
+- A supporting employee's draft surviving reload, and that employee being unable to submit.
+- Submission blocked while a data sheet was incomplete; one confirmation per action.
+- Ali and Humaid unable to review.
+- Salim's consolidated review, a targeted return, the comment links and the resubmission.
+- Data approval leaving laboratory scope locked; report generation, the DRAFT preview, report submission and approval unlocking laboratory scope.
+- Demo jobs opening cleanly; moving the approver to Wilfred moving pending review without changing recorded approvals.
+- No horizontal overflow at 390 px.
+
+Not verified in the browser: preparation checklists and full data sheets were seeded into storage rather than typed field by field; those forms are unchanged existing code. Exported PDF layouts were not re-checked.

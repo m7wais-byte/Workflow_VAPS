@@ -1,4 +1,8 @@
 import { operationMilestones } from './operations-model';
+import { roleHolder, storedResponsibilities } from "./authorization";
+import { loadDirectory, initialDirectory } from "./employee-directory";
+/** Employee records for resolving a configured duty; falls back to the seed list outside the browser. */
+const loadEmployeesSafe = () => { try { return typeof window === "undefined" ? initialDirectory().employees : loadDirectory().employees; } catch { return []; } };
 import type { JobRecord } from "./page";
 import { currentProgress, labComplete, labProgress, labRequested, validationRequested, isValidationTest, scopeText } from "./lab-work";
 
@@ -51,7 +55,7 @@ export function jobStages(job: JobRecord): JobStage[] {
   const samplingTasks: StageTask[] = [
     { id: "sampling:preparation", label: transfer ? "Transfer preparation" : job.samplingRequired === false ? "Pre-job coordination" : "Sampling preparation", state: stage("Sampling Preparation"), status: statusOf(stage("Sampling Preparation")), owner: team.sampling?.owner || job.assignedEngineerId },
     { id: "sampling:data", label: transfer ? "Sample transfer data" : "Sample data sheets", state: stage("Sampling Data"), status: samples.length ? `${sheetsDone} / ${samples.length} sheets complete` : statusOf(stage("Sampling Data")), owner: team.sampling?.owner || job.assignedEngineerId },
-    { id: "sampling:report", label: "Sampling report", state: reportState, status: report === "Awaiting Approval" ? "Awaiting approval" : reportState === "done" ? "Approved" : report === "Completed" ? "Legacy approval evidence not recorded" : reportState === "active" ? "Draft" : statusOf(reportState), owner: report === "Awaiting Approval" ? job.report?.approvedBy : job.report?.preparedBy, ...(report === "Awaiting Approval" ? { waiting: "Awaiting approval" } : {}) },
+    { id: "sampling:report", label: "Sampling report", state: reportState, status: report === "Awaiting Approval" ? "Awaiting approval" : reportState === "done" ? "Approved" : report === "Completed" ? "Legacy approval evidence not recorded" : reportState === "active" ? "Draft" : statusOf(reportState), owner: report === "Awaiting Approval" ? roleHolder(storedResponsibilities(), "samplingApproval", loadEmployeesSafe()) || undefined : job.report?.preparedBy, ...(report === "Awaiting Approval" ? { waiting: "Awaiting approval" } : {}) },
   ];
   if (lab && job.samplingRequired !== false) {
     const handed = !!team.sampling?.completedAt || legacyDelivered;

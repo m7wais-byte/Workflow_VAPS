@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { OperationsWorkspace, WeeklyWork, Clarification, ClarificationReview } from './operations-workspace';
-import { applyOperation, operationComplete, latest, isDraft, canSeeDraft, samplingTeam, pendingActions, type Actor, type Operations, type Command } from './operations-model';
+import { applyOperation, operationComplete, latest, isDraft, canSeeDraft, samplingTeam, pendingActions, samplingStatus, latestData, samplingDataLocked, dataReviewRequired, type Actor, type Operations, type Command } from './operations-model';
 import { readTestRouting, storedTestRouting, testRoutingKey, type TestRouting } from './test-routing';
 import { PvtLab, type LabTestProgress } from "./pvt-lab";
 import { itemLabel, labComplete, labItems, planKeys, reconcileLabScope, type LabItem, type LabPlan } from "./lab-work";
@@ -11,6 +11,7 @@ import { cylinderCatalog } from "./cylinder-catalog";
 import { syncShare } from "./job-sharing";
 import { addDays, localDate } from "./local-date";
 import { nextJobSequence } from "./job-numbering";
+import { standardSheetErrors, samplingIssues, samplingSummary } from "./sampling-validation";
 import { defaultFieldData } from "./sample-defaults";
 import { containerComplete, containerId, containerLabel, containerNoun, containerTypes, isGlass, type ContainerType } from "./sample-container";
 import { buildDemoJobs, demoClient, demoLogin } from "./demo-data";
@@ -308,6 +309,7 @@ const createCoordinationTasks = (source: SamplingSource | "", existing: Coordina
 const sessionStorageKey = "vaps-demo-session-v1";
 const jobsStorageKey = "vaps-demo-jobs-v1";
 const activityStorageKey = "vaps-demo-activity-v1";
+const samplingSeenKey = "vaps-sampling-seen-v1";
 const trackingYear = new Date().getFullYear();
 const trackingYearShort = String(trackingYear).slice(-2);
 const globalCounterStorageKey = `vaps-demo-global-job-counter-${trackingYear}-om-format-v2`;
@@ -373,6 +375,14 @@ export default function Home() {
     const route = (event?: HashChangeEvent) => { if(event && window.confirmSettingsLeave && !window.confirmSettingsLeave()){history.replaceState(null,"",event.oldURL);return;} const parts=location.hash.slice(1).split('/'); if(parts[0]==='settings') { setWorkspaceViewState('settings'); setSettingsPage(parts[1]||''); } else {setWorkspaceViewState((parts[0] || 'dashboard') as WorkspaceView);if(parts[0]==='new-job'&&parts[1])setEditorRoute(parts.slice(1));if(parts[0]==='workflow'){if(parts[1])setWorkflowJobId(decodeURIComponent(parts[1]));setOperationTab(parts[2]?.split('?')[0]||'overview');setLegacyView(false);}}; };
     route(); window.addEventListener('hashchange',route); return ()=>window.removeEventListener('hashchange',route);
   }, []);
+  /** The sampling step an employee should land on for this job's current status. */
+  function samplingStageFor(item: JobRecord): Stage {
+    const status = samplingStatus(item, responsibilities);
+    if (status.key === "preparation") return "type";
+    if (status.key === "returned" && status.tab === "sampling") { const first = latestData(item)?.comments[0]?.target || ""; return first === "preparation" || first === "job" ? "type" : "bottomhole"; }
+    if (status.key === "data") return item.samples?.length && item.samples.every((sample) => sample.dataComplete) ? "report" : "bottomhole";
+    return "report";
+  }
   function openOperation(item:JobRecord,tab='overview') {location.assign('#workflow/'+encodeURIComponent(item.id)+'/'+tab);}
   function runOperation(id:string,command:Command) {
     if(!currentEmployee)throw Error('Select an active trial profile.');
@@ -455,6 +465,10 @@ export default function Home() {
     } catch { setBottleLoadError("Saved bottle inventory could not be loaded. Adding bottles is disabled to protect the saved records."); }
   }, []);
   const [jobs, setJobs] = useState<JobRecord[]>(defaultJobs);
+  const [seenSampling, setSeenSampling] = useState<Record<string, string[]>>({});
+  useEffect(() => { try { const raw = localStorage.getItem(samplingSeenKey); // Per-browser marker of which shared events this employee has opened.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (raw) setSeenSampling(JSON.parse(raw)); } catch { /* indicators simply show again */ } }, []);
   const [activities, setActivities] = useState<Activity[]>(defaultActivities);
   const [trackedSamples, setTrackedSamples] = useState<string[]>([]);
   const [dashboardFilter, setDashboardFilter] = useState<"all" | "sampling" | "reports" | "due">("all");
@@ -495,7 +509,7 @@ export default function Home() {
   const [expanded, setExpanded] = useState<string>("");
   const [events, setEvents] = useState<SequenceEvent[]>([]);
   const [eventDraft, setEventDraft] = useState({ date: localDate(), time: "", description: "" });
-  const [report, setReport] = useState<ReportRecord>({ summary: "", preparedBy: "", preparedDate: "", approvedBy: "SALIM", approvalDate: "", reportStatus: "Draft" });
+  const [report, setReport] = useState<ReportRecord>({ summary: "", preparedBy: "", preparedDate: "", approvedBy: "", approvalDate: "", reportStatus: "Draft" });
   const [reportErrors, setReportErrors] = useState<string[]>([]);
   const [pdfExporting, setPdfExporting] = useState(false);
   const [notice, setNotice] = useState("");
@@ -596,6 +610,8 @@ export default function Home() {
   const employeeName = (employeeId?: string) => demoEmployees.find((employee) => employee.id === employeeId)?.name ?? "Not specified";
   const formatDateTime = (value?: string) => value ? new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }).format(new Date(value)) : "Not recorded";
   const currentJob = jobs.find((item) => item.id === jobId);
+  /** The configured sampling approver for actions taken now. Recorded approvals keep their own approver. */
+  const samplingApprover = roleHolder(responsibilities, "samplingApproval", demoEmployees);
   const opsActor: Actor | null = currentEmployee ? { id: currentEmployee.id, employees: demoEmployees, policy: authorization, roles: responsibilities, routing: testRoutingError ? null : testRouting } : null;
   // Drafts are shown only to job creators, their author and the administrator, in every list and direct link.
   const visibleJobs = opsActor ? jobs.filter((item) => canSeeDraft(item, opsActor)) : [];
@@ -610,11 +626,24 @@ export default function Home() {
   const activeJobs = visibleJobs.filter((item) => !isClosed(item));
   const samplingJobs = activeJobs.filter((item) => item.currentStage.startsWith("Sampling"));
   const pendingReports = activeJobs.filter((item) => item.currentStage === "Report Preview" || item.status === "Report Draft" || item.status === "Awaiting Approval");
-  const samplingWorkspaceJobs = jobs.filter((item) => item.samplingSource && item.status !== "Completed" && !isDraft(item));
+  // Sampling queue: assigned work first; drafts never appear.
+  const samplingJobsAll = visibleJobs.filter((item) => item.samplingSource && !isDraft(item) && (item.operations?.dispatchedAt || item.operations || item.samples?.length));
+  const mySamplingWork = currentEmployee ? samplingJobsAll.filter((item) => { const status = samplingStatus(item, responsibilities); return status.key !== "report-approved" && (samplingTeam(item).includes(currentEmployee.id) || (status.owner === currentEmployee.id && ["data-review", "report-review", "report-generation", "returned"].includes(status.key))); }) : [];
+  const samplingOverview = [...samplingJobsAll].sort((a, b) => (b.lastUpdatedAt || "").localeCompare(a.lastUpdatedAt || ""));
+  /** In-app indicator events for the signed-in employee, keyed by the shared record so each event is flagged once. */
+  const samplingEvents = (item: JobRecord): string[] => {
+    if (!currentEmployee) return [];
+    const me = currentEmployee.id, data = latestData(item), report = latest(item.operations?.samplingReports || []), events: string[] = [];
+    if (samplingTeam(item).includes(me) && item.operations?.dispatchedAt) events.push(`assign:${item.id}:${item.operations.dispatchedAt}`);
+    if (data?.status === "Returned" && samplingTeam(item).includes(me)) events.push(`return:${item.id}:${data.version}`);
+    if (data?.status === "Submitted" && samplingApprover === me) events.push(`review:${item.id}:${data.version}`);
+    if (report?.status === "Awaiting Approval" && samplingApprover === me) events.push(`report:${item.id}:${report.version}`);
+    return events;
+  };
+  const unseenEvents = (item: JobRecord) => samplingEvents(item).filter((key) => !(seenSampling[currentEmployee?.id || ""] || []).includes(key));
+  const samplingUnseen = samplingJobsAll.reduce((count, item) => count + unseenEvents(item).length, 0);
+  const samplingActionLabel = (item: JobRecord) => ({ draft: "Open job", preparation: "Start preparation", data: "Continue sampling data", "data-review": "Review sampling data", returned: "Correct returned work", "report-generation": "Sampling report", "report-review": "Review report", "report-approved": "Open job" } as Record<string, string>)[samplingStatus(item, responsibilities).key];
   const reportsWorkspaceJobs = visibleJobs.filter((item) => item.operations?.samplingReports.length || item.report?.preparedBy || item.report?.summary);
-  const preparationJobs = samplingWorkspaceJobs.filter((item) => item.currentStage === "Sampling Preparation");
-  const dataEntryJobs = samplingWorkspaceJobs.filter((item) => item.currentStage === "Sampling Data");
-  const completedDataJobs = samplingWorkspaceJobs.filter((item) => item.samples?.length && item.samples.every((sample) => sample.dataComplete));
   const actionsFor = (item: JobRecord) => opsActor && !isClosed(item) ? pendingActions(item, opsActor) : [];
   const registerStage = (item: JobRecord) => isDraft(item) ? "Job creation (draft)" : prog(item).current?.label || "Closed";
   const registerStages = [...new Set(visibleJobs.map(registerStage))];
@@ -738,7 +767,8 @@ export default function Home() {
     setEvents(item.events || []);
     setCoordinationTasks(createCoordinationTasks(normalizedSource, item.coordinationTasks || []));
     setCoordinationDetails({ ...emptyCoordinationDetails(), ...(item.coordinationDetails || {}) });
-    setReport(item.report ? { ...item.report, approvedBy: item.report.reportStatus === "Completed" ? item.report.approvedBy : "SALIM" } : { summary: "", preparedBy: "", preparedDate: "", approvedBy: "SALIM", approvalDate: "", reportStatus: "Draft" });
+    // Only completed reports keep an approver: the recorded signature. A pending approver is resolved from Settings at the time of action.
+    setReport(item.report ? { ...item.report, approvedBy: item.report.reportStatus === "Completed" ? item.report.approvedBy : "" } : { summary: "", preparedBy: "", preparedDate: "", approvedBy: "", approvalDate: "", reportStatus: "Draft" });
     const nextStage: Stage = item.currentStage === "Sampling Decision" ? (normalizedSource ? "type" : "job") : item.currentStage === "Sampling Preparation" ? "type" : item.currentStage === "Sampling Data" ? "bottomhole" : item.currentStage === "Report Preview" ? "report" : item.currentStage === "Final Report" || item.status === "Completed" || item.currentStage === "Scope of Work" ? "scope" : "job";
     setStage(nextStage);
     if(navigate)setWorkspaceView("new-job");
@@ -747,7 +777,7 @@ export default function Home() {
   }
   // Opening a #new-job/<id> link restores that draft into the editor state.
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(()=>{if(!authReady||!currentEmployee)return;if(workspaceView==='new-job'&&editorRoute[0]&&createdJobId!==decodeURIComponent(editorRoute[0])){const saved=visibleJobs.find(j=>j.id===decodeURIComponent(editorRoute[0]));if(!saved){setNotice('Job not found or not available to your profile.');setEditorRoute([]);location.replace('#jobs');}else{resumeJob(saved,false);if(['job','type','bottomhole','scope','report'].includes(editorRoute[1]))setStage(editorRoute[1] as Stage);}}},[authReady,currentEmployee?.id,workspaceView,editorRoute,jobs]);
+  useEffect(()=>{if(!authReady||!currentEmployee)return;if(workspaceView==='new-job'&&editorRoute[0]&&createdJobId!==decodeURIComponent(editorRoute[0])){const saved=visibleJobs.find(j=>j.id===decodeURIComponent(editorRoute[0]));if(!saved){setNotice('Job not found or not available to your profile.');setEditorRoute([]);location.replace('#jobs');}else{resumeJob(saved,false);const [target,query]=(editorRoute[1]||'').split('?');if(['job','type','bottomhole','scope','report'].includes(target))setStage(target as Stage);const sample=new URLSearchParams(query||'').get('sample');if(sample)setExpanded(sample);}}},[authReady,currentEmployee?.id,workspaceView,editorRoute,jobs]);
   useEffect(()=>{if(workspaceView==='workflow'&&workflowJobId&&location.hash==='#workflow')history.replaceState(null,'','#workflow/'+encodeURIComponent(workflowJobId)+'/overview');if(workspaceView==='new-job'&&createdJobId&&currentJob)history.replaceState(null,'','#new-job/'+encodeURIComponent(createdJobId)+'/'+stage);},[workspaceView,workflowJobId,createdJobId,stage,currentJob]);
 
   const labTeam = demoEmployees.map((employee) => ({ id: employee.id, name: employee.name, active: employee.active && eligibleForTeam(employee.id, "analysis") }));
@@ -794,8 +824,9 @@ export default function Home() {
     if ((!currentJob || isDraft(currentJob)) && !hasPermission("createJob")) { setNotice("You are not authorized to create jobs."); return; }
     if (currentJob && (!hasPermission("jobDetails") || (stage !== "job" && !hasPermission("sampling")))) { setNotice("You do not have access to update this work area."); return; }
     if(currentJob && !coordinator(currentEmployee.id) && !samplingTeam(currentJob).includes(currentEmployee.id) && !canWork(currentJob,"sampling",currentEmployee.id)){setNotice("Only the accepted sampling owner or a job coordinator can update this job workspace.");return;}
+    if(currentJob && stage !== "job" && samplingDataLocked(currentJob)){setNotice(latestData(currentJob)?.status==="Submitted"?"The sampling data is submitted for review and is read-only until it is returned.":"The sampling data is approved and read-only. To correct it, reopen it with a reason in Sampling review & report.");return;}
     if(currentJob?.operations?.samplingReports.some(r=>["Checking","Awaiting Approval","Approved"].includes(r.status)) && !["Draft","Changes Requested"].includes(currentJob.operations.samplingReports.at(-1)!.status)){setNotice("Submitted sampling data is locked. Request a report revision before editing.");return;}
-    if (!currentJob?.operations && currentJob?.report?.reportStatus !== "Draft" && currentJob?.report && !(currentEmployee.id === "SALIM" && currentJob.report.reportStatus === "Awaiting Approval" && recordUpdates.report)) { setNotice("Reviewed data is locked. Salim must request changes before editing."); return; }
+    if (!currentJob?.operations && currentJob?.report?.reportStatus !== "Draft" && currentJob?.report && !(currentEmployee.id === samplingApprover && currentJob.report.reportStatus === "Awaiting Approval" && recordUpdates.report)) { setNotice(`Reviewed data is locked. ${employeeName(samplingApprover)} must request changes before editing.`); return; }
     if(currentJob?.operations && (JSON.stringify(job.requiredTests)!==JSON.stringify(currentJob.requiredTests||[]) || job.otherTests!==(currentJob.otherTests||''))){setNotice('The original request is preserved. Record scope changes in Scope → Request additional work, with a reason.');return;}
     const now = new Date().toISOString();
     const responsibleId = job.assignedEngineerId || currentJob?.responsibleId || job.employee || currentEmployee.id;
@@ -886,7 +917,7 @@ export default function Home() {
     setEventDraft({ date: localDate(), time: "", description: "" });
     setNotice("");
     setJobErrors([]);
-    setReport({ summary: "", preparedBy: "", preparedDate: "", approvedBy: "SALIM", approvalDate: "", reportStatus: "Draft" });
+    setReport({ summary: "", preparedBy: "", preparedDate: "", approvedBy: "", approvalDate: "", reportStatus: "Draft" });
     setReportErrors([]);
     setJob({...emptyJobDetails(),employee:currentEmployee!.id});
   }
@@ -950,8 +981,7 @@ export default function Home() {
   }
 
   function deterministicSummary() {
-    const action = isCasedHoleSampling(samplingType) ? "bottom-hole sampling and sample transfer activities" : `${samplingType || "sampling"} activities`;
-    return `VAPS was contracted by ${clientName} to perform ${action} for well ${job.well}. A total of ${samples.length} samples were collected or handled and recorded under job ${jobId}.`;
+    return samplingSummary({ clientName, samplingSource: samplingType, well: job.well, samples, jobNumber: jobId });
   }
 
   function missingReportFields() {
@@ -969,7 +999,7 @@ export default function Home() {
     if (!report.summary.trim()) errors.push("Report summary is required.");
     if (!report.preparedBy) errors.push("Prepared By is required.");
     if (!report.preparedDate) errors.push("Prepared Date is required.");
-    if (report.approvedBy !== "SALIM") errors.push("Salim Al Maqbali must review and approve the data.");
+    if (!samplingApprover) errors.push("Sampling approval is not configured. Ask an administrator to assign it in Settings → Authorization.");
     return errors;
   }
 
@@ -992,25 +1022,26 @@ export default function Home() {
     }
     if (!currentEmployee) return;
     const now = new Date().toISOString();
-    const nextReport = { ...report, approvalDate: "", reportStatus: "Awaiting Approval" as const, submittedBy: currentEmployee.id, submittedAt: now, approvedAt: undefined };
+    const nextReport = { ...report, approvedBy: "", approvalDate: "", reportStatus: "Awaiting Approval" as const, submittedBy: currentEmployee.id, submittedAt: now, approvedAt: undefined };
     setReport(nextReport);
-    updateCurrentJob("Report Preview", `Approval required from ${employeeName(report.approvedBy)}`, { "Report Preview": "In Progress", "Final Report": "Not Started" }, `submitted Sampling and Analysis Report for approval to ${employeeName(report.approvedBy)}`, { samples, events: sortedEvents, report: nextReport, status: "Awaiting Approval", responsibleId: report.approvedBy });
-    setNotice(`Report sent to ${employeeName(report.approvedBy)} for approval`);
+    updateCurrentJob("Report Preview", `Approval required from ${employeeName(samplingApprover)}`, { "Report Preview": "In Progress", "Final Report": "Not Started" }, `submitted Sampling and Analysis Report for approval to ${employeeName(samplingApprover)}`, { samples, events: sortedEvents, report: nextReport, status: "Awaiting Approval", responsibleId: samplingApprover });
+    setNotice(`Report sent to ${employeeName(samplingApprover)} for approval`);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function approveFinalReport() {
     if(currentJob?.operations){openOperation(currentJob,"sampling-report");return;}
     if (!currentJob || JSON.stringify(samples) !== JSON.stringify(currentJob.samples) || JSON.stringify(events) !== JSON.stringify(currentJob.events) || report.summary !== currentJob.report?.summary) { setNotice("The review data has changed. Reload the job and review the submitted data before approval."); return; }
-    if (!currentEmployee || currentEmployee.id !== "SALIM" || report.approvedBy !== "SALIM" || report.reportStatus !== "Awaiting Approval") {
-      setNotice("Only the assigned approver can approve this report");
+    // The configured sampling approver acts now; the approval records who actually signed.
+    if (!currentEmployee || !samplingApprover || currentEmployee.id !== samplingApprover || !hasPermission("sampling") || report.reportStatus !== "Awaiting Approval") {
+      setNotice(samplingApprover ? `Only ${employeeName(samplingApprover)} (sampling approval) can approve this report.` : "Sampling approval is not configured. Ask an administrator to assign it in Settings → Authorization.");
       return;
     }
     const errors = missingReportFields();
     setReportErrors(errors);
     if (errors.length) return;
     const now = new Date().toISOString();
-    const nextReport = { ...report, approvalDate: now.slice(0, 10), approvedAt: now, reportStatus: "Completed" as const };
+    const nextReport = { ...report, approvedBy: currentEmployee.id, approvalDate: now.slice(0, 10), approvedAt: now, reportStatus: "Completed" as const };
     setReport(nextReport);
     updateCurrentJob("Final Report", "No action required", { "Report Preview": "Completed", "Final Report": "Completed" }, `approved final Sampling and Analysis Report for ${jobId}`, { samples, events: sortedEvents, report: nextReport, status: currentJob && !labComplete(currentJob) ? "Sampling Completed" : "Completed" });
     setNotice("Sampling and Analysis Report approved and finalized");
@@ -1020,8 +1051,8 @@ export default function Home() {
 
   function requestReportChanges() {
     if(currentJob?.operations){openOperation(currentJob,"sampling-report");return;}
-    if (!currentEmployee || currentEmployee.id !== "SALIM" || report.approvedBy !== "SALIM" || report.reportStatus !== "Awaiting Approval") {
-      setNotice("Only the assigned approver can return this report");
+    if (!currentEmployee || !samplingApprover || currentEmployee.id !== samplingApprover || !hasPermission("sampling") || report.reportStatus !== "Awaiting Approval") {
+      setNotice(samplingApprover ? `Only ${employeeName(samplingApprover)} (sampling approval) can return this report.` : "Sampling approval is not configured.");
       return;
     }
     const nextReport = { ...report, approvalDate: "", approvedAt: undefined, reportStatus: "Draft" as const };
@@ -1031,7 +1062,7 @@ export default function Home() {
   }
 
   async function downloadReportPdf() {
-    if (report.reportStatus !== "Completed" || report.approvedBy !== "SALIM" || !report.approvedAt) return;
+    if (report.reportStatus !== "Completed" || !report.approvedBy || !report.approvedAt) return;
     const reportElement = document.querySelector<HTMLElement>("[data-pdf-report]");
     if (!reportElement || pdfExporting) return;
     setPdfExporting(true);
@@ -1111,17 +1142,7 @@ export default function Home() {
   }
 
   function standardDataSheetErrors(sample: Sample) {
-    const errors: string[] = [];
-    const missingIdentification = [!sample.fieldData.samplingDate && "Sampling Date", !sample.fieldData.samplingTime && "Sampling Time", !sample.fieldData.sampleNature.trim() && "Sample Nature", !sample.depth.trim() && "Sampling Point / Depth", !sample.fieldData.flowPeriod.trim() && "Flow Period", !sample.fieldData.formation.trim() && "Formation", !sample.fieldData.perforations.trim() && "Perforations"].filter(Boolean);
-    const shippingFields = ["sampleBottleVolume", "sampleVolume", "fluidRemaining", "finalPressure", "finalTemperature"];
-    const matchedFields = ["initialOpeningPressure", "initialOpeningTemperature", "receivingBottleOpeningPressure", "receivingBottleOpeningTemperature", "transferPressure", "transferTemperature", "transferDuration"];
-    const productionFields = ["bhp", "bht", "whp", "wht", "chokeSize", "stableSince", "separatorPressure", "separatorTemperature", "oilRate", "correctedBy", "gasRate", "waterRate", "gasGravity", "condensateGravity", "oilLineTemperature", "gasDifferentialPressure", "gasPressure", "gasTemperature", "fbFactor", "fpvFactor", "cgr", "wor", "bsw", "h2s", "co2"];
-    if (missingIdentification.length) errors.push(`Identification: complete ${missingIdentification.join(", ")}.`);
-    if (!containerComplete(sample)) errors.push(isGlass(sample) ? "Shipping Conditions: the glass container ID is required." : "Shipping Conditions: Bottle Type and Bottle Number are required.");
-    if (shippingFields.some((field) => !sample.fieldData[field]?.trim())) errors.push("Shipping Conditions: enter every value or record N/A where it does not apply.");
-    if (matchedFields.some((field) => !sample.fieldData[field]?.trim())) errors.push("Matched / Transfer Conditions: enter every value or record N/A.");
-    if (productionFields.some((field) => !sample.fieldData[field]?.trim())) errors.push("Production Conditions: enter every value or record N/A.");
-    return errors;
+    return standardSheetErrors(sample);
   }
 
   function fillBlankConditionsAsNotApplicable(id: string) {
@@ -1180,6 +1201,30 @@ export default function Home() {
     updateCurrentJob("Sampling Data", "Complete remaining sample records", { "Sampling Data": "In Progress" }, `Completed Sample ${id} data`, { samples: nextSamples });
   }
 
+  const [submissionNote, setSubmissionNote] = useState("");
+  function markSamplingSeen(item: JobRecord) {
+    if (!currentEmployee) return;
+    const next = { ...seenSampling, [currentEmployee.id]: [...new Set([...(seenSampling[currentEmployee.id] || []), ...samplingEvents(item)])].slice(-300) };
+    setSeenSampling(next); try { localStorage.setItem(samplingSeenKey, JSON.stringify(next)); } catch { /* not critical */ }
+  }
+  function openSamplingTask(item: JobRecord) {
+    markSamplingSeen(item);
+    const status = samplingStatus(item, responsibilities);
+    if (status.tab === "sampling" && hasPermission("sampling") && samplingTeam(item).includes(currentEmployee?.id || "")) { resumeJob(item); setStage(samplingStageFor(item)); return; }
+    openOperation(item, status.tab === "sampling" ? "sampling" : status.tab);
+  }
+  /** Saves the current entries, then submits them for data review against freshly read settings. */
+  function submitSamplingData() {
+    if (!currentJob || !currentEmployee) return;
+    updateCurrentJob(currentJob.currentStage === "Report Preview" ? "Report Preview" : "Sampling Data", "Sampling data review", {}, undefined, { samples, events });
+    try {
+      runOperation(currentJob.id, { type: "data-submit", note: submissionNote });
+      setSubmissionNote("");
+      setNotice(`Sampling data submitted for review. Next: ${employeeName(samplingApprover)} reviews it. Status: Awaiting data review.`);
+      recordActivity(`Submitted sampling data for ${currentJob.id}`, currentJob.id);
+    } catch (error) { setNotice((error as Error).message); }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
   function saveSamplingDataDraft() {
     updateCurrentJob("Sampling Data", "Complete sample records", { "Sampling Data": "In Progress" }, undefined, { samples, events });
     setNotice("Sampling Data draft saved to local demo data");
@@ -1199,7 +1244,7 @@ export default function Home() {
     const now = new Date().toISOString();
     setSamplingDataCompletedAt(now);
     const draftSummary = report.summary || deterministicSummary();
-    const nextReport = { ...report, approvedBy: "SALIM", approvalDate: "", approvedAt: undefined, summary: draftSummary, preparedBy: report.preparedBy || currentEmployee?.id || "", preparedDate: report.preparedDate || localDate(), reportStatus: "Draft" as const };
+    const nextReport = { ...report, approvedBy: "", approvalDate: "", approvedAt: undefined, summary: draftSummary, preparedBy: report.preparedBy || currentEmployee?.id || "", preparedDate: report.preparedDate || localDate(), reportStatus: "Draft" as const };
     setReport(nextReport);
     updateCurrentJob("Report Preview", "Review and generate sampling report", { "Sampling Data": "Completed", "Report Preview": "In Progress" }, `completed Sampling Data for ${jobId}`, { samples, events, report: nextReport, status: "Report Draft" });
     setNotice(`Sampling Data completed by ${currentEmployee?.name}`);
@@ -1602,6 +1647,13 @@ export default function Home() {
     </section>;
   }
 
+  // Guided sampling steps apply to jobs on the operations workflow with separate data review.
+  const samplingFlow = !!currentJob?.operations && !isDraft(currentJob) && dataReviewRequired(currentJob) && stage !== "job" && stage !== "scope";
+  const transferFlow = isMpsrLabTransfer(samplingType) || samplingType === "Other";
+  const dataReview = currentJob ? latestData(currentJob) : undefined;
+  const reviewPhase = !!dataReview && ["Submitted", "Approved"].includes(dataReview.status);
+  const currentSamplingStatus = currentJob ? samplingStatus(currentJob, responsibilities) : undefined;
+  const samplingStepIndex = stage === "type" ? 0 : stage === "bottomhole" ? 1 : reviewPhase || currentSamplingStatus?.key.startsWith("report") ? 3 : 2;
   const stageTitle = stage === "job" ? "Create a new laboratory job" : stage === "type" ? "Sampling preparation" : stage === "bottomhole" ? "Sampling data" : stage === "scope" ? "Final report" : "Report preview";
   const stageCopy = stage === "job" ? "Register the client, location, sampling scope, assignment and sampling instructions. Save a draft at any time; Send to Sampling when ready." : stage === "type" ? "Prepare equipment and verify field readiness for the sampling type selected at Job Setup." : stage === "bottomhole" ? "Capture the sample register and field event details for the prepared sample set." : stage === "scope" ? "The final Sampling and Analysis Report is ready to view or print." : "Review, approve, and generate the final Sampling and Analysis Report.";
 
@@ -1643,7 +1695,7 @@ export default function Home() {
           <p className="nav-label">WORKSPACE</p>{hasPermission("createJob") && <button type="button" className="nav-item" onClick={startNewJob}><Plus size={18} /> Create new job</button>}
           {navItems.map((item, index) => { const NavIcon = navIcons[index]; if (!canView(({ Dashboard: "dashboard", Jobs: "jobs", Sampling: "sampling", "PVT Lab": "pvt-lab", Inventory: "inventory", Settings: "settings" } as Record<string, string>)[item])) return null; return (
             <button key={item} className={(item === "Dashboard" && workspaceView === "dashboard") || (item === "Jobs" && (workspaceView === "jobs" || workspaceView === "workflow")) || (item === "New Job" && workspaceView === "new-job") || (item === "Sampling" && workspaceView === "sampling") || (item === "PVT Lab" && workspaceView === "pvt-lab")  || (item === "Settings" && workspaceView === "settings") || (item === "Inventory" && workspaceView === "inventory") ? "nav-item active" : "nav-item"} type="button" onClick={() => { if (item === "Dashboard") setWorkspaceView("dashboard"); if (item === "Jobs") setWorkspaceView("jobs"); if (item === "Sampling") setWorkspaceView("sampling"); if (item === "PVT Lab") { setLabJobId(""); setWorkspaceView("pvt-lab"); } if (item === "Settings") { setWorkspaceView("settings"); } if (item === "Inventory") { setWorkspaceView("inventory"); } if (item === "New Job") startNewJob(); }} aria-current={(item === "Dashboard" && workspaceView === "dashboard") || (item === "Jobs" && workspaceView === "jobs") || (item === "New Job" && workspaceView === "new-job") || (item === "Sampling" && workspaceView === "sampling") || (item === "PVT Lab" && workspaceView === "pvt-lab")  || (item === "Settings" && workspaceView === "settings") || (item === "Inventory" && workspaceView === "inventory") ? "page" : undefined}>
-              <span className="nav-icon" aria-hidden="true"><NavIcon size={19} strokeWidth={1.8} /></span>{item}
+              <span className="nav-icon" aria-hidden="true"><NavIcon size={19} strokeWidth={1.8} /></span>{item}{item === "Sampling" && samplingUnseen > 0 && <span className="nav-badge" aria-label={`${samplingUnseen} new sampling updates`}>{samplingUnseen}</span>}
               {item === "Jobs" && <span className="nav-count">{jobs.length}</span>}
             </button>
           ); })}
@@ -1676,7 +1728,7 @@ export default function Home() {
 
         <div className="page-wrap">
           {workspaceView !== "settings" && !!notice && <div className="notice" role="alert">{notice}<button type="button" aria-label="Dismiss" onClick={() => setNotice("")}>×</button></div>}
-          {!canView(workspaceView) ? <section className="panel authorization-panel"><h1>Access restricted</h1><p>Ask Mohammed Al Awaisi to enable access in Settings → Authorization.</p><button className="primary-button" type="button" onClick={() => setWorkspaceView("dashboard")}>Back to dashboard</button></section> : workspaceView === "workflow" ? (workflowJob ? (!legacyView ? <OperationsWorkspace key={workflowJob.id+operationTab} job={workflowJob} actor={opsActor!} tab={operationTab} onNavigate={tab=>openOperation(workflowJob,tab)} onCommand={c=>runOperation(workflowJob.id,c)} onSampling={()=>{resumeJob(workflowJob);setStage('type');}} onSetup={()=>{resumeJob(workflowJob);setStage('job');}} onLegacy={()=>setLegacyView(true)} /> : <JobWorkflow key={workflowJob.id} job={workflowJob} today={today} employeeName={employeeName} onBack={() => setWorkspaceView("jobs")} onOpenStage={(stageId) => stageId === "closed" ? resumeJob(workflowJob) : openStage(workflowJob, stageId)} />) : <section className="panel"><h1>Job not found</h1><button type="button" onClick={() => setWorkspaceView("jobs")}>Back to jobs</button></section>) : workspaceView === "dashboard" && !hasPermission("jobDetails") ? (<section className="panel authorization-panel"><h1>Welcome, {currentEmployee.name.split(" ")[0]}</h1><p>Choose an authorized workspace from the menu. Contact Mohammed Al Awaisi to request additional access.</p></section>) : workspaceView === "dashboard" ? (
+          {!canView(workspaceView) ? <section className="panel authorization-panel"><h1>Access restricted</h1><p>Ask Mohammed Al Awaisi to enable access in Settings → Authorization.</p><button className="primary-button" type="button" onClick={() => setWorkspaceView("dashboard")}>Back to dashboard</button></section> : workspaceView === "workflow" ? (workflowJob ? (!legacyView ? <OperationsWorkspace key={workflowJob.id+operationTab} job={workflowJob} actor={opsActor!} tab={operationTab} onNavigate={tab=>openOperation(workflowJob,tab)} onCommand={c=>runOperation(workflowJob.id,c)} onSampling={(target,sample)=>{resumeJob(workflowJob);setStage((target||samplingStageFor(workflowJob)) as Stage);if(sample)setExpanded(sample);}} onSetup={()=>{resumeJob(workflowJob);setStage('job');}} onLegacy={()=>setLegacyView(true)} /> : <JobWorkflow key={workflowJob.id} job={workflowJob} today={today} employeeName={employeeName} onBack={() => setWorkspaceView("jobs")} onOpenStage={(stageId) => stageId === "closed" ? resumeJob(workflowJob) : openStage(workflowJob, stageId)} />) : <section className="panel"><h1>Job not found</h1><button type="button" onClick={() => setWorkspaceView("jobs")}>Back to jobs</button></section>) : workspaceView === "dashboard" && !hasPermission("jobDetails") ? (<section className="panel authorization-panel"><h1>Welcome, {currentEmployee.name.split(" ")[0]}</h1><p>Choose an authorized workspace from the menu. Contact Mohammed Al Awaisi to request additional access.</p></section>) : workspaceView === "dashboard" ? (
             <>{jobs.length===0&&<section className="panel ops-panel demo-banner"><div><h2>Explore the workflow with demo jobs</h2><p>This browser has no jobs yet. Load four example jobs (sampling, report approval, laboratory work and a completed job) to see how work moves through the system. All names and values are fictional and marked DEMO; they are saved only in this browser.</p></div><button type="button" className="primary-button" disabled={demoLoading} onClick={() => void loadDemoData()}>{demoLoading ? "Loading…" : "Load demo data"}</button></section>}{hasPermission('createJob')&&<div className="ops-dashboard-actions"><button className="primary-button" onClick={startNewJob}>+ Create job</button></div>}<WeeklyWork jobs={hasPermission('jobDetails')?visibleJobs:[]} actor={{id:currentEmployee.id,employees:demoEmployees,policy:authorization,roles:responsibilities}} onOpen={openOperation}/>{currentEmployee.id==='MA001'&&<details className="panel ops-panel"><summary>Administrator · workflow clarification review</summary><ClarificationReview/></details>}<details className="company-summary"><summary>Company overview and activity</summary>
               <section className="cockpit-header">
                 <div><h1>{timeGreeting}, {currentEmployee.name.split(" ")[0]}</h1><p>Here’s what needs your attention today.</p></div>
@@ -1741,12 +1793,20 @@ export default function Home() {
           ) : workspaceView === "sampling" ? (
             <>
               <section className="page-intro operations-page-intro"><div><span className="eyebrow">SAMPLING · OPERATIONS CONTROL</span><h1>Sampling</h1><p>Sampling activities and their sampling reports, kept on the same job record from preparation to approval.</p></div></section>
-              <div className="sampling-tabs" role="tablist" aria-label="Sampling sections"><button type="button" role="tab" aria-selected={samplingTab === "jobs"} className={samplingTab === "jobs" ? "active" : ""} onClick={() => setSamplingTab("jobs")}><FlaskConical size={16} aria-hidden="true" />Sampling Jobs<span>{samplingWorkspaceJobs.length}</span></button><button type="button" role="tab" aria-selected={samplingTab === "reports"} className={samplingTab === "reports" ? "active" : ""} onClick={() => setSamplingTab("reports")}><FileText size={16} aria-hidden="true" />Sampling Reports<span>{reportsWorkspaceJobs.length}</span></button></div>
+              <div className="sampling-tabs" role="tablist" aria-label="Sampling sections"><button type="button" role="tab" aria-selected={samplingTab === "jobs"} className={samplingTab === "jobs" ? "active" : ""} onClick={() => setSamplingTab("jobs")}><FlaskConical size={16} aria-hidden="true" />My sampling work<span>{mySamplingWork.length}</span></button><button type="button" role="tab" aria-selected={samplingTab === "reports"} className={samplingTab === "reports" ? "active" : ""} onClick={() => setSamplingTab("reports")}><FileText size={16} aria-hidden="true" />Sampling Reports<span>{reportsWorkspaceJobs.length}</span></button></div>
               {samplingTab === "jobs" ? <>
-              <section className="operations-page-metrics"><article><span><FlaskConical size={18} /></span><div><small>ACTIVE SAMPLING JOBS</small><strong>{samplingWorkspaceJobs.length}</strong><em>Across all sampling types</em></div></article><article><span><ListChecks size={18} /></span><div><small>IN PREPARATION</small><strong>{preparationJobs.length}</strong><em>Equipment and readiness</em></div></article><article><span><ClipboardList size={18} /></span><div><small>DATA ENTRY</small><strong>{dataEntryJobs.length}</strong><em>Sample sheets in progress</em></div></article><article><span><ShieldCheck size={18} /></span><div><small>DATA COMPLETE</small><strong>{completedDataJobs.length}</strong><em>Ready for reporting</em></div></article></section>
-              <section className="panel operations-register"><div className="panel-heading premium-heading"><div><span className="eyebrow">LIVE SAMPLE REGISTER</span><h2>Sampling Jobs</h2><p>Review each job’s sample and data-sheet readiness.</p></div><span className="event-count">{samplingWorkspaceJobs.length} JOBS</span></div>
-                <div className="operations-table-wrap"><table className="operations-table"><thead><tr><th>Job</th><th>Sampling Type</th><th>Current Stage</th><th>Sample Records</th><th>Data Sheet</th><th>Responsible</th><th>Last Updated</th><th /></tr></thead><tbody>{samplingWorkspaceJobs.map((item) => { const total = item.samples?.length || 0; const complete = item.samples?.filter((sample) => sample.dataComplete).length || 0; const dataState = total === 0 ? "Not Started" : complete === total ? "Complete" : complete > 0 ? "Partially Filled" : "Not Started"; return <tr key={item.id}><td><button type="button" className="table-job-link" onClick={() => resumeJob(item)}>{item.id}</button><small>{item.clientName} · {item.well || "Well not specified"}</small></td><td><strong>{item.samplingSource === "Other" && item.otherSamplingType ? `Other — ${item.otherSamplingType}` : item.samplingSource}</strong></td><td><span className="stage-chip">{item.currentStage}</span></td><td><strong>{complete} / {total}</strong><small>records complete</small></td><td><span className={`data-sheet-pill ${dataState.toLowerCase().replaceAll(" ", "-")}`}>{dataState}</span></td><td><strong>{employeeName(item.jobResponsibleId || item.responsibleId)}</strong></td><td><span>{formatDateTime(item.lastUpdatedAt)}</span></td><td><button type="button" className="continue-button" onClick={() => { resumeJob(item); setStage("bottomhole"); setWorkspaceView("new-job"); }}>Review Data <ChevronRight size={14} /></button></td></tr>; })}{samplingWorkspaceJobs.length === 0 && <tr className="operations-empty-row"><td colSpan={8}><FlaskConical size={22} /><strong>No sampling jobs yet.</strong><span>{hasPermission("createJob") ? "Jobs appear here after you send them to Sampling." : "Jobs sent to Sampling will appear here."}</span></td></tr>}</tbody></table></div>
-              </section>
+              {(() => {
+                const row = (item: JobRecord, mine: boolean) => { const status = samplingStatus(item, responsibilities); const team = samplingTeam(item); const unseen = mine ? unseenEvents(item) : []; const sent = item.operations?.dispatchedAt; return <tr key={item.id} className={mine && status.owner === currentEmployee.id ? "needs-action" : undefined}><td><button type="button" className="table-job-link" onClick={() => openSamplingTask(item)}>{item.id}</button><small>{item.clientName}</small>{unseen.some((key) => key.startsWith("assign:")) && <span className="status-pill new-pill">New assignment</span>}{unseen.some((key) => key.startsWith("return:")) && <span className="status-pill returned-pill">Returned</span>}{unseen.some((key) => key.startsWith("review:") || key.startsWith("report:")) && <span className="status-pill new-pill">New for review</span>}</td><td><strong>{item.fieldArea || "Field not recorded"}</strong><small>{item.wellMode === "multiple" ? (item.wells || []).filter(Boolean).join(", ") : item.well || "Well not recorded"}</small></td><td><strong>{item.samplingSource === "Other" && item.otherSamplingType ? `Other — ${item.otherSamplingType}` : item.samplingSource}</strong></td><td><strong>{employeeName(team[0])}</strong><small>{team.length > 1 ? "Supporting: " + team.slice(1).map(employeeName).join(", ") : "No supporting employees"}</small></td><td><small>Sent {sent ? reportDate(sent) : "not recorded"}</small><small className={isOverdue(item) ? "overdue-text" : ""}>Due {item.dueDate ? reportDate(item.dueDate) : "not set"}</small></td><td><span className={`status-pill ${status.key === "returned" ? "returned-pill" : status.key === "report-approved" ? "flow-closed" : "flow-active"}`}>{status.label}</span><small>Next: {status.next}{status.owner ? ` · ${employeeName(status.owner)}` : ""}</small></td><td><button type="button" className={mine && (status.owner === currentEmployee.id || (status.team && team.includes(currentEmployee.id))) ? "primary-button register-action" : "continue-button"} onClick={() => openSamplingTask(item)}>{samplingActionLabel(item)} <ChevronRight size={14} /></button></td></tr>; };
+                const head = <thead><tr><th>Job</th><th>Field / Well</th><th>Sampling type</th><th>Assigned</th><th>Dates</th><th>Status · next action</th><th aria-label="Action" /></tr></thead>;
+                return <>
+                  <section className="panel operations-register sampling-queue"><div className="panel-heading premium-heading"><div><span className="eyebrow">MY ASSIGNED WORK</span><h2>My sampling work</h2><p>Jobs assigned to you, and sampling reviews waiting for you. Open a job to see its instructions and next step.</p></div><span className="event-count">{mySamplingWork.length} JOBS</span></div>
+                    <div className="operations-table-wrap"><table className="operations-table sampling-queue-table">{head}<tbody>{mySamplingWork.map((item) => row(item, true))}{mySamplingWork.length === 0 && <tr className="operations-empty-row"><td colSpan={7}><FlaskConical size={22} /><strong>No sampling work assigned to you.</strong><span>Jobs sent to you appear here with their instructions.</span></td></tr>}</tbody></table></div>
+                  </section>
+                  {(hasPermission("createJob") || hasPermission("sampling")) && <details className="panel operations-register team-overview" open={mySamplingWork.length === 0}><summary><span className="eyebrow">TEAM OVERVIEW</span><strong>All sampling jobs ({samplingOverview.length})</strong><small>Read-only overview for authorized users. Drafts are not shown.</small></summary>
+                    <div className="operations-table-wrap"><table className="operations-table sampling-queue-table">{head}<tbody>{samplingOverview.map((item) => row(item, false))}{samplingOverview.length === 0 && <tr className="operations-empty-row"><td colSpan={7}><strong>No sampling jobs yet.</strong><span>{hasPermission("createJob") ? "Jobs appear here after you send them to Sampling." : "Jobs sent to Sampling will appear here."}</span></td></tr>}</tbody></table></div>
+                  </details>}
+                </>;
+              })()}
               </> : <>
 
               <section className="panel operations-register"><div className="panel-heading premium-heading"><div><span className="eyebrow">REPORT REGISTER</span><h2>Sampling reports</h2><p>Drafts, checking, approval and approved sampling reports stay linked to their job. Each stays linked to its job and sample records — click a job ID to see its full workflow.</p></div><span className="event-count">{reportsWorkspaceJobs.length} REPORTS</span></div>
@@ -1886,16 +1946,29 @@ export default function Home() {
             <details className="job-context-details"><summary>More job context <span>⌄</span></summary><div><span><small>Preparation completed</small><strong>{formatDateTime(preparationCompletedAt)}</strong></span><span><small>Job owner</small><strong>{employeeName(currentJob?.ownerId)}</strong></span><span><small>Last updated</small><strong>{formatDateTime(currentJob?.lastUpdatedAt)}</strong></span></div></details>
           </>}
 
-          <ol className="stepper" aria-label="Workflow progress">
+          {samplingFlow ? (() => {
+            const prep = currentJob!.stages.find((item) => item.name === "Sampling Preparation")?.status;
+            const done = samples.filter((sample) => sample.dataComplete).length;
+            const steps = [
+              { label: transferFlow ? "Transfer preparation" : "Preparation", stage: "type" as Stage, status: prep === "Completed" || prep === "Skipped" ? "Completed" : prep === "In Progress" ? "Saved · incomplete" : "Not started" },
+              { label: transferFlow ? "Sample transfer data" : "Sample records & data", stage: "bottomhole" as Stage, status: samples.length && done === samples.length ? "Complete" : `${done} / ${samples.length} complete` },
+              { label: "Review & submit", stage: "report" as Stage, status: dataReview?.status === "Returned" ? "Returned" : reviewPhase ? "Submitted" : "Not submitted" },
+              { label: "Review status & report", stage: "report" as Stage, status: currentSamplingStatus!.label },
+            ];
+            return <ol className="stepper sampling-stepper" aria-label="Sampling steps">{steps.map((item, index) => <li key={item.label} className={index === samplingStepIndex ? "current" : index < samplingStepIndex ? "done" : ""}><button type="button" onClick={() => setStage(item.stage)} aria-current={index === samplingStepIndex ? "step" : undefined}><span>{index < samplingStepIndex ? "✓" : index + 1}</span><small>{item.label}</small><em>{item.status}</em></button></li>)}</ol>;
+          })() : <ol className="stepper" aria-label="Workflow progress">
             {workflowStageNames.map((label, index) => {
               const stageIndex = stage === "job" ? 0 : stage === "type" ? 1 : stage === "bottomhole" ? 2 : stage === "report" ? 3 : 4;
               const done = index < stageIndex;
               const current = index === stageIndex;
               return <li key={label} className={current ? "current" : done ? "done" : ""}><span>{done ? "✓" : index + 1}</span><small>{label}</small></li>;
             })}
-          </ol>
+          </ol>}
 
-          {notice && <div className="notice"><span>✓</span>{notice}<button type="button" onClick={() => setNotice("")} aria-label="Dismiss">×</button></div>}
+          {samplingFlow && dataReview?.status === "Returned" && <section className="panel returned-box" role="status"><h2>Returned for correction</h2><p>{employeeName(dataReview.reviewedBy)} returned the sampling data on {formatDateTime(dataReview.reviewedAt)}.</p><p className="instructions-text">{dataReview.general}</p><ul>{dataReview.comments.map((comment, index) => <li key={index}><strong>{comment.label}</strong>: {comment.text} <button type="button" className="text-button" onClick={() => { const sample = comment.target.startsWith("sample:") ? comment.target.split(":")[1] : ""; setStage(comment.target === "preparation" || comment.target === "job" ? "type" : "bottomhole"); if (sample) setExpanded(sample); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Open section →</button></li>)}</ul>{currentEmployee.id === currentJob!.assignedEngineerId ? <button type="button" className="primary-button" onClick={() => setStage("report")}>Review &amp; resubmit</button> : <p>You can help correct the data. {employeeName(currentJob!.assignedEngineerId)} resubmits it.</p>}</section>}
+
+          {samplingFlow && (stage === "type" || stage === "bottomhole") && <section className="panel step-guide"><div><span className="eyebrow">STEP {stage === "type" ? 1 : 2} OF 4</span><h2>{stage === "type" ? (transferFlow ? "Transfer preparation" : "Preparation") : (transferFlow ? "Sample transfer data" : "Sample records & sampling data")}</h2><p>{stage === "type" ? "Complete the coordination checklist and prepare the equipment and container for each sample. Glass containers need only their own ID." : "Fill the standard data sheet for every sample and mark each one complete. Use N/A only where a condition does not apply."}</p><p className="required-legend"><strong>Required:</strong> fields marked * · <strong>Optional:</strong> remarks and notes · Your entries are kept when you move between steps; use Save Draft to store them.</p></div><div className="step-guide-status"><small>STATUS</small><strong>{currentSamplingStatus!.label}</strong><span>Next: {currentSamplingStatus!.next}</span>{samplingDataLocked(currentJob!) ? <button type="button" className="outline-button" onClick={() => setStage("report")}>View submission</button> : stage === "type" ? <button type="button" className="outline-button" onClick={() => setStage("bottomhole")}>Continue to sample data →</button> : <button type="button" className="outline-button" onClick={() => setStage("report")}>Continue to review &amp; submit →</button>}</div></section>}
+
 
           {stage !== "job" && stage !== "type" && currentJob && <details className="workflow-details"><summary><span>Workflow responsibility</span><strong>{currentJob.currentStage} · {currentJob.stages.filter((item) => item.status === "Completed" || item.status === "Skipped").length} of {workflowStageNames.length} stages resolved</strong><i>⌄</i></summary><section className="stage-tracking" aria-label="Workflow responsibility">{currentJob.stages.map((item) => <article key={item.name} className={item.status.toLowerCase().replace(" ", "-")}><div><span>{item.status === "Completed" ? "✓" : item.status === "Skipped" ? "—" : "•"}</span><strong>{item.name}</strong></div><dl><div><dt>Assigned to</dt><dd>{employeeName(item.assignedTo)}</dd></div><div><dt>Status</dt><dd>{item.status}</dd></div><div><dt>Started</dt><dd>{formatDateTime(item.started)}</dd></div><div><dt>Completed</dt><dd>{formatDateTime(item.completed)}</dd></div><div><dt>Last updated by</dt><dd>{employeeName(item.lastUpdatedBy)}</dd></div></dl></article>)}</section></details>}
 
@@ -2082,7 +2155,7 @@ export default function Home() {
             </>
           )}
 
-          {stage === "scope" && report.reportStatus === "Completed" && report.approvedBy === "SALIM" && report.approvedAt && (
+          {stage === "scope" && report.reportStatus === "Completed" && !!report.approvedBy && report.approvedAt && (
             <section className="final-report-ready panel"><div className="scope-route"><span>✓</span><div><strong>Final report generated</strong><small>{jobId} · {report.reportStatus} · Approved by {employeeName(report.approvedBy)}</small></div></div><div className="final-report-actions"><button type="button" className="text-button" onClick={() => setStage("report")}>← Back to report preview</button>{scopeAttachment && <a className="outline-button" href={scopeAttachment.dataUrl} download={scopeAttachment.name}>Open Scope of Work</a>}<button type="button" className="primary-button" onClick={downloadReportPdf} disabled={pdfExporting}>{pdfExporting ? "Preparing PDF..." : "Download PDF"}</button></div></section>
           )}
 
@@ -2136,21 +2209,35 @@ export default function Home() {
             </>
           )}
 
-          {(stage === "report" || stage === "scope") && samplingType && (
+          {samplingFlow && stage === "report" && (() => {
+            const issues = samplingIssues({ samplingSource: samplingType, samples, stages: currentJob!.stages });
+            const lead = currentJob!.assignedEngineerId;
+            const isLead = currentEmployee.id === lead;
+            const report = latest(currentJob!.operations?.samplingReports || []);
+            const goTo = (target: string) => { const sample = target.startsWith("sample:") ? target.split(":")[1] : ""; setStage(target === "preparation" || target === "job" ? "type" : "bottomhole"); if (sample) setExpanded(sample); };
+            return !reviewPhase && !currentSamplingStatus!.key.startsWith("report") ? <section className="panel step-guide submit-step"><div><span className="eyebrow">STEP 3 OF 4</span><h2>Review &amp; submit sampling data</h2><p>Check that preparation, every sample’s container and every data sheet are complete. {employeeName(lead)} submits the data to {samplingApprover ? employeeName(samplingApprover) : "the sampling approver (not configured)"} for review. The sampling report is prepared only after the data is approved.</p>
+              <ul className="completeness-list"><li className={issues.some((issue) => issue.target === "preparation") ? "missing" : "ok"}>{issues.some((issue) => issue.target === "preparation") ? "✗" : "✓"} Preparation</li>{samples.map((sample) => { const own = issues.filter((issue) => issue.target.startsWith(`sample:${sample.id}`)); return <li key={sample.id} className={own.length ? "missing" : "ok"}>{own.length ? "✗" : "✓"} Sample {sample.id} · {containerLabel(sample, "container not recorded")} · {sample.dataComplete ? "data sheet complete" : "data sheet not complete"}</li>; })}</ul>
+              {issues.length > 0 && <div className="preparation-validation" role="alert"><span>!</span><div><strong>Complete before submitting</strong><ul>{issues.map((issue, index) => <li key={index}>{issue.label}: {issue.text} <button type="button" className="text-button" onClick={() => goTo(issue.target)}>Open →</button></li>)}</ul></div></div>}
+              <label>Submission note (optional)<textarea value={submissionNote} onChange={(event) => setSubmissionNote(event.target.value)} placeholder="Anything the reviewer should know" /></label>
+              <div className="form-actions"><button type="button" className="outline-button" onClick={saveSamplingDataDraft}>Save Draft</button>{isLead ? <button type="button" className="primary-button" disabled={issues.length > 0} onClick={submitSamplingData}>{dataReview?.status === "Returned" ? "Resubmit sampling data" : "Submit sampling data for review"} <span>→</span></button> : <p className="required-legend">Only {employeeName(lead)} (accountable) can submit. You can still enter and save data.</p>}</div>
+            </div></section> : <section className="panel step-guide"><div><span className="eyebrow">STEP 4 OF 4</span><h2>Review status &amp; sampling report</h2><p><strong>{currentSamplingStatus!.label}</strong> · Next: {currentSamplingStatus!.next}{currentSamplingStatus!.owner ? ` (${employeeName(currentSamplingStatus!.owner)})` : ""}</p><dl className="ops-facts"><div><dt>Data submitted</dt><dd>{dataReview && dataReview.status !== "Reopened" ? `${employeeName(dataReview.submittedBy)} · ${formatDateTime(dataReview.submittedAt)}` : "—"}</dd></div><div><dt>Data review</dt><dd>{dataReview?.status === "Approved" ? `Approved by ${employeeName(dataReview.reviewedBy)} · ${formatDateTime(dataReview.reviewedAt)}` : dataReview?.status || "—"}</dd></div><div><dt>Sampling report</dt><dd>{report ? `Version ${report.version} · ${report.status}` : "Not generated"}</dd></div><div><dt>Report approval</dt><dd>{report?.approvedAt ? `${employeeName(report.approvedBy)} · ${formatDateTime(report.approvedAt)}` : "Pending"}</dd></div></dl></div><div className="step-guide-status"><button type="button" className="primary-button" onClick={() => openOperation(currentJob!, "sampling-report")}>Open sampling review &amp; report →</button></div></section>;
+          })()}
+
+          {(stage === "report" || stage === "scope") && samplingType && !samplingFlow && (
             <>
               {(stage === "report" || report.reportStatus !== "Completed") && <>
                 {reportErrors.length > 0 && <div className="preparation-validation report-validation" role="alert"><span>!</span><div><strong>Report cannot be submitted</strong><ul>{reportErrors.map((error) => <li key={error}>{error}</li>)}</ul></div></div>}
                 <section className="panel report-controls">
-                  <div className="panel-heading premium-heading"><div><span className="eyebrow">DATA REVIEW &amp; APPROVAL</span><h2>Sampling and transfer data review</h2><p>Review all entered details below. The sampling report becomes available only after Salim Al Maqbali approves the data.</p></div><span className="required-chip">{report.reportStatus.toUpperCase()}</span></div>
+                  <div className="panel-heading premium-heading"><div><span className="eyebrow">DATA REVIEW &amp; APPROVAL</span><h2>Sampling and transfer data review</h2><p>Review all entered details below. The sampling report becomes available only after {employeeName(samplingApprover)} (sampling approval) approves it.</p></div><span className="required-chip">{report.reportStatus.toUpperCase()}</span></div>
                   <label className="report-summary-editor"><span>Executive Summary *</span><textarea rows={5} value={report.summary} disabled={report.reportStatus !== "Draft"} onChange={(event) => { setReport((current) => ({ ...current, summary: event.target.value })); setReportErrors([]); }} /></label>
-                  <div className="report-approval-grid"><label><span>Prepared By *</span><select value={report.preparedBy} disabled={report.reportStatus !== "Draft"} onChange={(event) => setReport((current) => ({ ...current, preparedBy: event.target.value }))}><option value="">Select employee</option>{demoEmployees.filter(e=>e.active || e.id===report.preparedBy).map((employee) => <option disabled={!employee.active} value={employee.id} key={employee.id}>{employee.name}</option>)}</select></label><label><span>Prepared Date *</span><input type="date" value={report.preparedDate} disabled={report.reportStatus !== "Draft"} onChange={(event) => setReport((current) => ({ ...current, preparedDate: event.target.value }))} /></label><label><span>Send To / Approver *</span><input value="Salim Al Maqbali" readOnly /></label><label><span>Approval Date</span><input value={report.approvalDate ? reportDate(report.approvalDate) : "Recorded automatically"} readOnly /></label></div>
-                  {report.reportStatus === "Awaiting Approval" && <div className="approval-handoff-card"><div><span>APPROVAL REQUEST</span><strong>Sent to {employeeName(report.approvedBy)}</strong><small>Submitted by {employeeName(report.submittedBy)} · {formatDateTime(report.submittedAt)}</small></div>{currentEmployee.id === report.approvedBy ? <div><button type="button" className="outline-button" onClick={requestReportChanges}>Request Changes</button><button type="button" className="primary-button" onClick={approveFinalReport}>Approve &amp; Finalize Report <span>→</span></button></div> : <em>Waiting for the assigned approver</em>}</div>}
-                  <div className="report-toolbar"><button type="button" className="text-button" disabled={report.reportStatus !== "Draft"} onClick={() => setStage("bottomhole")}>← Edit sampling data</button><div><button type="button" className="outline-button" onClick={saveReportDraft} disabled={report.reportStatus !== "Draft"}>Save Draft</button>{report.reportStatus === "Completed" && report.approvedBy === "SALIM" && report.approvedAt && <><button type="button" className="outline-button" onClick={() => window.print()}>Print Report</button><button type="button" className="outline-button" onClick={downloadReportPdf} disabled={pdfExporting}>{pdfExporting ? "Preparing PDF..." : "Download PDF"}</button></>}<button type="button" className="primary-button" onClick={submitReportForApproval} disabled={report.reportStatus !== "Draft"}>{report.reportStatus === "Awaiting Approval" ? "Sent for Approval" : "Open checking & approval"} <span>→</span></button></div></div>
+                  <div className="report-approval-grid"><label><span>Prepared By *</span><select value={report.preparedBy} disabled={report.reportStatus !== "Draft"} onChange={(event) => setReport((current) => ({ ...current, preparedBy: event.target.value }))}><option value="">Select employee</option>{demoEmployees.filter(e=>e.active || e.id===report.preparedBy).map((employee) => <option disabled={!employee.active} value={employee.id} key={employee.id}>{employee.name}</option>)}</select></label><label><span>Prepared Date *</span><input type="date" value={report.preparedDate} disabled={report.reportStatus !== "Draft"} onChange={(event) => setReport((current) => ({ ...current, preparedDate: event.target.value }))} /></label><label><span>Send To / Approver *</span><input value={report.approvedBy ? employeeName(report.approvedBy) : samplingApprover ? employeeName(samplingApprover) : "Not configured"} readOnly /></label><label><span>Approval Date</span><input value={report.approvalDate ? reportDate(report.approvalDate) : "Recorded automatically"} readOnly /></label></div>
+                  {report.reportStatus === "Awaiting Approval" && <div className="approval-handoff-card"><div><span>APPROVAL REQUEST</span><strong>Sent to {employeeName(samplingApprover)}</strong><small>Submitted by {employeeName(report.submittedBy)} · {formatDateTime(report.submittedAt)}</small></div>{currentEmployee.id === samplingApprover ? <div><button type="button" className="outline-button" onClick={requestReportChanges}>Request Changes</button><button type="button" className="primary-button" onClick={approveFinalReport}>Approve &amp; Finalize Report <span>→</span></button></div> : <em>Waiting for the assigned approver</em>}</div>}
+                  <div className="report-toolbar"><button type="button" className="text-button" disabled={report.reportStatus !== "Draft"} onClick={() => setStage("bottomhole")}>← Edit sampling data</button><div><button type="button" className="outline-button" onClick={saveReportDraft} disabled={report.reportStatus !== "Draft"}>Save Draft</button>{report.reportStatus === "Completed" && !!report.approvedBy && report.approvedAt && <><button type="button" className="outline-button" onClick={() => window.print()}>Print Report</button><button type="button" className="outline-button" onClick={downloadReportPdf} disabled={pdfExporting}>{pdfExporting ? "Preparing PDF..." : "Download PDF"}</button></>}<button type="button" className="primary-button" onClick={submitReportForApproval} disabled={report.reportStatus !== "Draft"}>{report.reportStatus === "Awaiting Approval" ? "Sent for Approval" : "Open checking & approval"} <span>→</span></button></div></div>
                 </section>
               </>}
 
-              {report.reportStatus !== "Completed" && <section className="panel approval-data-review"><h2>Full data for approval</h2><h3>Job and sampling context</h3><ReviewData value={{ jobId, clientName, samplingType, ...job }} /><h3>Preparation and coordination</h3><ReviewData value={{ coordinationDetails, coordinationTasks }} />{scopeAttachment && <a href={scopeAttachment.dataUrl} download={scopeAttachment.name}>Review scope of work: {scopeAttachment.name}</a>}<h3>All sample and transfer records</h3>{samples.map(sample => <section key={sample.id}><h4>Sample {sample.id}</h4><ReviewData value={sample} /></section>)}<h3>Sequence of events</h3><ReviewData value={{ events: sortedEvents }} /></section>}
-              {report.reportStatus === "Completed" && report.approvedBy === "SALIM" && report.approvedAt && <article className="report-sheet final-sampling-report" data-pdf-report>
+              {report.reportStatus !== "Completed" && <section className="panel approval-data-review"><h2>Full data for approval</h2><h3>Job and sampling context</h3><ReviewData value={{ jobId, clientName, samplingType, ...Object.fromEntries(Object.entries(job).filter(([key]) => !["requiredTests", "otherTests"].includes(key))) }} /><h3>Preparation and coordination</h3><ReviewData value={{ coordinationDetails, coordinationTasks }} />{scopeAttachment && <a href={scopeAttachment.dataUrl} download={scopeAttachment.name}>Review scope of work: {scopeAttachment.name}</a>}<h3>All sample and transfer records</h3>{samples.map(sample => <section key={sample.id}><h4>Sample {sample.id}</h4><ReviewData value={sample} /></section>)}<h3>Sequence of events</h3><ReviewData value={{ events: sortedEvents }} /></section>}
+              {report.reportStatus === "Completed" && !!report.approvedBy && report.approvedAt && <article className="report-sheet final-sampling-report" data-pdf-report>
                 <section className="report-page report-cover-page">
                   <div className="report-accent-line" />
                   <header className="cover-brand"><img src="/vaps-logo.png" alt="VAPS" /><span>Petroleum Laboratory Services</span></header>

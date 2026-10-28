@@ -38,11 +38,14 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
  };
  const run = (j: JobRecord, by: string, command: Command, at: string) => applyOperation(j, command, { id: by, employees, policy }, at);
  const workbook = (title: string, sampleId: string) => storeFile(`DEMO ${title} ${sampleId}.csv`, `DEMO workbook,fictional data\nActivity,${title}\nSample,${sampleId}\n`);
- const samplingReport = (j: JobRecord, engineer: string, checker: string, tick: () => string, approve: boolean) => {
-  j = run(j, engineer, { type: 'report-draft', kind: 'sampling', text: 'DEMO sampling report. Samples collected under stable flow; fictional values.', checker }, tick());
-  j = run(j, engineer, { type: 'report-action', kind: 'sampling', action: 'checking', comments: '' }, tick());
-  j = run(j, checker, { type: 'report-action', kind: 'sampling', action: 'submit', comments: '' }, tick());
-  return approve ? run(j, 'SALIM', { type: 'report-action', kind: 'sampling', action: 'approve', comments: '' }, tick()) : j;
+ /** Data submitted and reviewed first; the report is generated from approved data and approved separately. */
+ const samplingReport = (j: JobRecord, engineer: string, tick: () => string, upTo: 'data-submitted' | 'report-approved') => {
+  j = run(j, engineer, { type: 'data-submit', note: 'DEMO data submitted for review.' }, tick());
+  if (upTo === 'data-submitted') return j;
+  j = run(j, 'SALIM', { type: 'data-approve' }, tick());
+  j = run(j, engineer, { type: 'report-draft', kind: 'sampling', text: 'DEMO sampling report. Samples collected under stable flow; fictional values.', checker: '' }, tick());
+  j = run(j, engineer, { type: 'report-action', kind: 'sampling', action: 'submit', comments: '' }, tick());
+  return run(j, 'SALIM', { type: 'report-action', kind: 'sampling', action: 'approve', comments: '' }, tick());
  };
  const handover = (j: JobRecord, driver: string, tick: () => string) => {
   j = run(j, driver, { type: 'handover-send', sampleIds: j.samples!.map(s => s.id), notes: 'DEMO transfer to the laboratory.' }, tick());
@@ -75,14 +78,14 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
   dueDate: addDays(day, 12) }, start, 2);
  j1 = run(j1, 'SALIM', { type: 'dispatch', engineer: 'MOHSIN', driver: 'ALI' }, t());
 
- // 2 · Sampling report waiting for Salim's approval.
+ // 2 · Sampling data submitted, waiting for Salim's data review.
  t = clock(4); start = t();
  const sep = { separatorPressure: '145', separatorTemperature: '44' };
  let j2 = job(2, { samplingSource: 'Separator Sampling', well: 'DEMO-SP-12', facility: 'DEMO Station A', separatorId: 'DEMO-SEP-1', separatorStage: '1st stage', separatorPressure: '145', separatorTemperature: '44', requiredTests: ['Gas Condensates (GC) — Validation', 'Gas Condensates (GC) — CVD'], assignedEngineerId: 'HUSSEINI', assignedDriverId: 'ALI',
   samples: [sample('1.01', 'SEP', true, { samplingDate: addDays(day, -3), samplingTime: '10:15', ...sep }, 'HUSSEINI', start), sample('1.02', 'SEP', true, { samplingDate: addDays(day, -3), samplingTime: '11:05', ...sep }, 'HUSSEINI', start)],
   dueDate: addDays(day, 10) }, start, 3);
  j2 = run(j2, 'SALIM', { type: 'dispatch', engineer: 'HUSSEINI', driver: 'ALI' }, t());
- j2 = samplingReport(j2, 'HUSSEINI', 'MOHSIN', t, false);
+ j2 = samplingReport(j2, 'HUSSEINI', t, 'data-submitted');
 
  // 3 · In the laboratory: PVT validation part done, Chemical analysis started.
  t = clock(9); start = t();
@@ -91,7 +94,7 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
   samples: [sample('1.01', 'BHS', true, { ...bh, samplingTime: '06:20' }, 'MOHSIN', start), sample('1.02', 'BHS', true, { ...bh, samplingTime: '06:55' }, 'MOHSIN', start)],
   dueDate: addDays(day, 6) }, start, 4);
  j3 = run(j3, 'SALIM', { type: 'dispatch', engineer: 'MOHSIN', driver: 'ALI' }, t());
- j3 = handover(samplingReport(j3, 'MOHSIN', 'HUSSEINI', t, true), 'ALI', t);
+ j3 = handover(samplingReport(j3, 'MOHSIN', t, 'report-approved'), 'ALI', t);
  j3 = run(j3, 'SALIM', { type: 'scope', reason: 'Confirm the original request.', conditions: conditions('3150', '92'), items: [{ title: 'Black Oil — Validation', sampleIds: ['1.01', '1.02'], stream: 'PVT' }, { title: 'Black Oil — DL', sampleIds: ['1.01'], stream: 'PVT' }, { title: 'Others — Water Analysis', sampleIds: ['1.02'], stream: 'Chemical' }] }, t());
  j3 = await labWork(j3, { PVT: ['NASSER', 'AHAD'], Chemical: ['YAQEEN'] }, t, 6);
  const water = j3.operations!.activities.find(a => a.stream === 'Chemical')!;
@@ -103,7 +106,7 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
  let j4 = job(4, { samplingSource: 'Wellhead Sampling', well: 'DEMO-WH-01', whp: '380', wht: '51', chokeSize: '28/64', requiredTests: ['Black Oil — Validation', 'Others — Water Analysis'], assignedEngineerId: 'HUSSEINI', assignedDriverId: 'ALI',
   samples: [sample('1.01', 'WHS', true, wh, 'HUSSEINI', start)], dueDate: addDays(day, -2) }, start, 4);
  j4 = run(j4, 'SALIM', { type: 'dispatch', engineer: 'HUSSEINI', driver: 'ALI' }, t());
- j4 = handover(samplingReport(j4, 'HUSSEINI', 'MOHSIN', t, true), 'ALI', t);
+ j4 = handover(samplingReport(j4, 'HUSSEINI', t, 'report-approved'), 'ALI', t);
  j4 = run(j4, 'SALIM', { type: 'scope', reason: 'Confirm the original request.', conditions: conditions('2480', '78'), items: [{ title: 'Black Oil — Validation', sampleIds: ['1.01'], stream: 'PVT' }, { title: 'Others — Water Analysis', sampleIds: ['1.01'], stream: 'Chemical' }] }, t());
  j4 = await labWork(j4, { PVT: ['NASSER', 'RANJITH'], Chemical: ['YAQEEN'] }, t, Infinity);
  const finalFile = await storeFile('DEMO Final Report.pdf', 'DEMO final report placeholder. Fictional data.');
