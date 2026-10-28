@@ -207,3 +207,25 @@ Remaining limitations: all data, files and seen markers are browser-local; there
 - **Missing before build:** employee email addresses (the directory field is mostly empty), the sender identity and address, and delivery infrastructure (a server-side mail service or API, since the app is browser-only today).
 - **Duplicates and failures:** send once per dispatch event, keyed by job ID plus `dispatchedAt` (a retry must not resend). Record a delivery status (queued, sent, failed) on the job history. Retry failures with back-off and show failed deliveries to the job creator. Sending never blocks or rolls back the dispatch.
 - **Proposals only (need confirmation):** sampling data returned; sampling report awaiting approval; laboratory scope released (to team leads); test assigned; workbook returned; QC return to a team lead; final report awaiting approval.
+
+## Review build: sampling forms verified through the interface (28 October 2026)
+
+The preparation checklist and sample data sheets, previously seeded in storage for tests, were exercised field by field through the real interface (Playwright on the development server, fresh browser storage):
+- **Preparation (Wellhead, 2 samples):** empty sampling point type, sample kit and cylinders each showed their validation message. Contact notes, tools required/availability, sampling point type and size, and the sample kit were entered. Completing preparation with one task open was refused with both reasons.
+  - Sample 1.01: bottle from inventory (PDS + serial).
+  - Sample 1.02: glass container with only its ID; the screen explains no bottle type or serial is needed.
+  - Save Draft and a page reload kept the tasks, notes, bottle serial and glass ID. Completing preparation moved to step 2.
+- **Data sheets:** marking an empty sheet complete listed the identification, shipping, matched/transfer and production gaps. The glass sample was never asked for bottle fields. Identification fields, WHP/WHT with units, choke size, remarks and "Set blank condition fields to N/A" were entered; Save Draft and a reload kept them all.
+  - Ahmed Al Husseini (supporting) entered and saved sample 1.02, could not submit, and Mohsin saw his entries.
+  - Humaid could not open the sampling editor.
+  - Both samples were marked complete, the Review & submit checklist was all ✓, and the submission succeeded. Salim's consolidated review showed the typed values, both containers and the coordination details.
+
+Defects found and fixed:
+- After submission, Save Draft showed "draft saved" although the lock had refused the save. `updateCurrentJob` now reports whether it saved, and draft messages appear only after a real save.
+- Submitted or approved sampling data stayed editable in the form. Steps 1–2 are now read-only (disabled fields and buttons) with an explanation.
+- Adding or removing a sequence-of-events entry on locked data showed an unsaved change on screen. It now reverts and keeps the typed text.
+- The non-cased-hole data-sheet error list now has `role="alert"` for screen readers.
+
+The empty-looking "Samples: 2" area seen in earlier full-page screenshots is not a defect: it holds the "Source preparation and logistics" note above the sticky tracking bar.
+
+The review walkthrough used browser-local settings (teams, QC, receipt) set through the Settings interface in a disposable browser profile. Nothing was written to repository defaults, and the demo's fictional configuration was not saved.

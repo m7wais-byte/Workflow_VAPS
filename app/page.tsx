@@ -819,15 +819,15 @@ export default function Home() {
   }
 
   /** Saves the editor state. With send, the job is dispatched to Sampling against freshly read settings; a refusal throws. */
-  function updateCurrentJob(nextStage: string, nextAction: string, stageUpdates: Record<string, WorkflowStatus> = {}, action?: string, recordUpdates: Partial<JobRecord> = {}, send = false) {
-    if (!currentEmployee) return;
-    if ((!currentJob || isDraft(currentJob)) && !hasPermission("createJob")) { setNotice("You are not authorized to create jobs."); return; }
-    if (currentJob && (!hasPermission("jobDetails") || (stage !== "job" && !hasPermission("sampling")))) { setNotice("You do not have access to update this work area."); return; }
-    if(currentJob && !coordinator(currentEmployee.id) && !samplingTeam(currentJob).includes(currentEmployee.id) && !canWork(currentJob,"sampling",currentEmployee.id)){setNotice("Only the accepted sampling owner or a job coordinator can update this job workspace.");return;}
-    if(currentJob && stage !== "job" && samplingDataLocked(currentJob)){setNotice(latestData(currentJob)?.status==="Submitted"?"The sampling data is submitted for review and is read-only until it is returned.":"The sampling data is approved and read-only. To correct it, reopen it with a reason in Sampling review & report.");return;}
-    if(currentJob?.operations?.samplingReports.some(r=>["Checking","Awaiting Approval","Approved"].includes(r.status)) && !["Draft","Changes Requested"].includes(currentJob.operations.samplingReports.at(-1)!.status)){setNotice("Submitted sampling data is locked. Request a report revision before editing.");return;}
-    if (!currentJob?.operations && currentJob?.report?.reportStatus !== "Draft" && currentJob?.report && !(currentEmployee.id === samplingApprover && currentJob.report.reportStatus === "Awaiting Approval" && recordUpdates.report)) { setNotice(`Reviewed data is locked. ${employeeName(samplingApprover)} must request changes before editing.`); return; }
-    if(currentJob?.operations && (JSON.stringify(job.requiredTests)!==JSON.stringify(currentJob.requiredTests||[]) || job.otherTests!==(currentJob.otherTests||''))){setNotice('The original request is preserved. Record scope changes in Scope → Request additional work, with a reason.');return;}
+  function updateCurrentJob(nextStage: string, nextAction: string, stageUpdates: Record<string, WorkflowStatus> = {}, action?: string, recordUpdates: Partial<JobRecord> = {}, send = false): boolean {
+    if (!currentEmployee) return false;
+    if ((!currentJob || isDraft(currentJob)) && !hasPermission("createJob")) { setNotice("You are not authorized to create jobs."); return false; }
+    if (currentJob && (!hasPermission("jobDetails") || (stage !== "job" && !hasPermission("sampling")))) { setNotice("You do not have access to update this work area."); return false; }
+    if(currentJob && !coordinator(currentEmployee.id) && !samplingTeam(currentJob).includes(currentEmployee.id) && !canWork(currentJob,"sampling",currentEmployee.id)){setNotice("Only the accepted sampling owner or a job coordinator can update this job workspace.");return false; }
+    if(currentJob && stage !== "job" && samplingDataLocked(currentJob)){setNotice(latestData(currentJob)?.status==="Submitted"?"The sampling data is submitted for review and is read-only until it is returned.":"The sampling data is approved and read-only. To correct it, reopen it with a reason in Sampling review & report.");return false; }
+    if(currentJob?.operations?.samplingReports.some(r=>["Checking","Awaiting Approval","Approved"].includes(r.status)) && !["Draft","Changes Requested"].includes(currentJob.operations.samplingReports.at(-1)!.status)){setNotice("Submitted sampling data is locked. Request a report revision before editing.");return false; }
+    if (!currentJob?.operations && currentJob?.report?.reportStatus !== "Draft" && currentJob?.report && !(currentEmployee.id === samplingApprover && currentJob.report.reportStatus === "Awaiting Approval" && recordUpdates.report)) { setNotice(`Reviewed data is locked. ${employeeName(samplingApprover)} must request changes before editing.`); return false; }
+    if(currentJob?.operations && (JSON.stringify(job.requiredTests)!==JSON.stringify(currentJob.requiredTests||[]) || job.otherTests!==(currentJob.otherTests||''))){setNotice('The original request is preserved. Record scope changes in Scope → Request additional work, with a reason.');return false; }
     const now = new Date().toISOString();
     const responsibleId = job.assignedEngineerId || currentJob?.responsibleId || job.employee || currentEmployee.id;
     const jobFields = {
@@ -867,6 +867,7 @@ export default function Home() {
     if(updated.operations && !operationComplete(updated) && updated.status==="Completed") updated.status="Sampling Completed";
     persistJobs(jobs.some((item) => item.id === jobId) ? jobs.map((item) => item.id === jobId ? updated : item) : [updated, ...jobs]);
     if (action) recordActivity(action, jobId, now);
+    return true;
   }
 
   function handleLogin(event: React.FormEvent) {
@@ -1007,8 +1008,7 @@ export default function Home() {
     if (report.reportStatus !== "Draft") return;
     const nextReport = { ...report, reportStatus: "Draft" as const };
     setReport(nextReport);
-    updateCurrentJob("Report Preview", "Complete report review and approval", { "Report Preview": "In Progress" }, undefined, { samples, events, report: nextReport, status: "Report Draft" });
-    setNotice("Sampling report draft saved to local demo data");
+    if (updateCurrentJob("Report Preview", "Complete report review and approval", { "Report Preview": "In Progress" }, undefined, { samples, events, report: nextReport, status: "Report Draft" })) setNotice("Sampling report draft saved on this device.");
   }
 
   function submitReportForApproval() {
@@ -1235,8 +1235,7 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
   function saveSamplingDataDraft() {
-    updateCurrentJob("Sampling Data", "Complete sample records", { "Sampling Data": "In Progress" }, undefined, { samples, events });
-    setNotice("Sampling Data draft saved to local demo data");
+    if (updateCurrentJob("Sampling Data", "Complete sample records", { "Sampling Data": "In Progress" }, undefined, { samples, events })) setNotice("Sampling Data draft saved on this device.");
   }
 
   function completeSamplingData() {
@@ -1426,8 +1425,8 @@ export default function Home() {
   }
 
   function savePreparationDraft() {
-    updateCurrentJob("Sampling Preparation", "Complete pre-job coordination and preparation", { "Sampling Preparation": "In Progress" }, undefined, { coordinationTasks, coordinationDetails });
-    setNotice("Sampling Preparation draft saved to local demo data");
+    // Confirm only a save that actually happened; a refusal leaves its own explanation.
+    if (updateCurrentJob("Sampling Preparation", "Complete pre-job coordination and preparation", { "Sampling Preparation": "In Progress" }, undefined, { coordinationTasks, coordinationDetails })) setNotice("Sampling Preparation draft saved on this device.");
   }
 
   function completePreparation() {
@@ -1566,7 +1565,8 @@ export default function Home() {
     const nextEvents = [...events, { ...eventDraft, description: eventDraft.description.trim(), createdBy: currentEmployee?.id, createdAt: now }]
       .sort((left, right) => `${left.date || ""}T${left.time}`.localeCompare(`${right.date || ""}T${right.time}`));
     setEvents(nextEvents);
-    if (currentJob) updateCurrentJob(currentJob.currentStage, currentJob.nextAction, {}, "Created Sequence of Events entry", { events: nextEvents });
+    // A refused save (e.g. sampling data locked for review) must not leave an unsaved entry on screen.
+    if (currentJob) { if (!updateCurrentJob(currentJob.currentStage, currentJob.nextAction, {}, "Created Sequence of Events entry", { events: nextEvents })) { setEvents(events); return; } }
     else setNotice("Sequence of Events entry added. It will be saved when the job is created.");
     setEventDraft({ date: localDate(), time: "", description: "" });
   }
@@ -1574,7 +1574,7 @@ export default function Home() {
   function removeEvent(itemToRemove: SequenceEvent) {
     const nextEvents = events.filter((item) => item !== itemToRemove);
     setEvents(nextEvents);
-    if (currentJob) updateCurrentJob(currentJob.currentStage, currentJob.nextAction, {}, "Removed Sequence of Events entry", { events: nextEvents });
+    if (currentJob && !updateCurrentJob(currentJob.currentStage, currentJob.nextAction, {}, "Removed Sequence of Events entry", { events: nextEvents })) setEvents(events);
   }
 
   function reassignJob(employeeId: string) {
@@ -2070,6 +2070,8 @@ export default function Home() {
             </form>;
           })()}
 
+          {samplingFlow && samplingDataLocked(currentJob!) && (stage === "type" || stage === "bottomhole") && <p className="locked-note" role="status">This sampling data is {latestData(currentJob!)?.status === "Submitted" ? "submitted for review" : "approved"} and read-only. {latestData(currentJob!)?.status === "Submitted" ? "It becomes editable again if it is returned for correction." : "To correct it, reopen it with a reason in Sampling review & report."}</p>}
+          <fieldset className="locked-fieldset" disabled={samplingFlow && samplingDataLocked(currentJob!)}>
           {stage === "type" && (
             <>
               {preparationError.length > 0 && <div className="preparation-validation" role="alert"><span>!</span><div><strong>Preparation cannot be completed</strong><ul>{preparationError.map((error) => <li key={error}>{error}</li>)}</ul></div></div>}
@@ -2221,11 +2223,12 @@ export default function Home() {
                 {samplingType === "Separator Sampling" && <><label><span>Separator Pressure if known</span><input value={job.separatorPressure} onChange={(event) => updateJob("separatorPressure", event.target.value)} /></label><label><span>Separator Temperature if known</span><input value={job.separatorTemperature} onChange={(event) => updateJob("separatorTemperature", event.target.value)} /></label><label><span>Choke Size</span><input value={job.chokeSize} onChange={(event) => updateJob("chokeSize", event.target.value)} /></label><label><span>Oil Rate</span><input value={job.oilRate} onChange={(event) => updateJob("oilRate", event.target.value)} /></label><label><span>Gas Rate</span><input value={job.gasRate} onChange={(event) => updateJob("gasRate", event.target.value)} /></label><label><span>Water Rate</span><input value={job.waterRate} onChange={(event) => updateJob("waterRate", event.target.value)} /></label><label><span>Sampling Point</span><input value={job.samplingPoint} onChange={(event) => updateJob("samplingPoint", event.target.value)} /></label></>}
                 {samplingType === "Other" && <><label><span>Location / Facility</span><input value={job.facility} onChange={(event) => updateJob("facility", event.target.value)} /></label><label><span>Sampling Point</span><input value={job.samplingPoint} onChange={(event) => updateJob("samplingPoint", event.target.value)} /></label><label className="full-field"><span>Description</span><textarea rows={5} value={job.otherDescription} onChange={(event) => updateJob("otherDescription", event.target.value)} /></label></>}
               </div></section>
-              <section className="panel generic-samples-panel"><div className="panel-heading premium-heading"><div><span className="eyebrow">STANDARD DATA SHEETS</span><h2>Individual sample data sheets</h2><p>The same controlled data sheet is required for every sample and every sampling situation.</p></div><button type="button" className="outline-button" onClick={addSample}>+ Add Sample</button></div><div className="generic-sample-list">{samples.map((sample) => <article key={sample.id}><header><strong>Sample {sample.id}</strong><span className={`data-status ${sampleDataStatus(sample).toLowerCase().replace(" ", "-")}`}>{sampleDataStatus(sample)}</span><button type="button" onClick={() => removeSample(sample.id)}>Remove</button></header><section className="data-section generic-bottle-reference"><header><span>00</span><div><small>SAMPLE CONTAINER</small><h3>Bottle / Container Reference</h3></div></header><CylinderPicker inventory={bottleInventory} sample={sample} onSelect={(serial) => updatePreparationSample(sample.id, "bottleSerial", serial)} onField={(field, value) => updatePreparationSample(sample.id, field, value)} /></section>{standardDataSheetForm(sample)}{sampleDataErrors[sample.id]?.length > 0 && <div className="sample-data-errors"><strong>Complete the following:</strong><ul>{sampleDataErrors[sample.id].map((error) => <li key={error}>{error}</li>)}</ul></div>}<footer className="sample-completion-bar"><div><small>DATA ENTRY TRACKING</small><strong>{sample.dataComplete ? `Completed by ${employeeName(sample.dataCompletedBy)}` : `Data entered by ${currentEmployee.name}`}</strong><span>{sample.dataComplete ? formatDateTime(sample.dataCompletedAt) : "Complete every standard data-sheet section to finish this record."}</span></div><button type="button" className={sample.dataComplete ? "outline-button completed-button" : "primary-button"} onClick={() => markSampleComplete(sample.id)}>{sample.dataComplete ? "✓ Sample Complete" : "Mark Sample Complete"}</button></footer></article>)}</div></section>
+              <section className="panel generic-samples-panel"><div className="panel-heading premium-heading"><div><span className="eyebrow">STANDARD DATA SHEETS</span><h2>Individual sample data sheets</h2><p>The same controlled data sheet is required for every sample and every sampling situation.</p></div><button type="button" className="outline-button" onClick={addSample}>+ Add Sample</button></div><div className="generic-sample-list">{samples.map((sample) => <article key={sample.id}><header><strong>Sample {sample.id}</strong><span className={`data-status ${sampleDataStatus(sample).toLowerCase().replace(" ", "-")}`}>{sampleDataStatus(sample)}</span><button type="button" onClick={() => removeSample(sample.id)}>Remove</button></header><section className="data-section generic-bottle-reference"><header><span>00</span><div><small>SAMPLE CONTAINER</small><h3>Bottle / Container Reference</h3></div></header><CylinderPicker inventory={bottleInventory} sample={sample} onSelect={(serial) => updatePreparationSample(sample.id, "bottleSerial", serial)} onField={(field, value) => updatePreparationSample(sample.id, field, value)} /></section>{standardDataSheetForm(sample)}{sampleDataErrors[sample.id]?.length > 0 && <div className="sample-data-errors" role="alert"><strong>Complete the following:</strong><ul>{sampleDataErrors[sample.id].map((error) => <li key={error}>{error}</li>)}</ul></div>}<footer className="sample-completion-bar"><div><small>DATA ENTRY TRACKING</small><strong>{sample.dataComplete ? `Completed by ${employeeName(sample.dataCompletedBy)}` : `Data entered by ${currentEmployee.name}`}</strong><span>{sample.dataComplete ? formatDateTime(sample.dataCompletedAt) : "Complete every standard data-sheet section to finish this record."}</span></div><button type="button" className={sample.dataComplete ? "outline-button completed-button" : "primary-button"} onClick={() => markSampleComplete(sample.id)}>{sample.dataComplete ? "✓ Sample Complete" : "Mark Sample Complete"}</button></footer></article>)}</div></section>
               <section className="sampling-data-footer"><div><small>SAMPLING DATA TRACKING</small><strong>Entered by {currentEmployee.name}</strong><span>{locationSummary(job, samplingType)}</span></div><div><button type="button" className="text-button" onClick={() => setStage("type")}>← Back to Preparation</button><button type="button" className="outline-button" onClick={saveSamplingDataDraft}>Save Draft</button><button type="button" className="primary-button" onClick={completeSamplingData}>Complete Sampling Data &amp; Continue <span>→</span></button></div></section>
             </>
           )}
 
+          </fieldset>
           {samplingFlow && stage === "report" && (() => {
             const issues = samplingIssues({ samplingSource: samplingType, samples, stages: currentJob!.stages });
             const lead = currentJob!.assignedEngineerId;

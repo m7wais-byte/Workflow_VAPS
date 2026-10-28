@@ -2431,3 +2431,5 @@ main,.workspace-content,.settings-workspace .panel {min-width:0;}
 .lab-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}.lab-summary-grid>div{border:1px solid var(--line);border-radius:10px;padding:10px 12px}
 .lab-summary-grid ul{list-style:none;padding:0;margin:6px 0 0;display:grid;gap:4px}.lab-summary-grid li{display:flex;justify-content:space-between;font-size:13.5px}
 @media(max-width:640px){.my-dashboard button,.my-dashboard a.outline-button,.my-dashboard summary{min-height:44px}.my-dashboard .text-button{min-height:44px;padding:0 6px}}
+.locked-fieldset{border:0;padding:0;margin:0;min-width:0}
+.locked-fieldset:disabled input,.locked-fieldset:disabled select,.locked-fieldset:disabled textarea{background:#f3f6f7;color:#4a5d66}
