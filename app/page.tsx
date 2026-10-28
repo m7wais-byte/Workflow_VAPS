@@ -8,6 +8,7 @@ import { itemLabel, labComplete, labItems, planKeys, reconcileLabScope, scopeTes
 import { ClientLogo } from "./client-logo";
 import { cylinderCatalog } from "./cylinder-catalog";
 import { syncShare } from "./job-sharing";
+import { addDays, localDate } from "./local-date";
 import { TeamInbox } from "./team-inbox";
 import { coordinator, handoff, canWork, eligibleForTeam, type TeamWork } from "./team-workflow";
 import { JobWorkflow } from "./job-workflow";
@@ -303,7 +304,7 @@ const clientStorageKey = "vaps-demo-clients-v1";
 
 const emptyJobDetails = (): JobDetails => ({
   requestedSampleCount: "3", requiredTests: [], otherTests: "", sampleCountNotes: "",
-  countryCode: "OM", dateReceived: new Date().toISOString().slice(0, 10), fieldArea: "", employee: "", assignedEngineerId: "", assignedDriverId: "", clientFocalPoint: "", clientFocalPointContact: "", clientFocalPointEmail: "", dueDate: "", description: "",
+  countryCode: "OM", dateReceived: localDate(), fieldArea: "", employee: "", assignedEngineerId: "", assignedDriverId: "", clientFocalPoint: "", clientFocalPointContact: "", clientFocalPointEmail: "", dueDate: "", description: "",
   well: "", wellMode: "single", wells: [""], rigInstallation: "", plannedDepth: "", formation: "", perforationInterval: "", wellheadLocation: "", chokeSize: "", whp: "", wht: "",
   facility: "", separatorId: "", separatorStage: "", samplingPoint: "", separatorPressure: "", separatorTemperature: "", relatedWell: "", locationNotes: "", otherDescription: "", otherSamplingType: "",
   oilRate: "", gasRate: "", waterRate: "",
@@ -453,7 +454,7 @@ export default function Home() {
   const [samplingDataCompletedAt, setSamplingDataCompletedAt] = useState("");
   const [expanded, setExpanded] = useState<string>("");
   const [events, setEvents] = useState<SequenceEvent[]>([]);
-  const [eventDraft, setEventDraft] = useState({ date: new Date().toISOString().slice(0, 10), time: "", description: "" });
+  const [eventDraft, setEventDraft] = useState({ date: localDate(), time: "", description: "" });
   const [report, setReport] = useState<ReportRecord>({ summary: "", preparedBy: "", preparedDate: "", approvedBy: "SALIM", approvalDate: "", reportStatus: "Draft" });
   const [reportErrors, setReportErrors] = useState<string[]>([]);
   const [pdfExporting, setPdfExporting] = useState(false);
@@ -560,7 +561,7 @@ export default function Home() {
   const myActiveJobs = myJobs.filter((item) => item.status !== "Completed");
   const myCompletedJobs = jobs.filter((item) => item.ownerId === currentEmployee?.id && isClosed(item));
   const myActivities = currentEmployee ? activities.filter((item) => item.employeeId === currentEmployee.id) : [];
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDate();
   const activeJobs = jobs.filter((item) => !isClosed(item));
   const samplingJobs = activeJobs.filter((item) => item.currentStage.startsWith("Sampling"));
   const pendingReports = activeJobs.filter((item) => item.currentStage === "Report Preview" || item.status === "Report Draft" || item.status === "Awaiting Approval");
@@ -583,7 +584,7 @@ export default function Home() {
   const workflowJob = jobs.find(item => item.id === workflowJobId);
   const selectedJobDetails = hasPermission("jobDetails") && jobs.find((item) => item.id === selectedJobDetailsId);
   const overdueTasks = activeJobs.filter((item) => item.dueDate && item.dueDate < today);
-  const dueSoonLimit = new Date(new Date(`${today}T00:00:00`).getTime() + 7 * 86400000).toISOString().slice(0, 10);
+  const dueSoonLimit = addDays(today, 7);
   const dashboardFilteredByType = dashboardFilter === "sampling" ? myActiveJobs.filter((item) => item.currentStage.startsWith("Sampling")) : dashboardFilter === "reports" ? myActiveJobs.filter((item) => item.currentStage === "Report Preview" || item.status === "Report Draft" || item.status === "Awaiting Approval") : dashboardFilter === "due" ? myActiveJobs.filter((item) => item.dueDate && item.dueDate <= dueSoonLimit) : myActiveJobs;
   const dashboardSearchTerm = dashboardSearch.trim().toLowerCase();
   const normalizedDashboardSearch = dashboardSearchTerm.replace(/[^a-z0-9]/g, "");
@@ -598,7 +599,7 @@ export default function Home() {
   const statusTone = (item: JobRecord) => prog(item).tone;
   const stageOwner = (item: JobRecord) => { const current = prog(item).current; if (!current) return employeeName(item.jobResponsibleId || item.responsibleId); return current.owner && demoEmployees.some((employee) => employee.id === current.owner) ? employeeName(current.owner) : current.ownerFallback; };
   const isOverdue = (item: JobRecord) => !isClosed(item) && Boolean(item.dueDate && item.dueDate < today);
-  const attentionJobs = activeJobs.filter((item) => item.dueDate && item.dueDate <= new Date(new Date(today).getTime() + 3 * 86400000).toISOString().slice(0, 10) || item.currentStage === "Report Preview" || item.nextAction.toLowerCase().includes("sample"));
+  const attentionJobs = activeJobs.filter((item) => item.dueDate && item.dueDate <= addDays(today, 3) || item.currentStage === "Report Preview" || item.nextAction.toLowerCase().includes("sample"));
   const overviewStages = [
     { name: "Job Setup", count: activeJobs.filter((item) => item.currentStage === "Job Setup" || item.currentStage === "Sampling Decision").length },
     { name: "Sampling", count: samplingJobs.length },
@@ -634,7 +635,7 @@ export default function Home() {
     setJob({
       ...emptyJobDetails(),
       countryCode: item.countryCode || item.id.split("-")[0] || "OM",
-      dateReceived: item.dateReceived || new Date().toISOString().slice(0, 10),
+      dateReceived: item.dateReceived || localDate(),
       fieldArea: item.fieldArea || "",
       employee: item.jobResponsibleId || item.responsibleId,
       assignedEngineerId: item.assignedEngineerId || item.responsibleId || "",
@@ -829,7 +830,7 @@ export default function Home() {
     setSampleDataErrors({});
     setSamplingDataCompletedAt("");
     setEvents([]);
-    setEventDraft({ date: new Date().toISOString().slice(0, 10), time: "", description: "" });
+    setEventDraft({ date: localDate(), time: "", description: "" });
     setNotice("");
     setJobErrors([]);
     setReport({ summary: "", preparedBy: "", preparedDate: "", approvedBy: "SALIM", approvalDate: "", reportStatus: "Draft" });
@@ -1145,7 +1146,7 @@ export default function Home() {
     const now = new Date().toISOString();
     setSamplingDataCompletedAt(now);
     const draftSummary = report.summary || deterministicSummary();
-    const nextReport = { ...report, approvedBy: "SALIM", approvalDate: "", approvedAt: undefined, summary: draftSummary, preparedBy: report.preparedBy || currentEmployee?.id || "", preparedDate: report.preparedDate || new Date().toISOString().slice(0, 10), reportStatus: "Draft" as const };
+    const nextReport = { ...report, approvedBy: "SALIM", approvalDate: "", approvedAt: undefined, summary: draftSummary, preparedBy: report.preparedBy || currentEmployee?.id || "", preparedDate: report.preparedDate || localDate(), reportStatus: "Draft" as const };
     setReport(nextReport);
     updateCurrentJob("Report Preview", "Review and generate sampling report", { "Sampling Data": "Completed", "Report Preview": "In Progress" }, `completed Sampling Data for ${jobId}`, { samples, events, report: nextReport, status: "Report Draft" });
     setNotice(`Sampling Data completed by ${currentEmployee?.name}`);
@@ -1220,7 +1221,7 @@ export default function Home() {
       setCoordinationTasks(nextTasks);
 
       if (confirmed && currentEmployee) {
-        const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+        const date = localDate(now);
         const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
         nextEvents = [...events, { date, time, description: `Tools requirement confirmed: ${value}`, createdBy: currentEmployee.id, createdAt: timestamp }].sort((left, right) => `${left.date || ""}T${left.time}`.localeCompare(`${right.date || ""}T${right.time}`));
         setEvents(nextEvents);
@@ -1263,7 +1264,7 @@ export default function Home() {
     const task = nextTasks.find((item) => item.id === taskId);
     let nextEvents = events;
     if (completed && task) {
-      const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      const date = localDate(now);
       const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
       nextEvents = [...events, { date, time, description: `Pre-job checklist completed: ${task.label}`, createdBy: currentEmployee.id, createdAt: timestamp }].sort((left, right) => `${left.date || ""}T${left.time}`.localeCompare(`${right.date || ""}T${right.time}`));
       setEvents(nextEvents);
@@ -1435,7 +1436,7 @@ export default function Home() {
     setEvents(nextEvents);
     if (currentJob) updateCurrentJob(currentJob.currentStage, currentJob.nextAction, {}, "Created Sequence of Events entry", { events: nextEvents });
     else setNotice("Sequence of Events entry added. It will be saved when the job is created.");
-    setEventDraft({ date: new Date().toISOString().slice(0, 10), time: "", description: "" });
+    setEventDraft({ date: localDate(), time: "", description: "" });
   }
 
   function removeEvent(itemToRemove: SequenceEvent) {
