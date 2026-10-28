@@ -1,0 +1,61 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import ts from 'typescript';
+const moduleURL=p=>'data:text/javascript;base64,'+Buffer.from(ts.transpileModule(fs.readFileSync(p,'utf8'),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText).toString('base64');
+const {applyOperation,operationsFor,validationSequence,samplingApproved,operationComplete,finalReady,latest,pendingActions}=await import(moduleURL('app/operations-model.ts'));
+const {initialDirectory}=await import(moduleURL('app/employee-directory.ts'));
+const {defaultAuthorization}=await import(moduleURL('app/authorization.ts'));
+const employees=initialDirectory().employees,policy=defaultAuthorization(employees.map(e=>e.id));
+const actor=id=>({id,employees,policy});let tick=0;const at=()=>new Date(Date.UTC(2026,9,26,10,0,tick++)).toISOString();
+const fixture=()=>({id:'OM-P-26-TEST',jobNumber:'OM-P-26-TEST',clientCode:'P',clientName:'Test client',samplingSource:'Wellhead Sampling',requiredTests:['Black Oil — Validation','Others — Water Analysis'],samples:[{id:'S1',bottleSerial:'B1',dataComplete:true,fieldData:{sampleNature:'WHS'}},{id:'S2',bottleSerial:'B2',dataComplete:true,fieldData:{sampleNature:'SEP'}}],stages:[],status:'Job Created',createdById:'SALIM',events:[]});
+const step=(job,c,id)=>applyOperation(job,c,actor(id),at());
+const dispatch=job=>step(job,{type:'dispatch',engineer:'MOHSIN',driver:'ALI'},'SALIM');
+const sampling=job=>{job=step(job,{type:'report-draft',kind:'sampling',text:'Sampling report v1',checker:'HUSSEINI'},'MOHSIN');job=step(job,{type:'report-action',kind:'sampling',action:'checking',comments:''},'MOHSIN');job=step(job,{type:'report-action',kind:'sampling',action:'submit',comments:''},'HUSSEINI');return step(job,{type:'report-action',kind:'sampling',action:'approve',comments:''},'SALIM');};
+const scope=(job)=>step(job,{type:'scope',items:[{title:'Black Oil — Validation',sampleIds:['S1','S2'],stream:'BVT'},{title:'Others — Water Analysis',sampleIds:['S1'],stream:'Chemical'}],conditions:{pressure:'2100',pressureUnit:'psi',temperature:'90',temperatureUnit:'°C',notes:'User supplied test fixture'},reason:'Confirm original request'},'SALIM');
+function execute(job){for(const original of operationsFor(job).activities.filter(a=>a.status!=='Completed')){job=step(job,{type:'schedule',id:original.id,owner:'NASSER',start:'2026-10-30',due:'2026-11-02',conditions:original.conditions,notes:'Three day work, crossing a week boundary'},original.stream==='BVT'?'SALIM':'BAHRI');job=step(job,{type:'progress',id:original.id,status:'In Progress',notes:'Started'},'NASSER');job=step(job,{type:'workbook',id:original.id,file:{id:'file-'+original.id,name:'workbook.xlsx',size:100,type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}},'NASSER');job=step(job,{type:'progress',id:original.id,status:'Completed',notes:'Work complete'},'NASSER');}return job;}
+const finalFile={id:'report-file',name:'final.pdf',size:100,type:'application/pdf',version:1,submittedBy:'SHEREIQI',submittedAt:'2026-10-26T12:00:00Z',status:'Available',comments:''};
+test('type-specific Validation sequences use requested PV and correct first/last steps',()=>{assert.deepEqual(validationSequence('Bottom-hole'),['Sample Transfer','Opening Pressure','Restoration','Water Check','Agitation','Charging','Flash','PV','Direct Density']);assert.equal(validationSequence('Wellhead Sampling').length,8);assert.equal(validationSequence('Separator Sampling').at(-1),'Recombination');assert.deepEqual(validationSequence('Unknown'),[]);});
+test('complete two-sample, two-stream job with checking, physical receipt, workbooks and Wilfred approval',()=>{let j=dispatch(fixture());assert.equal(j.teamWork.sampling.owner,'MOHSIN');j=sampling(j);assert.equal(samplingApproved(j),true);assert.equal(operationsFor(j).handover,undefined);j=step(j,{type:'handover-send',sampleIds:['S1','S2'],notes:'Both bottles'},'ALI');assert.equal(finalReady(j),false);j=step(j,{type:'handover-receive',notes:'Serials checked'},'SHEREIQI');j=scope(j);const o=operationsFor(j);assert.equal(o.activities.filter(a=>a.sampleId==='S1'&&a.stream==='BVT').length,8);assert.equal(o.activities.filter(a=>a.sampleId==='S2').length,9);assert.match(o.activities.find(a=>a.title==='Restoration').conditions,/2100 psi; 90 °C/);j=execute(j);assert.equal(finalReady(j),true);j=step(j,{type:'report-draft',kind:'final',text:'Final job report',checker:'SHEREIQI',file:finalFile},'SHEREIQI');j=step(j,{type:'report-action',kind:'final',action:'submit',comments:''},'SHEREIQI');assert.throws(()=>step(j,{type:'report-action',kind:'final',action:'approve',comments:''},'SALIM'));j=step(j,{type:'report-action',kind:'final',action:'approve',comments:''},'WILFRED');assert.equal(operationComplete(j),true);assert.equal(operationComplete(JSON.parse(JSON.stringify(j))),true);assert.equal(j.status,'Completed');const previous=j.operations.finalReports[0];j=step(j,{type:'request-addition',title:'Additional viscosity',reason:'Review identified more work'},'SHEREIQI');assert.equal(operationComplete(j),false);assert.deepEqual(j.operations.finalReports[0],previous);assert.equal(j.operations.finalReports[0].approvedBy,'WILFRED');assert.equal(j.operations.activities.filter(a=>a.status==='Completed').length,18);j=step(j,{type:'scope',additionId:j.operations.additions[0].id,items:[{title:'Additional viscosity',sampleIds:['S2'],stream:'BVT'}],conditions:j.operations.conditions,reason:'Confirm additional work'},'SALIM');assert.equal(j.operations.activities.length,19);assert.equal(j.operations.activities[18].status,'Unassigned');});
+test('unauthorized planners, inactive assignees, missing dates, and premature approval fail',()=>{let j=scope(dispatch(fixture()));const a=j.operations.activities[0];const cmd={type:'schedule',id:a.id,owner:'NASSER',start:'2026-10-30',due:'2026-11-02',conditions:'',notes:''};assert.throws(()=>step(j,cmd,'SHEREIQI'));assert.throws(()=>step(j,{...cmd,due:'2026-10-01'},'SALIM'));assert.throws(()=>applyOperation(j,cmd,{...actor('SALIM'),employees:employees.map(e=>e.id==='NASSER'?{...e,active:false}:e)},at()));assert.throws(()=>step(j,{type:'handover-send',sampleIds:['S1'],notes:''},'ALI'));assert.throws(()=>step(j,{type:'progress',id:a.id,status:'Completed',notes:''},'NASSER'));});
+test('sampling corrections preserve submitted evidence and approval is version-specific',()=>{let j=dispatch(fixture());j=step(j,{type:'report-draft',kind:'sampling',text:'Original',checker:'HUSSEINI'},'MOHSIN');j=step(j,{type:'report-action',kind:'sampling',action:'checking',comments:''},'MOHSIN');assert.throws(()=>step(j,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN'));j=step(j,{type:'report-action',kind:'sampling',action:'return',comments:'Correct summary'},'HUSSEINI');j=step(j,{type:'report-draft',kind:'sampling',text:'Corrected',checker:'HUSSEINI'},'MOHSIN');assert.equal(j.operations.samplingReports[0].text,'Original');assert.equal(j.operations.samplingReports[1].version,2);j=step(j,{type:'report-action',kind:'sampling',action:'checking',comments:''},'MOHSIN');j=step(j,{type:'report-action',kind:'sampling',action:'submit',comments:''},'HUSSEINI');const changed={...j,samples:j.samples.map(s=>({...s,bottleSerial:s.bottleSerial+'changed'}))};assert.throws(()=>step(changed,{type:'report-action',kind:'sampling',action:'approve',comments:''},'SALIM'));j=step(j,{type:'report-action',kind:'sampling',action:'approve',comments:''},'SALIM');assert.equal(latest(j.operations.samplingReports).version,2);});
+test('workbook correction retains prior versions; one completed sample never completes another',()=>{let j=scope(dispatch(fixture()));const a=j.operations.activities[0];j=step(j,{type:'schedule',id:a.id,owner:'NASSER',start:'2026-10-26',due:'2026-10-28',conditions:'',notes:''},'SALIM');j=step(j,{type:'workbook',id:a.id,file:{id:'one',name:'one.xlsx',size:100,type:''}},'NASSER');j=step(j,{type:'workbook-return',id:a.id,comments:'Fix sheet'},'SHEREIQI');j=step(j,{type:'workbook',id:a.id,file:{id:'two',name:'two.xlsx',size:100,type:''}},'NASSER');j=step(j,{type:'progress',id:a.id,status:'Completed',notes:''},'NASSER');assert.equal(j.operations.activities[0].files.length,2);assert.equal(j.operations.activities[0].files[0].status,'Changes Requested');assert.equal(j.operations.activities[1].status,'Unassigned');assert.equal(operationComplete(j),false);});
+test('legacy report status without recorded evidence is not approval and no manager receives old assignments',()=>{const j={...fixture(),report:{reportStatus:'Completed',approvedBy:'SALIM'},labPlan:{assignees:{old:'AHAD'}}};assert.equal(samplingApproved(j),false);const o=operationsFor(j);assert.equal(o.samplingReports.length,0);assert.equal(o.activities.length,0);assert.equal(j.labPlan.assignees.old,'AHAD');});
+
+test('checker cannot silently replace submitted evidence',()=>{
+ let j=dispatch(fixture());
+ j=step(j,{type:'report-draft',kind:'sampling',text:'Original evidence',checker:'HUSSEINI'},'MOHSIN');
+ j=step(j,{type:'report-action',kind:'sampling',action:'checking',comments:''},'MOHSIN');
+ j.samples=[{...j.samples[0],bottleSerial:'changed'},j.samples[1]];
+ assert.throws(()=>step(j,{type:'report-action',kind:'sampling',action:'submit',comments:''},'HUSSEINI'),/evidence changed/);
+});
+test('additional Validation creates new steps and preserves the original execution',()=>{
+ let j=scope(dispatch(fixture()));const previous=structuredClone(j.operations.activities);
+ j=step(j,{type:'request-addition',title:'Black Oil — Validation',reason:'Repeat validation for new requirements'},'SHEREIQI');
+ j=step(j,{type:'scope',additionId:j.operations.additions[0].id,items:[{title:'Black Oil — Validation',sampleIds:['S1'],stream:'BVT'}],conditions:j.operations.conditions,reason:'Confirm repeat'},'SALIM');
+ assert.equal(j.operations.activities.length,previous.length+8);
+ assert.deepEqual(j.operations.activities.slice(0,previous.length),previous);
+ assert.equal(new Set(j.operations.activities.map(a=>a.id)).size,j.operations.activities.length);
+});
+test('dashboard queues route Chemical planning and withhold premature handover/reporting',()=>{
+ const j=scope(dispatch(fixture()));
+ assert.ok(pendingActions(j,actor('BAHRI')).some(a=>a.id==='laboratory'&&a.label==='Chemical planning'));
+ assert.ok(!pendingActions(j,actor('SHEREIQI')).some(a=>a.id==='reporting'));
+ assert.ok(!pendingActions(j,actor('ALI')).some(a=>a.id==='handover'));
+ assert.ok(!pendingActions(j,actor('NASSER')).some(a=>a.id==='laboratory'));
+ assert.throws(()=>dispatch(j),/already been dispatched/);
+});
+
+test('additional work completes a new final report approval without erasing the approved revision',()=>{
+ let j=sampling(dispatch(fixture()));
+ j=step(j,{type:'handover-send',sampleIds:['S1','S2'],notes:''},'ALI');
+ j=step(j,{type:'handover-receive',notes:''},'SALIM');j=execute(scope(j));
+ const approve=job=>{job=step(job,{type:'report-draft',kind:'final',text:'Consolidated report',checker:'SHEREIQI',file:finalFile},'SHEREIQI');job=step(job,{type:'report-action',kind:'final',action:'submit',comments:''},'SHEREIQI');return step(job,{type:'report-action',kind:'final',action:'approve',comments:''},'WILFRED');};
+ j=approve(j);const original=structuredClone(j.operations.finalReports[0]);
+ j=step(j,{type:'request-addition',title:'Further analysis',reason:'Client requested more work'},'SHEREIQI');
+ j=step(j,{type:'scope',additionId:j.operations.additions[0].id,items:[{title:'Further analysis',sampleIds:['S2'],stream:'Chemical'}],conditions:j.operations.conditions,reason:'Confirm further analysis'},'SALIM');
+ j=execute(j);j=approve(j);
+ assert.equal(operationComplete(j),true);assert.deepEqual(j.operations.finalReports[0],original);
+ assert.ok(latest(j.operations.finalReports).version>original.version);
+ assert.equal(latest(j.operations.finalReports).approvedBy,'WILFRED');
+});
