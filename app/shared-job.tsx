@@ -1,0 +1,9 @@
+"use client";
+import { useEffect, useState } from "react";
+import { WorkflowSummary } from "./job-workflow";
+import type { JobSummary } from "./job-workflow-model";
+export function SharedJob({ id }: { id: string }) {
+ const [summary, setSummary] = useState<JobSummary>(); const [error, setError] = useState(""); const [signIn, setSignIn] = useState(false); const [attempt, setAttempt] = useState(0);
+ useEffect(() => { let active = true; const controller = new AbortController(); async function refresh() { try { const response = await fetch("/api/job-summary/" + encodeURIComponent(id), { cache: "no-store", signal: controller.signal }); const body = await response.json() as { error?: string; summary: JobSummary }; if (!active) return; setSignIn(response.status === 401); if (!response.ok) { setSummary(undefined); setError(body.error || "Unable to load summary."); return; } setSummary(body.summary); setError(""); } catch { if (active) setError("Unable to refresh progress. Check your connection and retry."); } } void refresh(); const timer = setInterval(refresh, 30000); window.addEventListener("focus", refresh); return () => { active = false; controller.abort(); clearInterval(timer); window.removeEventListener("focus", refresh); }; }, [id, attempt]);
+ return <main className="shared-job"><header className="shared-brand"><img src="/vaps-logo.png" alt="VAPS" /><span>Job progress</span></header>{error && <section className="panel"><p role="alert">{error}</p>{signIn ? <a className="primary-button" target="_top" href={"/signin-with-chatgpt?return_to=" + encodeURIComponent("/track/" + id)}>Sign in with ChatGPT</a> : <button type="button" className="outline-button" onClick={() => setAttempt(attempt + 1)}>Retry</button>}</section>}{summary ? <WorkflowSummary summary={summary} /> : !error && <p role="status">Loading job progress…</p>}<footer>Job summary only · Progress refreshes automatically.</footer></main>;
+}

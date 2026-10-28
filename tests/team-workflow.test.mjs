@@ -1,0 +1,15 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import ts from 'typescript';
+const js=f=>'data:text/javascript;base64,'+Buffer.from(ts.transpileModule(f,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText).toString('base64');
+const lab=js(fs.readFileSync('app/lab-work.ts','utf8'));
+const directory=js(fs.readFileSync('app/employee-directory.ts','utf8'));
+const authorization=js(fs.readFileSync('app/authorization.ts','utf8'));
+const source=fs.readFileSync('app/team-workflow.ts','utf8').replace("'./lab-work'",JSON.stringify(lab)).replace("'./employee-directory'",JSON.stringify(directory)).replace("'./authorization'",JSON.stringify(authorization));
+const {handoff,activeTeam,canWork,coordinator}=await import(js(source));
+const job={id:'test',samplingRequired:true,stages:[{name:'Sampling Data',status:'Not Started'}],requiredTests:['Viscosity']};
+test('only the named coordinators create jobs',()=>{assert.equal(coordinator('SALIM'),true);assert.equal(coordinator('WILFRED'),true);assert.equal(coordinator('ALI'),false);});
+test('one sampling member accepts and cannot be displaced',()=>{const j=handoff(job,'sampling','MOHSIN','accept','now');assert.equal(canWork(j,'sampling','MOHSIN'),true);assert.throws(()=>handoff(j,'sampling','HUSSEINI','accept','later'));assert.throws(()=>handoff(j,'sampling','HUSSEINI','complete','later'));assert.throws(()=>handoff(j,'sampling','MOHSIN','complete','later'));});
+test('sampling then driver then lab gates',()=>{let j=handoff({...job,stages:[{name:'Sampling Data',status:'Completed'}]},'sampling','MOHSIN','accept','1');j=handoff(j,'sampling','MOHSIN','complete','2');assert.equal(activeTeam(j),'transport');assert.throws(()=>handoff(j,'analysis','AHAD','accept','3'));j=handoff(j,'transport','ALI','accept','3');j=handoff(j,'transport','ALI','complete','4');j=handoff(j,'analysis','AHAD','accept','5');assert.throws(()=>handoff(j,'analysis','AHAD','complete','6'));j=handoff({...j,labTests:{Viscosity:{status:'Completed',scopeText:'Viscosity'}}},'analysis','AHAD','complete','6');assert.equal(activeTeam(j),undefined);assert.equal(j.teamWork.transport.completedAt,'4');});
+test('transfer skips field sampling',()=>assert.equal(activeTeam({...job,samplingRequired:false}),'transport'));
