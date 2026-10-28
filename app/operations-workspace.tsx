@@ -4,6 +4,7 @@ import { AlertCircle, ArrowRight, CheckCircle2, Circle, Download } from 'lucide-
 import type { JobRecord } from './page';
 import type { Employee } from './employee-directory';
 import { useUnsaved } from './settings-pages';
+import { localDate } from './local-date';
 import { operationsFor, pendingActions, latest, operationMilestones, validationSequence, clarificationItems, responsibilities, hasAccess, samplingApproved, finalReady, legacyDispatch, type Actor, type Command, type ActivityRecord, type Stream, type FileVersion, type ReportVersion } from './operations-model';
 import { storeWorkbook, downloadWorkbook } from './workbook-storage';
 export function Clarification({id}:{id:typeof clarificationItems[number][0]}){const item=clarificationItems.find(i=>i[0]===id)!;return <details className="needs-clarification"><summary><AlertCircle size={15}/><strong>Needs clarification</strong> · {item[1]}</summary><p>{item[2]}</p></details>;}
@@ -54,7 +55,7 @@ function ReportWorkspace({kind,job,actor,run,onLegacy}:{kind:'sampling'|'final';
 }
 export function WeeklyWork({jobs,actor,onOpen,teamView=false}:{jobs:JobRecord[];actor:Actor;onOpen:(job:JobRecord,tab:string)=>void;teamView?:boolean}){
  const [showCompleted,setShowCompleted]=useState(false);
- const [week,setWeek]=useState(new Date().toISOString().slice(0,10)),[mode,setMode]=useState('list'),[search,setSearch]=useState('');const start=new Date(week+'T00:00:00Z');start.setUTCDate(start.getUTCDate()-((start.getUTCDay()+6)%7));const end=new Date(start);end.setUTCDate(end.getUTCDate()+6);const from=start.toISOString().slice(0,10),to=end.toISOString().slice(0,10);const today=new Date().toISOString().slice(0,10);
+ const [week,setWeek]=useState(localDate()),[mode,setMode]=useState('list'),[search,setSearch]=useState('');const start=new Date(week+'T00:00:00Z');start.setUTCDate(start.getUTCDate()-((start.getUTCDay()+6)%7));const end=new Date(start);end.setUTCDate(end.getUTCDate()+6);const from=start.toISOString().slice(0,10),to=end.toISOString().slice(0,10);const today=new Date().toISOString().slice(0,10);
  const all=jobs.flatMap(job=>operationsFor(job).activities.map(a=>({job,a}))).filter(({a})=>teamView?actor.id==='MA001'||actor.id===(a.stream==='BVT'?'SALIM':'BAHRI'):a.owner===actor.id).filter(({job,a})=>[job.jobNumber,job.clientName,a.title,a.sampleId].join(' ').toLowerCase().includes(search.toLowerCase()));
  const work=all.filter(({a})=>(showCompleted||a.status!=='Completed')&&(!a.start||a.start<=to&&a.due>=from||a.status==='Changes Requested'||a.status!=='Completed'&&a.due<today));
  const pending=jobs.flatMap(job=>pendingActions(job,actor).map(m=>({job,m})));

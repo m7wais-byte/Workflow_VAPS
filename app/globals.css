@@ -2241,3 +2241,5 @@ main,.workspace-content,.settings-workspace .panel {min-width:0;}
 .ops-milestones .is-complete button{background:#f0f7f5}
 .ops-storage-note{font-size:12px;padding:10px 12px;background:#f0f5f8;border-radius:6px}
 @media(min-width:1600px){.ops-milestones{grid-template-columns:repeat(8,minmax(0,1fr))}.ops-milestones button{flex-direction:column;padding:12px}.ops-milestones strong{font-size:13px}}
+
+.demo-banner{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:16px;border-left:4px solid var(--teal)}.demo-banner p{margin:0;max-width:760px}.demo-banner button{flex:none}@media (max-width:700px){.demo-banner{flex-direction:column;align-items:stretch}}
