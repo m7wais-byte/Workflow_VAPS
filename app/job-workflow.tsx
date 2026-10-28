@@ -22,6 +22,8 @@ function StatusIcon({ state, waiting, size = 15 }: { state: TrackState; waiting?
 
 /** Compact left-to-right job journey. Click a stage to show its tasks underneath. */
 export function StageTracker({ stages, selected, onSelect }: { stages: TrackerStage[]; selected?: string; onSelect?: (id: string) => void }) {
+  // A scrollable region must be reachable by keyboard so it can be scrolled without a mouse.
+  // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
   return <div className="flow-scroll" role="region" aria-label="Job workflow stages" tabIndex={0}>
     <ol className="flow-track" style={{ ["--flow-count" as string]: stages.length }}>
       {stages.map((stage, index) => {

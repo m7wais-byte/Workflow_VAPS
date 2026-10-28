@@ -31,7 +31,6 @@ export function jobStages(job: JobRecord): JobStage[] {
   const transfer = /Transfer/.test(job.samplingSource || "");
   const lab = labRequested(job);
   const team = job.teamWork || {};
-  const labStarted = Object.values(job.labTests || {}).some(progress => progress.status !== "Not started");
   const legacyDelivered = false; // Laboratory progress is not evidence of physical sample receipt.
   const stages: Omit<JobStage, "current">[] = [];
 

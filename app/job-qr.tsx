@@ -5,6 +5,8 @@ import type { JobRecord } from "./page";
 import { getShare, stopShare, syncShare, type ShareRecord } from "./job-sharing";
 export function JobQR({ job }: { job: JobRecord }) {
  const [share, setShare] = useState<ShareRecord>(); const [audience, setAudience] = useState<"" | ShareRecord["audience"]>(""); const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [message, setMessage] = useState(""); const [url, setUrl] = useState("");
+ // Sharing settings live in this browser's storage, so they can only be read after mount.
+ // eslint-disable-next-line react-hooks/set-state-in-effect
  useEffect(() => { try { const saved = getShare(job.id); if (saved?.enabled) { setShare(saved); setAudience(saved.audience); setUrl(window.location.origin + "/track/" + saved.id); } } catch { setError("Sharing settings could not be read on this device."); } }, [job.id]);
  const qr = url ? (() => { const code = qrcode(0, "M"); code.addData(url); code.make(); return code.createDataURL(6, 24); })() : "";
  async function publish() { if (!audience) return; setBusy(true); setError(""); setMessage(""); try { const result = await syncShare(job, audience); if (result) { setShare(result); setUrl(window.location.origin + "/track/" + result.id); setMessage("Shared summary is up to date."); } } catch (error) { setError(error instanceof Error ? error.message : "Sharing failed. Please retry."); } finally { setBusy(false); } }
