@@ -2436,7 +2436,7 @@ main,.workspace-content,.settings-workspace .panel {min-width:0;}
 .inbox-act{line-height:1.3;min-width:0}.inbox-act strong{font-weight:600;font-size:15px}.inbox-sub{display:block;color:var(--muted);font-size:14px}
 .inbox-tag{display:inline-block;font-size:12px;font-weight:650;border-radius:4px;padding:1px 6px;margin-right:6px;vertical-align:1px;background:#eef2f4;color:#4b5d66}
 .tag-returned{background:#fdf0f0;color:#b4232c}.tag-overdue{background:#fdf5e8;color:#8a5a0e}.tag-new{background:var(--mint);color:var(--teal-dark)}.tag-review{background:#efe9fb;color:#55309a}.tag-blocked{background:#e7eaec;color:#33434b}.tag-info{background:#f1f4f5;color:#5c6b72}
-.inbox-due{font-size:14.5px}.inbox-due.is-late{color:#b4232c;font-weight:600}.inbox-due small{display:block;color:var(--muted);font-weight:400;font-size:13px}.inbox-due .muted{color:var(--muted);font-size:13.5px}
+.inbox-due{font-size:14.5px}.inbox-due-label{display:none}.inbox-due.is-late{color:#b4232c;font-weight:600}.inbox-due small{display:block;color:var(--muted);font-weight:400;font-size:13px}.inbox-due .muted{color:var(--muted);font-size:13.5px}
 .inbox-go{display:flex;gap:8px;justify-content:flex-end;align-items:center}
 .inbox-go .primary-button,.inbox-go .outline-button{margin:0;white-space:nowrap;min-width:150px;min-height:38px;padding:7px 14px;box-shadow:none}
 .inbox-head .primary-button{min-height:40px;padding:8px 16px}
@@ -2464,6 +2464,7 @@ main,.workspace-content,.settings-workspace .panel {min-width:0;}
  .inbox-more{min-height:44px}
  .inbox-tabs{width:100%}.inbox-tabs button{flex:1;padding:7px 4px;font-size:14px}.inbox-tabs button b{margin-left:4px;padding:1px 6px}
  .inbox-search{flex-basis:100%;order:2}.inbox-bar .inbox-pager{order:3;margin-left:0}
- .inbox-subs li{grid-template-columns:minmax(0,1fr) auto;row-gap:6px}.inbox-subs li .inbox-go{grid-column:1/-1}
+ .inbox-due-label{display:inline}
+ .inbox-subs li{grid-template-columns:minmax(0,1fr);row-gap:6px;padding:10px 0}.inbox-subs li .inbox-due{text-align:left}.inbox-subs li .inbox-go{justify-content:stretch}.inbox-subs li .inbox-go button{flex:1}
  .inbox-detail{padding:10px 12px}
 }

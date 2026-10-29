@@ -5,7 +5,7 @@ import { build } from 'esbuild';
 import { buildInboxJobs, inboxRoles, inboxTeams, inboxRouting } from './fixtures/inbox-jobs.mjs';
 const bundle=async entry=>{const out=await build({entryPoints:[entry],bundle:true,write:false,format:'esm',platform:'node',logLevel:'silent'});return import('data:text/javascript;base64,'+Buffer.from(out.outputFiles[0].text).toString('base64'));};
 const store=new Map();globalThis.window={localStorage:{getItem:k=>store.get(k)??null,setItem:(k,v)=>store.set(k,String(v))}};globalThis.localStorage=window.localStorage;
-const {applyOperation}=await bundle('app/operations-model.ts');
+const {applyOperation,canSeeDraft}=await bundle('app/operations-model.ts');
 const {workItems,inboxRows,rowSearchText}=await bundle('app/work-items.ts');
 const {defaultAuthorization,defaultResponsibilities,readAuthorization,allowed}=await bundle('app/authorization.ts');
 const {initialDirectory}=await bundle('app/employee-directory.ts');
@@ -38,7 +38,7 @@ test('Salim sees his sequential coordination actions and waits on work he return
  assert.equal(row(rows,102).waiting[0].label,'Waiting for Mohsin Al Dhuhli to complete sampling');
  assert.equal(rows.filter(r=>r.returned).length,0);
  assert.ok(!rows.some(r=>r.actions.some(i=>/workbook|test/i.test(i.action))),'no laboratory test actions for the coordinator');
- assert.deepEqual(count(rows),{action:8,waiting:4,all:jobs.length});
+ assert.deepEqual(count(rows),{action:8,waiting:4,all:12},'job ownership alone does not add rows');
 });
 
 test('Nasser sees only his own tests, with identifiers, several actions in one row, waiting and blocked work',()=>{
@@ -92,4 +92,16 @@ test('company overview has its own permission; defaults apply only when the sett
  const page=fs.readFileSync('app/page.tsx','utf8');
  assert.match(page,/if \(view === "overview"\) return hasPermission\("companyOverview"\)/);
  assert.doesNotMatch(page,/Team and company overview|Needs Attention|cockpit-job-list/,'legacy dashboard sections are gone');
+});
+
+test('All my jobs counts current involvement only; history and access stay with the job',()=>{
+ const nums=id=>view(id).rows.map(r=>r.jobNumber.slice(-3)).sort();
+ assert.deepEqual(nums('ALI'),['109','110'],'driver: from sampling approval until the samples are received');
+ assert.deepEqual(nums('MOHSIN'),['102','103','105','106','108'],'engineer: until sampling is approved');
+ assert.deepEqual(nums('RANJITH'),['120'],'test owner: while the test is unfinished');
+ assert.deepEqual(nums('YAQEEN'),['120']);
+ const received=jobs.find(j=>j.jobNumber==='OM-P-26-112');
+ assert.equal(received.assignedDriverId,'ALI');assert.equal(received.operations.dispatchedBy,'SALIM');assert.equal(received.operations.handover.sentBy,'ALI','history is kept in the job');
+ assert.equal(canSeeDraft(received,actor('ALI')),true,'access to the job itself is unchanged');
+ assert.equal(view('NASSER').rows.length,13,'unfinished tests keep the job for the lab employee');
 });

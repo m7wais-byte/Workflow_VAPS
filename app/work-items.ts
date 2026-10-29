@@ -157,8 +157,8 @@ export type InboxRow = {
 const stateRank: Record<InboxState, number> = { action: 0, blocked: 1, waiting: 2, info: 3 };
 
 /**
- * Groups workItems() output by job. Rows exist only for jobs this employee acts on, waits on, or is assigned to
- * (owner, responsible, sampling team, driver, dispatcher or test owner); never company-wide.
+ * Groups workItems() output by job. Rows exist only for jobs this employee acts on, waits on, or currently holds a stage
+ * responsibility for (sampling team until sampling approval, driver until receipt, owner of an unfinished test); never company-wide.
  */
 export function inboxRows(work: ReturnType<typeof workItems>, jobs: JobRecord[], actor: Actor, today: string, opts: { isNew: (i: WorkItem) => boolean; isClosed: (job: JobRecord) => boolean; stage: (job: JobRecord) => string }): InboxRow[] {
   const me = actor.id, rows = new Map<string, InboxRow>();
@@ -173,9 +173,12 @@ export function inboxRows(work: ReturnType<typeof workItems>, jobs: JobRecord[],
   for (const w of work.waiting) { const job = byId.get(w.jobId); if (job) row(job).waiting.push(w); }
   for (const job of jobs) {
     if (rows.has(job.id) || isDraft(job) || !canSeeDraft(job, actor) || opts.isClosed(job)) continue;
-    const o = operationsFor(job);
-    const involved = [job.ownerId, job.responsibleId, job.jobResponsibleId, job.assignedEngineerId, job.assignedDriverId, o.dispatchedBy, ...samplingTeam(job), ...o.activities.map((a) => a.owner)].includes(me);
-    if (involved) row(job);
+    // Current responsibility only: ownership, dispatch and finished assignments stay in the job's history, not in this list.
+    const o = operationsFor(job), sampled = samplingApproved(job);
+    const sampling = !sampled && !!o.dispatchedAt && samplingTeam(job).includes(me);
+    const transport = sampled && job.assignedDriverId === me && !o.handover?.receivedAt;
+    const testing = o.activities.some((a) => a.required && a.owner === me && a.status !== 'Completed');
+    if (sampling || transport || testing) row(job);
   }
   for (const r of rows.values()) {
     r.blocked = work.blocked.filter((b) => b.jobs.includes(r.jobNumber));
