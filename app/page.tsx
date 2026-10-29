@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { MyDashboard, LabSummary } from './dashboard';
+import { MyWork, LabSummary } from './dashboard';
 import { OperationsWorkspace, WeeklyWork, Clarification, ClarificationReview, LabWorkspace } from './operations-workspace';
 import { applyOperation, operationComplete, latest, operationsFor, streamLead, labStatus, labStatuses, type ActivityRecord, isDraft, canSeeDraft, samplingTeam, pendingActions, samplingStatus, latestData, samplingDataLocked, dataReviewRequired, type Actor, type Operations, type Command } from './operations-model';
 import { readTestRouting, storedTestRouting, testRoutingKey, type TestRouting } from './test-routing';
@@ -11,9 +11,9 @@ import { itemLabel, labComplete, labItems, planKeys, reconcileLabScope, type Lab
 import { ClientLogo } from "./client-logo";
 import { cylinderCatalog } from "./cylinder-catalog";
 import { syncShare } from "./job-sharing";
-import { addDays, localDate } from "./local-date";
+import { localDate } from "./local-date";
 import { nextJobSequence } from "./job-numbering";
-import { workItems, sortItems, samplingStage, samplingEvents as samplingEventsFor, labEvents as labEventsFor, type WorkItem } from "./work-items";
+import { workItems, inboxRows, samplingStage, samplingEvents as samplingEventsFor, labEvents as labEventsFor, type WorkItem } from "./work-items";
 import { standardSheetErrors, samplingIssues, samplingSummary } from "./sampling-validation";
 import { defaultFieldData } from "./sample-defaults";
 import { containerComplete, containerId, containerLabel, containerNoun, containerTypes, isGlass, type ContainerType } from "./sample-container";
@@ -29,7 +29,7 @@ import { initialDirectory, loadDirectory, validateDirectory, directoryKey, type 
 import { SettingsShell, EmployeeSettings, OptionSettings, CompanySettings, defaultCompany, type Company } from "./settings-pages";
 import { BottleSettings } from "./bottle-settings";
 import { bottleStorageKey, validateBottle, type Bottle } from "./bottle-inventory";
-import { Activity as ActivityIcon, Bell, BriefcaseBusiness, Building2, CalendarDays, ChevronRight, ClipboardList, FileText, FlaskConical, Gauge, LayoutDashboard, ListChecks, MapPin, PackageSearch, Plus, Search, Settings, ShieldCheck, TriangleAlert } from "lucide-react";
+import { Bell, BriefcaseBusiness, ChevronRight, ClipboardList, FileText, FlaskConical, Gauge, LayoutDashboard, ListChecks, PackageSearch, Plus, Search, Settings, ShieldCheck, TriangleAlert } from "lucide-react";
 
 function ReviewData({ value }: { value: Record<string, unknown> }) {
   return <dl className="review-data-grid">{Object.entries(value).filter(([key]) => key !== "dataUrl").map(([key, entry]) => <div key={key}><dt>{key.replace(/([a-z])([A-Z])/g, "$1 $2")}</dt><dd>{entry && typeof entry === "object" ? <ReviewData value={entry as Record<string, unknown>} /> : typeof entry === "boolean" ? (entry ? "Yes" : "No") : String(entry ?? "") || "Not recorded"}</dd></div>)}</dl>;
@@ -278,7 +278,7 @@ type CoordinationDetails = {
   requiredItems: string;
 };
 
-type WorkspaceView = "inventory" | "pvt-lab" | "dashboard" | "jobs" | "new-job" | "sampling" | "settings" | "profile";
+type WorkspaceView = "inventory" | "pvt-lab" | "dashboard" | "planning" | "overview" | "jobs" | "new-job" | "sampling" | "settings" | "profile";
 
 const workflowStageNames = ["Job Setup", "Sampling Preparation", "Sampling Data", "Report Preview", "Final Report"];
 const samplingSources: SamplingSource[] = ["Open Hole (SPMC - Field Sampling)", "Open Hole (MPSR - Lab Transfer)", "Cased Hole (Bottomhole / Downhole Sampling)", "Wellhead Sampling", "Separator Sampling", "Station Sampling", "Other"];
@@ -417,7 +417,9 @@ export default function Home() {
   const canView = (view: string) => {
     if (view === "settings") return ["settings", "company", "employees", "authorization"].some(p=>hasPermission(p as Permission));
     if (view === "new-job") return createdJobId ? hasPermission("jobDetails") && (stage === "job" || hasPermission("sampling")) : hasPermission("createJob");
-    const permission = ({ jobs: "jobDetails", workflow: "jobDetails", sampling: "sampling", "pvt-lab": "analysis", inventory: "inventory" } as Record<string, Permission>)[view];
+    // Company-wide figures need their own permission; job details alone grants personal views only.
+    if (view === "overview") return hasPermission("companyOverview") && hasPermission("jobDetails");
+    const permission = ({ jobs: "jobDetails", workflow: "jobDetails", planning: "jobDetails", sampling: "sampling", "pvt-lab": "analysis", inventory: "inventory" } as Record<string, Permission>)[view];
     return !permission || hasPermission(permission);
   };
   useEffect(() => {
@@ -472,17 +474,12 @@ export default function Home() {
     if (raw) setSeenSampling(JSON.parse(raw)); } catch { /* indicators simply show again */ } }, []);
   const [activities, setActivities] = useState<Activity[]>(defaultActivities);
   const [trackedSamples, setTrackedSamples] = useState<string[]>([]);
-  const [dashboardFilter, setDashboardFilter] = useState<"all" | "sampling" | "reports" | "due">("all");
-  const [dashboardSearch, setDashboardSearch] = useState("");
   const [jobsRegisterFilter, setJobsRegisterFilter] = useState<"mine" | "active" | "drafts" | "completed" | "all">("active");
   const [jobsRegisterStage, setJobsRegisterStage] = useState("");
   const [jobsRegisterSearch, setJobsRegisterSearch] = useState("");
   const [labJobId, setLabJobId] = useState("");
   const [samplingTab, setSamplingTab] = useState<"jobs" | "reports">("jobs");
   const [selectedJobDetailsId, setSelectedJobDetailsId] = useState("");
-  const [expandedDashboardJob, setExpandedDashboardJob] = useState("");
-  const [activityExpanded, setActivityExpanded] = useState(false);
-  const [timeGreeting, setTimeGreeting] = useState("Good morning");
   const [clients, setClients] = useState<Client[]>(defaultClients);
   const [client, setClient] = useState("P");
   const [clientModal, setClientModal] = useState<{ mode: "add" | "edit"; originalCode?: string } | null>(null);
@@ -515,17 +512,6 @@ export default function Home() {
   const [pdfExporting, setPdfExporting] = useState(false);
   const [notice, setNotice] = useState("");
   const [demoLoading, setDemoLoading] = useState(false);
-
-  useEffect(() => {
-    const updateGreeting = () => {
-      const hour = new Date().getHours();
-      setTimeGreeting(hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening");
-    };
-
-    updateGreeting();
-    const greetingTimer = window.setInterval(updateGreeting, 60_000);
-    return () => window.clearInterval(greetingTimer);
-  }, []);
 
   useEffect(() => {
     try {
@@ -634,7 +620,9 @@ export default function Home() {
   /** In-app indicator events for the signed-in employee, keyed by the shared record so each event is flagged once. */
   /** In-app indicator events, keyed by the shared record so each event is flagged once (shared with the Dashboard). */
   const samplingEvents = (item: JobRecord): string[] => currentEmployee ? samplingEventsFor(item, currentEmployee.id, samplingApprover) : [];
-  const dashboardWork = opsActor ? (() => { const work = workItems(visibleJobs, opsActor, today); const seen = seenSampling[opsActor.id] || []; return { ...work, actions: sortItems(work.actions, (item) => item.events.some((key) => !seen.includes(key))) }; })() : { actions: [] as WorkItem[], waiting: [], blocked: [] };
+  const isNewItem = (item: WorkItem) => item.events.some((key) => !(seenSampling[currentEmployee?.id || ""] || []).includes(key));
+  const dashboardWork = opsActor ? workItems(visibleJobs, opsActor, today) : { actions: [] as WorkItem[], waiting: [], blocked: [] };
+  const inbox = opsActor ? inboxRows(dashboardWork, visibleJobs, opsActor, today, { isNew: isNewItem, isClosed, stage: (item) => isDraft(item) ? "Job creation (draft)" : prog(item).current?.label || "Closed" }) : [];
   const unseenEvents = (item: JobRecord) => samplingEvents(item).filter((key) => !(seenSampling[currentEmployee?.id || ""] || []).includes(key));
   /** Laboratory indicator events for the signed-in employee: new assignment, returned work and items awaiting their review. */
   const labEvents = ({ a }: { job: JobRecord; a: ActivityRecord }): string[] => currentEmployee ? labEventsFor(a, currentEmployee.id, roleHolder(responsibilities, streamLead(a.stream), demoEmployees), roleHolder(responsibilities, "qcReviewer", demoEmployees)) : [];
@@ -662,22 +650,12 @@ export default function Home() {
   const workflowJob = visibleJobs.find(item => item.id === workflowJobId);
   const selectedJobDetails = hasPermission("jobDetails") && visibleJobs.find((item) => item.id === selectedJobDetailsId);
   const overdueTasks = activeJobs.filter((item) => item.dueDate && item.dueDate < today);
-  const dueSoonLimit = addDays(today, 7);
-  const dashboardFilteredByType = dashboardFilter === "sampling" ? myActiveJobs.filter((item) => item.currentStage.startsWith("Sampling")) : dashboardFilter === "reports" ? myActiveJobs.filter((item) => item.currentStage === "Report Preview" || item.status === "Report Draft" || item.status === "Awaiting Approval") : dashboardFilter === "due" ? myActiveJobs.filter((item) => item.dueDate && item.dueDate <= dueSoonLimit) : myActiveJobs;
-  const dashboardSearchTerm = dashboardSearch.trim().toLowerCase();
-  const normalizedDashboardSearch = dashboardSearchTerm.replace(/[^a-z0-9]/g, "");
-  const filteredMyJobs = dashboardFilteredByType.filter((item) => !dashboardSearchTerm || [item.id, item.clientName, ...locationParts(item)].some((value) => {
-    const text = value.toLowerCase();
-    return text.includes(dashboardSearchTerm) || (normalizedDashboardSearch && text.replace(/[^a-z0-9]/g, "").includes(normalizedDashboardSearch));
-  }));
   const dashboardDate = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "2-digit", month: "long", year: "numeric" }).format(new Date());
-  const dashboardShortDate = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long" }).format(new Date());
   const progressFor = (item: JobRecord) => prog(item).percent;
   const displayStatus = (item: JobRecord) => prog(item).statusLabel;
   const statusTone = (item: JobRecord) => prog(item).tone;
   const stageOwner = (item: JobRecord) => { const current = prog(item).current; if (!current) return employeeName(item.jobResponsibleId || item.responsibleId); return current.owner && demoEmployees.some((employee) => employee.id === current.owner) ? employeeName(current.owner) : current.ownerFallback; };
   const isOverdue = (item: JobRecord) => !isClosed(item) && Boolean(item.dueDate && item.dueDate < today);
-  const attentionJobs = activeJobs.filter((item) => item.dueDate && item.dueDate <= addDays(today, 3) || item.currentStage === "Report Preview" || item.nextAction.toLowerCase().includes("sample"));
   const overviewStages = [
     { name: "Job Setup", count: activeJobs.filter((item) => item.currentStage === "Job Setup" || item.currentStage === "Sampling Decision").length },
     { name: "Sampling", count: samplingJobs.length },
@@ -772,7 +750,6 @@ export default function Home() {
     const nextStage: Stage = item.currentStage === "Sampling Decision" ? (normalizedSource ? "type" : "job") : item.currentStage === "Sampling Preparation" ? "type" : item.currentStage === "Sampling Data" ? "bottomhole" : item.currentStage === "Report Preview" ? "report" : item.currentStage === "Final Report" || item.status === "Completed" || item.currentStage === "Scope of Work" ? "scope" : "job";
     setStage(nextStage);
     if(navigate)setWorkspaceView("new-job");
-    setExpandedDashboardJob("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
   // Opening a #new-job/<id> link restores that draft into the editor state.
@@ -1703,7 +1680,7 @@ export default function Home() {
         <nav aria-label="Primary navigation">
           <p className="nav-label">WORKSPACE</p>{hasPermission("createJob") && <button type="button" className="nav-item" onClick={startNewJob}><Plus size={18} /> Create new job</button>}
           {navItems.map((item, index) => { const NavIcon = navIcons[index]; if (!canView(({ Dashboard: "dashboard", Jobs: "jobs", Sampling: "sampling", "PVT Lab": "pvt-lab", Inventory: "inventory", Settings: "settings" } as Record<string, string>)[item])) return null; return (
-            <button key={item} className={(item === "Dashboard" && workspaceView === "dashboard") || (item === "Jobs" && (workspaceView === "jobs" || workspaceView === "workflow")) || (item === "New Job" && workspaceView === "new-job") || (item === "Sampling" && workspaceView === "sampling") || (item === "PVT Lab" && workspaceView === "pvt-lab")  || (item === "Settings" && workspaceView === "settings") || (item === "Inventory" && workspaceView === "inventory") ? "nav-item active" : "nav-item"} type="button" onClick={() => { if (item === "Dashboard") setWorkspaceView("dashboard"); if (item === "Jobs") setWorkspaceView("jobs"); if (item === "Sampling") setWorkspaceView("sampling"); if (item === "PVT Lab") { setLabJobId(""); setWorkspaceView("pvt-lab"); } if (item === "Settings") { setWorkspaceView("settings"); } if (item === "Inventory") { setWorkspaceView("inventory"); } if (item === "New Job") startNewJob(); }} aria-current={(item === "Dashboard" && workspaceView === "dashboard") || (item === "Jobs" && workspaceView === "jobs") || (item === "New Job" && workspaceView === "new-job") || (item === "Sampling" && workspaceView === "sampling") || (item === "PVT Lab" && workspaceView === "pvt-lab")  || (item === "Settings" && workspaceView === "settings") || (item === "Inventory" && workspaceView === "inventory") ? "page" : undefined}>
+            <button key={item} className={(item === "Dashboard" && ["dashboard", "planning", "overview"].includes(workspaceView)) || (item === "Jobs" && (workspaceView === "jobs" || workspaceView === "workflow")) || (item === "New Job" && workspaceView === "new-job") || (item === "Sampling" && workspaceView === "sampling") || (item === "PVT Lab" && workspaceView === "pvt-lab")  || (item === "Settings" && workspaceView === "settings") || (item === "Inventory" && workspaceView === "inventory") ? "nav-item active" : "nav-item"} type="button" onClick={() => { if (item === "Dashboard") setWorkspaceView("dashboard"); if (item === "Jobs") setWorkspaceView("jobs"); if (item === "Sampling") setWorkspaceView("sampling"); if (item === "PVT Lab") { setLabJobId(""); setWorkspaceView("pvt-lab"); } if (item === "Settings") { setWorkspaceView("settings"); } if (item === "Inventory") { setWorkspaceView("inventory"); } if (item === "New Job") startNewJob(); }} aria-current={(item === "Dashboard" && ["dashboard", "planning", "overview"].includes(workspaceView)) || (item === "Jobs" && workspaceView === "jobs") || (item === "New Job" && workspaceView === "new-job") || (item === "Sampling" && workspaceView === "sampling") || (item === "PVT Lab" && workspaceView === "pvt-lab")  || (item === "Settings" && workspaceView === "settings") || (item === "Inventory" && workspaceView === "inventory") ? "page" : undefined}>
               <span className="nav-icon" aria-hidden="true"><NavIcon size={19} strokeWidth={1.8} /></span>{item}{item === "Sampling" && samplingUnseen > 0 && <span className="nav-badge" aria-label={`${samplingUnseen} new sampling updates`}>{samplingUnseen}</span>}{item === "PVT Lab" && labUnseen > 0 && <span className="nav-badge" aria-label={`${labUnseen} new laboratory updates`}>{labUnseen}</span>}
               {item === "Jobs" && <span className="nav-count">{jobs.length}</span>}
             </button>
@@ -1723,10 +1700,10 @@ export default function Home() {
         </div>
       </aside>
 
-      <div className="trial-profile"><label>Local demo profile<select aria-label="Local demo profile" value={currentEmployee.id} onChange={e=>{if(window.confirmSettingsLeave&&!window.confirmSettingsLeave())return;const person=demoEmployees.find(p=>p.id===e.target.value&&p.active);if(person){setCurrentEmployee(person);sessionStorage.setItem(sessionStorageKey,person.id);setWorkspaceView('dashboard');}}}>{demoEmployees.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><span>Browser-local trial · not secure authentication</span></div><main className={workspaceView === "dashboard" ? "dashboard-main" : ""}>{workspaceView === "profile" && <TeamInbox jobs={hasPermission("jobDetails") ? jobs : []} actor={currentEmployee.id} onSwitch={id=>{const p=demoEmployees.find(e=>e.id===id && e.active);if(p){setCurrentEmployee(p);window.sessionStorage.setItem(sessionStorageKey,id);setWorkspaceView("dashboard");}}} onOpen={item=>{setWorkflowJobId(item.id);setWorkspaceView("workflow");}} onAction={(id,team,action)=>{try{if(!hasPermission("jobDetails") || !hasPermission(team === "analysis" ? "analysis" : team === "transport" ? "jobDetails" : "sampling")) throw Error("You do not have access to this handoff.");const fresh:JobRecord[]=JSON.parse(window.localStorage.getItem(jobsStorageKey)||"[]");const target=fresh.find(j=>j.id===id);if(!target)throw Error("Job no longer exists.");const now=new Date().toISOString();const updated=handoff(target,team,currentEmployee.id,action,now);persistJobs(fresh.map(j=>j.id===id?updated:j));recordActivity(team+": "+action,id,now);setNotice(action==="accept"?"Ownership accepted.":"Handoff completed; the next team can accept.");}catch(e){setNotice(e instanceof Error?e.message:"Could not update handoff.");}}} />}
+      <div className="trial-profile"><label>Local demo profile<select aria-label="Local demo profile" value={currentEmployee.id} onChange={e=>{if(window.confirmSettingsLeave&&!window.confirmSettingsLeave())return;const person=demoEmployees.find(p=>p.id===e.target.value&&p.active);if(person){setCurrentEmployee(person);sessionStorage.setItem(sessionStorageKey,person.id);setWorkspaceView('dashboard');}}}>{demoEmployees.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><span>Browser-local trial · not secure authentication</span></div><main className={workspaceView === "dashboard" ? "inbox-main" : ""}>{workspaceView === "profile" && <TeamInbox jobs={hasPermission("jobDetails") ? jobs : []} actor={currentEmployee.id} onSwitch={id=>{const p=demoEmployees.find(e=>e.id===id && e.active);if(p){setCurrentEmployee(p);window.sessionStorage.setItem(sessionStorageKey,id);setWorkspaceView("dashboard");}}} onOpen={item=>{setWorkflowJobId(item.id);setWorkspaceView("workflow");}} onAction={(id,team,action)=>{try{if(!hasPermission("jobDetails") || !hasPermission(team === "analysis" ? "analysis" : team === "transport" ? "jobDetails" : "sampling")) throw Error("You do not have access to this handoff.");const fresh:JobRecord[]=JSON.parse(window.localStorage.getItem(jobsStorageKey)||"[]");const target=fresh.find(j=>j.id===id);if(!target)throw Error("Job no longer exists.");const now=new Date().toISOString();const updated=handoff(target,team,currentEmployee.id,action,now);persistJobs(fresh.map(j=>j.id===id?updated:j));recordActivity(team+": "+action,id,now);setNotice(action==="accept"?"Ownership accepted.":"Handoff completed; the next team can accept.");}catch(e){setNotice(e instanceof Error?e.message:"Could not update handoff.");}}} />}
         <header className="topbar">
           <button className="menu-button" type="button" aria-label="Open menu">☰</button>
-          <div className="breadcrumb"><span>{workspaceView === "inventory" ? "Inventory" : workspaceView === "settings" ? "Settings" : workspaceView === "profile" ? "Employee" : "Workspace"}</span><b>/</b><strong>{workspaceView === "workflow" ? "Job workflow" : workspaceView === "inventory" ? "Bottle inventory" : workspaceView === "settings" ? ({company:"Company",clients:"Clients",employees:"Employees",authorization:"Authorization",departments:"Departments & Positions"}[settingsPage] || "Overview") : workspaceView === "profile" ? "My Profile" : workspaceView === "dashboard" ? "Dashboard" : workspaceView === "jobs" ? "Jobs" : workspaceView === "sampling" ? (samplingTab === "reports" ? "Sampling · Sampling Reports" : "Sampling") : workspaceView === "pvt-lab" ? "PVT Lab" : stage === "job" ? "New Job" : jobId}</strong></div>
+          <div className="breadcrumb"><span>{workspaceView === "inventory" ? "Inventory" : workspaceView === "settings" ? "Settings" : workspaceView === "profile" ? "Employee" : "Workspace"}</span><b>/</b><strong>{workspaceView === "workflow" ? "Job workflow" : workspaceView === "inventory" ? "Bottle inventory" : workspaceView === "settings" ? ({company:"Company",clients:"Clients",employees:"Employees",authorization:"Authorization",departments:"Departments & Positions"}[settingsPage] || "Overview") : workspaceView === "profile" ? "My Profile" : workspaceView === "dashboard" ? "My work" : workspaceView === "planning" ? "Weekly plan" : workspaceView === "overview" ? "Overview & activity" : workspaceView === "jobs" ? "Jobs" : workspaceView === "sampling" ? (samplingTab === "reports" ? "Sampling · Sampling Reports" : "Sampling") : workspaceView === "pvt-lab" ? "PVT Lab" : stage === "job" ? "New Job" : jobId}</strong></div>
           <div className="top-actions">
             <button className="settings-shortcut" type="button" onClick={() => { setWorkspaceView("settings"); }}><Settings size={18} aria-hidden="true" />Settings</button>
             {workspaceView === "dashboard" ? <span className="top-date">{dashboardDate}</span> : <span className="local-pill"><span className="status-dot" /> Local demo</span>}
@@ -1738,46 +1715,25 @@ export default function Home() {
         <div className="page-wrap">
           {workspaceView !== "settings" && !!notice && <div className="notice" role="alert">{notice}<button type="button" aria-label="Dismiss" onClick={() => setNotice("")}>×</button></div>}
           {!canView(workspaceView) ? <section className="panel authorization-panel"><h1>Access restricted</h1><p>Ask Mohammed Al Awaisi to enable access in Settings → Authorization.</p><button className="primary-button" type="button" onClick={() => setWorkspaceView("dashboard")}>Back to dashboard</button></section> : workspaceView === "workflow" ? (workflowJob ? (!legacyView ? <OperationsWorkspace key={workflowJob.id+operationTab} job={workflowJob} actor={opsActor!} tab={operationTab} onNavigate={tab=>openOperation(workflowJob,tab)} onCommand={c=>runOperation(workflowJob.id,c)} onSampling={(target,sample)=>{resumeJob(workflowJob);setStage((target||samplingStageFor(workflowJob)) as Stage);if(sample)setExpanded(sample);}} onSetup={()=>{resumeJob(workflowJob);setStage('job');}} onLegacy={()=>setLegacyView(true)} /> : <JobWorkflow key={workflowJob.id} job={workflowJob} today={today} employeeName={employeeName} onBack={() => setWorkspaceView("jobs")} onOpenStage={(stageId) => stageId === "closed" ? resumeJob(workflowJob) : openStage(workflowJob, stageId)} />) : <section className="panel"><h1>Job not found</h1><button type="button" onClick={() => setWorkspaceView("jobs")}>Back to jobs</button></section>) : workspaceView === "dashboard" && !hasPermission("jobDetails") ? (<section className="panel authorization-panel"><h1>Welcome, {currentEmployee.name.split(" ")[0]}</h1><p>Choose an authorized workspace from the menu. Contact Mohammed Al Awaisi to request additional access.</p></section>) : workspaceView === "dashboard" ? (
-            <>{jobs.length===0&&<section className="panel ops-panel demo-banner"><div><h2>Explore the workflow with demo jobs</h2><p>This browser has no jobs yet. Load four example jobs (sampling, report approval, laboratory work and a completed job) to see how work moves through the system. All names and values are fictional and marked DEMO; they are saved only in this browser. The demo uses its own fictional QC, receipt and team setup, which is never written to Settings.</p></div><button type="button" className="primary-button" disabled={demoLoading} onClick={() => void loadDemoData()}>{demoLoading ? "Loading…" : "Load demo data"}</button></section>}
-            <MyDashboard name={employeeName} firstName={currentEmployee.name.split(" ")[0]} date={dashboardDate} actions={dashboardWork.actions} waiting={dashboardWork.waiting} blocked={dashboardWork.blocked} isNew={(item) => item.events.some((key) => !(seenSampling[currentEmployee.id] || []).includes(key))} isAdmin={hasPermission("authorization")} canCreate={hasPermission("createJob")} onCreate={startNewJob} onOpen={openWorkItem} onOpenWaiting={(item) => { const target = jobs.find((job) => job.id === item.jobId); if (target) openOperation(target, item.open.tab); }}>
-            <LabSummary onOpen={() => setWorkspaceView("pvt-lab")} rows={(["PVT", "Chemical"] as const).filter((stream) => hasPermission("analysis") && (currentEmployee.id === "MA001" || roleHolder(responsibilities, "pvtSupervisor", demoEmployees) === currentEmployee.id || roleHolder(responsibilities, streamLead(stream), demoEmployees) === currentEmployee.id)).map((stream) => ({ stream, counts: labStatuses.map((label) => [label, labItemsVisible.filter((item) => item.a.stream === stream && labStatus(item.a) === label).length] as [string, number]) }))} />
-            <details className="panel ops-panel dashboard-optional"><summary>My upcoming work · weekly plan</summary><WeeklyWork jobs={hasPermission('jobDetails')?visibleJobs:[]} actor={opsActor!} onOpen={openOperation} hidePending/></details>
-            {currentEmployee.id==='MA001'&&<details className="panel ops-panel dashboard-optional"><summary>Administrator · workflow clarification review</summary><ClarificationReview/></details>}<details className="company-summary dashboard-optional"><summary>Team and company overview</summary>
-              <section className="cockpit-header">
-                <div><h1>{timeGreeting}, {currentEmployee.name.split(" ")[0]}</h1><p>Here’s what needs your attention today.</p></div>
-                <div className="cockpit-header-actions"><time>{dashboardShortDate}</time><button className="icon-button" type="button" aria-label="Notifications"><Bell size={18} strokeWidth={1.8} /><span className="notification-dot" /></button><button className="top-avatar" type="button" onClick={() => setWorkspaceView("profile")} aria-label="Open my profile">{currentEmployee.initials}</button></div>
-              </section>
-
+            <MyWork rows={inbox} today={today} name={employeeName} isNew={isNewItem} isAdmin={hasPermission("authorization")} canCreate={hasPermission("createJob")} onCreate={startNewJob} canPlan={canView("planning")} canOverview={canView("overview")} onPlanning={() => setWorkspaceView("planning")} onOverview={() => setWorkspaceView("overview")} missing={dashboardWork.blocked} onOpen={openWorkItem} onOpenWaiting={(item) => { const target = jobs.find((job) => job.id === item.jobId); if (target) openOperation(target, item.open.tab); }} onOpenJob={(row) => { const target = jobs.find((job) => job.id === row.jobId); if (target) openOperation(target); }}>
+            {jobs.length===0&&<section className="panel ops-panel demo-banner"><div><h2>Explore the workflow with demo jobs</h2><p>This browser has no jobs yet. Load four example jobs (sampling, report approval, laboratory work and a completed job) to see how work moves through the system. All names and values are fictional and marked DEMO; they are saved only in this browser. The demo uses its own fictional QC, receipt and team setup, which is never written to Settings.</p></div><button type="button" className="primary-button" disabled={demoLoading} onClick={() => void loadDemoData()}>{demoLoading ? "Loading…" : "Load demo data"}</button></section>}</MyWork>
+          ) : workspaceView === "planning" ? (
+            <div className="secondary-view"><button type="button" className="text-button" onClick={() => setWorkspaceView("dashboard")}>← My work</button>
+            <WeeklyWork jobs={visibleJobs} actor={opsActor!} onOpen={openOperation} hidePending />
+            <LabSummary onOpen={() => setWorkspaceView("pvt-lab")} rows={(["PVT", "Chemical"] as const).filter((stream) => hasPermission("analysis") && (currentEmployee.id === "MA001" || roleHolder(responsibilities, "pvtSupervisor", demoEmployees) === currentEmployee.id || roleHolder(responsibilities, streamLead(stream), demoEmployees) === currentEmployee.id)).map((stream) => ({ stream, counts: labStatuses.map((label) => [label, labItemsVisible.filter((item) => item.a.stream === stream && labStatus(item.a) === label).length] as [string, number]) }))} /></div>
+          ) : workspaceView === "overview" ? (
+            <div className="secondary-view"><button type="button" className="text-button" onClick={() => setWorkspaceView("dashboard")}>← My work</button>
+              <section className="page-intro"><div><span className="eyebrow">COMPANY OVERVIEW</span><h1>Overview &amp; activity</h1><p>All visible jobs. Personal actions stay in My work.</p></div></section>
               <section className="operations-summary" aria-label="Operations summary">
-                <button type="button" onClick={() => setDashboardFilter("all")}><span className="summary-icon active"><BriefcaseBusiness size={21} strokeWidth={1.8} /></span><div><small>Active Jobs</small><strong>{activeJobs.length}</strong><em>Currently open</em></div></button>
-                <button type="button" onClick={() => setDashboardFilter("sampling")}><span className="summary-icon sampling"><FlaskConical size={21} strokeWidth={1.8} /></span><div><small>Sampling</small><strong>{samplingJobs.length}</strong><em>In field workflow</em></div></button>
-                <button type="button" onClick={() => setDashboardFilter("reports")}><span className="summary-icon reports"><FileText size={21} strokeWidth={1.8} /></span><div><small>Sampling Reports Pending</small><strong>{pendingReports.length}</strong><em>Waiting for action</em></div></button>
-                <button type="button" onClick={() => setDashboardFilter("due")}><span className="summary-icon attention"><TriangleAlert size={21} strokeWidth={1.8} /></span><div><small>Need Attention</small><strong>{attentionJobs.length}</strong><em>Review priority items</em></div></button>
+                <article><span className="summary-icon active"><BriefcaseBusiness size={21} strokeWidth={1.8} /></span><div><small>Active Jobs</small><strong>{activeJobs.length}</strong><em>Currently open</em></div></article>
+                <article><span className="summary-icon sampling"><FlaskConical size={21} strokeWidth={1.8} /></span><div><small>Sampling</small><strong>{samplingJobs.length}</strong><em>In field workflow</em></div></article>
+                <article><span className="summary-icon reports"><FileText size={21} strokeWidth={1.8} /></span><div><small>Sampling Reports Pending</small><strong>{pendingReports.length}</strong><em>Waiting for action</em></div></article>
+                <article><span className="summary-icon attention"><TriangleAlert size={21} strokeWidth={1.8} /></span><div><small>Overdue</small><strong>{overdueTasks.filter((item) => !isDraft(item)).length}</strong><em>Past due date</em></div></article>
               </section>
-
-              <div className="cockpit-grid">
-                <section className="cockpit-work" id="my-work">
-                  <header><div><span className="eyebrow">Assigned work</span><h2>My Work</h2></div><button type="button" className="view-all-button" onClick={() => { setDashboardFilter("all"); setDashboardSearch(""); }}>View All Jobs →</button></header>
-                <div className="cockpit-tools"><div className="cockpit-filters"><button className={dashboardFilter === "all" ? "active" : ""} type="button" onClick={() => setDashboardFilter("all")}>All My Work</button><button className={dashboardFilter === "sampling" ? "active" : ""} type="button" onClick={() => setDashboardFilter("sampling")}>Sampling</button><button className={dashboardFilter === "reports" ? "active" : ""} type="button" onClick={() => setDashboardFilter("reports")}>Sampling Reports</button><button className={dashboardFilter === "due" ? "active" : ""} type="button" onClick={() => setDashboardFilter("due")}>Due Soon</button></div><label className="cockpit-search"><Search size={16} strokeWidth={1.8} /><input value={dashboardSearch} onChange={(event) => setDashboardSearch(event.target.value)} placeholder="Search e.g. omp26001" aria-label="Search jobs by ID, client, field or well" /></label></div>
-                  <div className="cockpit-job-list">{(hasPermission("jobDetails") ? filteredMyJobs : []).slice(0, 4).map((item) => <article className={expandedDashboardJob === item.id ? "cockpit-job expanded" : "cockpit-job"} key={item.id}>
-                    <div className="cockpit-job-row">
-                      <button type="button" className="cockpit-job-identity" onClick={() => setExpandedDashboardJob(expandedDashboardJob === item.id ? "" : item.id)} aria-expanded={expandedDashboardJob === item.id}><strong>{item.id}</strong><span><Building2 size={13} strokeWidth={1.8} />{item.clientName}<i>·</i><MapPin size={13} strokeWidth={1.8} />{locationSummary(item)}</span></button>
-                      <div className="cockpit-job-work"><div className="cockpit-job-stage"><small>Current Stage</small><span className="stage-chip"><FlaskConical size={13} strokeWidth={1.9} />{prog(item).current?.label || "Closed"}</span></div><div className="cockpit-next"><small>Next Action</small><strong>{prog(item).current?.nextAction || "No action required"}</strong></div></div>
-                      <div className="cockpit-job-outcome"><div className="cockpit-due"><small>Due</small><strong className={item.dueDate && item.dueDate < today ? "overdue" : ""}><CalendarDays size={14} strokeWidth={1.8} />{item.dueDate || "No due date"}</strong></div><div className="cockpit-progress" aria-label={`${progressFor(item)} percent complete`}><small>Progress</small><span><i style={{ width: `${progressFor(item)}%` }} /></span><strong>{progressFor(item)}%</strong></div><span className={`status-pill flow-${statusTone(item)}`}>{displayStatus(item)}</span>{isOverdue(item) && <span className="status-pill overdue">Overdue</span>}<button type="button" className="continue-button" onClick={() => openStage(item)}>Continue <ChevronRight size={15} strokeWidth={2} /></button></div>
-                    </div>
-                    {expandedDashboardJob === item.id && <div className="cockpit-job-details"><div><small>JOB OWNER</small><strong>{employeeName(item.ownerId)}</strong></div><div><small>ASSIGNED ENGINEER</small><strong>{employeeName(item.assignedEngineerId || item.responsibleId)}</strong></div><div><small>ASSIGNED DRIVER</small><strong>{employeeName(item.assignedDriverId)}</strong></div>{locationDetails(item).map(([label, value]) => <div key={label}><small>{label}</small><strong>{value}</strong></div>)}<div><small>LAST UPDATED</small><strong>{formatDateTime(item.lastUpdatedAt)}</strong></div><div className="compact-stage-list">{prog(item).stages.map((workflow) => <span key={workflow.id} className={workflow.state === "done" ? "completed" : workflow.state === "active" ? "in-progress" : "not-started"}><i>{workflow.state === "done" ? "✓" : "•"}</i>{workflow.label}{workflow.waiting ? ` · ${workflow.waiting}` : ""}</span>)}</div></div>}
-                  </article>)}{filteredMyJobs.length === 0 && <div className="cockpit-empty"><span>✓</span><div>{jobs.length === 0 ? <><strong>No active jobs assigned to you.</strong><p>Your assigned jobs will appear here.</p></> : <><strong>No matching active jobs</strong><p>Try another filter or search term.</p></>}</div></div>}</div>
-                  {filteredMyJobs.length > 4 && <button type="button" className="load-more-work" onClick={() => { setDashboardFilter("all"); setDashboardSearch(""); }}>View {filteredMyJobs.length - 4} more jobs →</button>}
-                </section>
-
-                <aside className="priority-panel"><header><div><span className="eyebrow amber">Priority queue</span><h2>Needs Attention</h2><p>{attentionJobs.length} items require action</p></div><span>{attentionJobs.length}</span></header><div className="priority-list">{attentionJobs.slice(0, 3).map((item) => { const overdue = Boolean(item.dueDate && item.dueDate < today); const review = item.currentStage === "Report Preview"; const description = overdue ? "Job is overdue" : review ? "Report awaiting review" : item.nextAction.toLowerCase().includes("sample") ? "Missing sample information" : "Due soon"; const badge = overdue ? "Overdue" : review ? "Review" : item.nextAction.toLowerCase().includes("sample") ? "Missing Data" : "Due Soon"; return <button type="button" key={item.id} className={overdue ? "critical" : review ? "review" : "warning"} onClick={() => { setDashboardSearch(item.id); setDashboardFilter("all"); }}><i /><div><strong>{item.id}</strong><span>{description}</span><small>{item.dueDate ? `Due ${item.dueDate}` : "No due date"}</small></div><em>{badge}</em><ChevronRight size={16} strokeWidth={2} /></button>; })}{attentionJobs.length === 0 && <div className="priority-empty"><span>✓</span><strong>Nothing requires your attention.</strong></div>}</div>{attentionJobs.length > 0 && <footer><button type="button" onClick={() => { setDashboardFilter("due"); setDashboardSearch(""); document.getElementById("my-work")?.scrollIntoView({ behavior: "smooth" }); }}>View all items <ChevronRight size={14} strokeWidth={2} /></button></footer>}</aside>
-              </div>
-
-              <section className="compact-pipeline"><header><div><span className="eyebrow">Live pipeline</span><h2>Workload by Stage</h2></div><span className="closed-metric">{overviewStages.find((item) => item.name === "Closed")?.count || 0} Closed</span></header><div>{overviewStages.filter((item) => item.name !== "Closed").map((item, index, visibleStages) => { const StageIcon = item.name === "Job Setup" ? ClipboardList : item.name === "Sampling" ? FlaskConical : item.name === "Scope of Work" ? ListChecks : item.name === "Laboratory Analysis" ? Gauge : item.name === "Reporting" ? FileText : ShieldCheck; return <article className={item.name === "Sampling" && item.count > 0 ? "active" : ""} key={item.name}><button type="button" onClick={() => setDashboardFilter(item.name === "Sampling" ? "sampling" : item.name === "Reporting" ? "reports" : "all")}><StageIcon size={15} strokeWidth={1.8} /><span>{item.name === "Job Setup" ? "Job Setup" : item.name === "Scope of Work" ? "Scope" : item.name === "Laboratory Analysis" ? "Analysis" : item.name}</span><strong>{item.count}</strong></button>{index < visibleStages.length - 1 && <i><ChevronRight size={13} strokeWidth={1.7} /></i>}</article>; })}</div></section>
-              {activities[0] ? <button type="button" className="latest-activity" onClick={() => setActivityExpanded(true)}><ActivityIcon size={18} strokeWidth={1.8} /><small>Latest Activity</small><strong>{employeeName(activities[0].employeeId)} {activities[0].action.toLowerCase()}</strong><em>for {activities[0].jobId} · {formatDateTime(activities[0].timestamp)}</em><b>View Activity <ChevronRight size={14} strokeWidth={2} /></b></button> : <div className="latest-activity latest-activity-empty"><ActivityIcon size={18} strokeWidth={1.8} /><small>Latest Activity</small><strong>No activity yet.</strong></div>}
-
-              {activityExpanded && <div className="activity-drawer-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setActivityExpanded(false); }} role="presentation"><aside className="activity-drawer" aria-label="Activity history"><header><div><span className="eyebrow">TEAM UPDATES</span><h2>Activity</h2></div><button type="button" onClick={() => setActivityExpanded(false)} aria-label="Close activity drawer">×</button></header><div>{activities.slice(0, 12).map((item) => <article key={item.id}><span className="activity-avatar">{demoEmployees.find((employee) => employee.id === item.employeeId)?.initials}</span><div><strong>{employeeName(item.employeeId)}</strong><p>{item.action}</p><small>{item.jobId} · {formatDateTime(item.timestamp)}</small></div></article>)}</div></aside></div>}
-            </details></MyDashboard></>
+              <section className="compact-pipeline"><header><div><span className="eyebrow">Live pipeline</span><h2>Workload by Stage</h2></div><span className="closed-metric">{overviewStages.find((item) => item.name === "Closed")?.count || 0} Closed</span></header><div>{overviewStages.filter((item) => item.name !== "Closed").map((item, index, visibleStages) => { const StageIcon = item.name === "Job Setup" ? ClipboardList : item.name === "Sampling" ? FlaskConical : item.name === "Scope of Work" ? ListChecks : item.name === "Laboratory Analysis" ? Gauge : item.name === "Reporting" ? FileText : ShieldCheck; return <article key={item.name}><span className="pipeline-stage"><StageIcon size={15} strokeWidth={1.8} /><span>{item.name === "Scope of Work" ? "Scope" : item.name === "Laboratory Analysis" ? "Analysis" : item.name}</span><strong>{item.count}</strong></span>{index < visibleStages.length - 1 && <i><ChevronRight size={13} strokeWidth={1.7} /></i>}</article>; })}</div></section>
+              <section className="panel ops-panel overview-activity"><h2>Activity history</h2>{activities.length ? <ul>{activities.slice(0, 50).map((item) => <li key={item.id}><span className="activity-avatar">{demoEmployees.find((employee) => employee.id === item.employeeId)?.initials}</span><div><strong>{employeeName(item.employeeId)}</strong> {item.action}<small>{item.jobId} · {formatDateTime(item.timestamp)}</small></div></li>)}</ul> : <p>No activity yet.</p>}</section>
+              {currentEmployee.id === "MA001" && <details className="panel ops-panel"><summary>Administrator · workflow clarification review</summary><ClarificationReview /></details>}
+            </div>
           ) : workspaceView === "jobs" ? (
             <>
               <section className="page-intro operations-page-intro"><div><span className="eyebrow">JOBS · MASTER REGISTER</span><h1>Jobs</h1><p>Every job, where it stands, and who acts next.</p></div>{hasPermission("createJob") && <button type="button" className="primary-button create-job-button" onClick={startNewJob}><Plus size={16} /> Create Job</button>}</section>

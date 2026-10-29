@@ -1,46 +1,86 @@
 'use client';
 import { useState, type ReactNode } from 'react';
-import { ArrowRight, Settings } from 'lucide-react';
-import type { WorkItem, WaitingItem, BlockedItem } from './work-items';
+import { rowSearchText, type InboxRow, type WorkItem, type WaitingItem, type BlockedItem, type Setting } from './work-items';
 
-type Filter = 'all' | 'returned' | 'review' | 'new' | 'overdue' | 'task';
-const settingLabel: Record<BlockedItem['setting'], string> = { teams: 'PVT and Chemical teams', labReceipt: 'Laboratory receipt responsibility', qcReviewer: 'QC review responsibility', samplingApproval: 'Sampling approval responsibility', scopeSelector: 'Scope selection responsibility', routing: 'Laboratory test routing' };
-const settingAnchor: Record<BlockedItem['setting'], string> = { teams: 'lab-teams', labReceipt: 'responsibilities', qcReviewer: 'responsibilities', samplingApproval: 'responsibilities', scopeSelector: 'responsibilities', routing: 'test-routing' };
+type Filter = 'action' | 'waiting' | 'all';
+const PER_PAGE = 10;
+const settingLabel: Record<Setting, string> = { teams: 'PVT and Chemical teams', labReceipt: 'Laboratory receipt responsibility', qcReviewer: 'QC review responsibility', samplingApproval: 'Sampling approval responsibility', scopeSelector: 'Scope selection responsibility', routing: 'Laboratory test routing', finalApproval: 'Final report approval responsibility' };
+const settingAnchor: Record<Setting, string> = { teams: 'lab-teams', labReceipt: 'responsibilities', qcReviewer: 'responsibilities', samplingApproval: 'responsibilities', scopeSelector: 'responsibilities', routing: 'test-routing', finalApproval: 'responsibilities' };
+const blockedHeadline: Record<Setting, string> = { teams: 'Tests cannot be assigned — the team has no members', labReceipt: 'Receipt cannot be confirmed — laboratory receipt not configured', qcReviewer: 'QC review cannot start — QC reviewer not configured', samplingApproval: 'Review cannot start — sampling approver not configured', scopeSelector: 'Scope cannot be released — scope selector not configured', routing: 'Tests cannot be routed — test routing not configured', finalApproval: 'Approval cannot start — final approver not configured' };
+
+/** One line of work inside a job row: an action, a blocked action or a waiting item. */
+type Entry = { key: string; tone: 'action' | 'blocked' | 'waiting'; tags: string[]; headline: string; sub: string; due?: string; overdue?: boolean; button: string; open: () => void; facts: [string, string][]; comment?: string; commentLabel?: string; /** Red only for corrections this employee must make. */commentTone?: 'correction' | 'note' | 'neutral' };
+const when = (v?: string) => v ? new Date(v.length === 10 ? v + 'T00:00:00' : v).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+const ident = (test?: string, sample?: string, container?: string) => [test, sample && `Sample ${sample}${container ? ` · ${container}` : ''}`].filter(Boolean).join(' · ');
 
 /**
- * The employee's starting point: actions first, then work waiting on others, configuration blocks,
- * and optional planning and overview sections. Items come from work-items.ts (the same workflow states as each section).
+ * The dashboard: one personal inbox with one row per job. Rows come from inboxRows() (work-items.ts),
+ * which derives every action from the same workflow states and permissions as the Jobs, Sampling and PVT Lab pages.
  */
-export function MyDashboard({ name, firstName, date, actions, waiting, blocked, isNew, onOpen, onOpenWaiting, isAdmin, canCreate, onCreate, children }: {
-  name: (id?: string) => string; firstName: string; date: string; actions: WorkItem[]; waiting: WaitingItem[]; blocked: BlockedItem[];
-  isNew: (item: WorkItem) => boolean; onOpen: (item: WorkItem) => void; onOpenWaiting: (item: WaitingItem) => void; isAdmin: boolean; canCreate: boolean; onCreate: () => void; children?: ReactNode;
+export function MyWork({ rows, today, name, isNew, onOpen, onOpenWaiting, onOpenJob, isAdmin, canCreate, onCreate, canPlan, canOverview, onPlanning, onOverview, missing, children }: {
+  rows: InboxRow[]; today: string; name: (id?: string) => string; isNew: (item: WorkItem) => boolean;
+  onOpen: (item: WorkItem) => void; onOpenWaiting: (item: WaitingItem) => void; onOpenJob: (row: InboxRow) => void;
+  isAdmin: boolean; canCreate: boolean; onCreate: () => void; canPlan: boolean; canOverview: boolean; onPlanning: () => void; onOverview: () => void;
+  /** Missing settings across visible jobs; listed only for administrators, who can fix them. */missing: BlockedItem[]; children?: ReactNode;
 }) {
-  const [filter, setFilter] = useState<Filter>('all'), [search, setSearch] = useState('');
-  const match: Record<Filter, (i: WorkItem) => boolean> = { all: () => true, returned: (i) => i.kind === 'returned', review: (i) => i.kind === 'review', new: (i) => isNew(i), overdue: (i) => i.overdue, task: (i) => i.kind === 'task' || i.kind === 'assignment' };
+  const [filter, setFilter] = useState<Filter>('action'), [search, setSearch] = useState(''), [page, setPage] = useState(0), [open, setOpen] = useState<string[]>([]);
   const term = search.trim().toLowerCase();
-  const shown = actions.filter(match[filter]).filter((i) => !term || [i.jobNumber, i.client, i.test, i.sample, i.action, i.status].join(' ').toLowerCase().includes(term));
-  const chips: [Filter, string][] = [['all', 'All my actions'], ['returned', 'Returned'], ['overdue', 'Overdue'], ['review', 'Reviews'], ['new', 'New'], ['task', 'Tasks']];
-  const when = (v?: string) => v ? new Date(v).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
-  return <div className="my-dashboard">
-    <section className="dashboard-intro"><div><span className="eyebrow">MY DASHBOARD · {date}</span><h1>Hello, {firstName}</h1><p>{actions.length ? `You have ${actions.length} action${actions.length === 1 ? '' : 's'} to take.` : waiting.length ? 'Nothing needs your action right now. Your submitted work is waiting on others.' : 'Nothing needs your action right now.'}</p></div>{canCreate && <button type="button" className="primary-button" onClick={onCreate}>+ Create Job</button>}</section>
-    <p className="local-note" role="note">Browser-local trial: records and notifications are kept in this browser only. The profile selector is not secure sign-in, and nothing is synchronized to other devices.</p>
-    <nav className="dashboard-counts" aria-label="Dashboard summary">{chips.map(([id, label]) => { const n = actions.filter(match[id]).length; return <button key={id} type="button" className={filter === id ? 'active' : ''} aria-pressed={filter === id} onClick={() => { setFilter(id); document.getElementById('my-actions')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); }}><strong>{n}</strong><span>{label}</span></button>; })}<a href="#waiting-on-others"><strong>{waiting.length}</strong><span>Waiting on others</span></a>{blocked.length > 0 && <a href="#blocked-work" className="is-blocked"><strong>{blocked.length}</strong><span>Blocked by settings</span></a>}</nav>
-    <section className="panel dashboard-section" id="my-actions" aria-labelledby="my-actions-title">
-      <div className="section-head"><h2 id="my-actions-title">My actions</h2><label className="dashboard-search"><span>Search</span><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Job, client, sample or test" /></label></div>
-      {filter !== 'all' && <p className="filter-note">Showing: {chips.find((c) => c[0] === filter)![1]} · <button type="button" className="text-button" onClick={() => setFilter('all')}>Show all</button></p>}
-      {shown.length ? <ul className="action-list">{shown.map((i) => <li key={i.key} className={'action-card kind-' + i.kind + (i.overdue ? ' is-overdue' : '')}>
-        <div className="action-tags">{i.kind === 'returned' && <span className="tag tag-returned">Returned</span>}{i.overdue && <span className="tag tag-overdue">Overdue</span>}{i.kind === 'review' && <span className="tag tag-review">Review</span>}{isNew(i) && <span className="tag tag-new">New</span>}{i.stream && <span className="tag">{i.stream}</span>}</div>
-        <h3>{i.action}</h3>
-        <dl className="action-meta"><div><dt>Job</dt><dd>{i.jobNumber} · {i.client}</dd></div>{i.sample && <div><dt>Sample</dt><dd>{i.sample}{i.container ? ` · ${i.container}` : ''}</dd></div>}{i.test && <div><dt>Test</dt><dd>{i.test}</dd></div>}<div><dt>Status</dt><dd>{i.status}</dd></div>{i.due && <div><dt>Due</dt><dd className={i.overdue ? 'overdue-text' : ''}>{when(i.due)}</dd></div>}{i.from && <div><dt>{i.fromLabel}</dt><dd>{name(i.from)}</dd></div>}</dl>
-        {i.comment && <p className="action-comment"><strong>{i.kind === 'returned' ? 'Correction requested:' : 'Note:'}</strong> {i.comment}</p>}
-        <button type="button" className="primary-button action-open" onClick={() => onOpen(i)}>{i.action} <ArrowRight size={15} /></button>
-      </li>)}</ul> : <p className="empty-state">{actions.length ? 'No actions match these filters.' : blocked.length ? 'No actions you can take now. Some work is blocked by missing settings (see below).' : waiting.length ? 'No action needed. Your submitted work is waiting for review.' : 'No work assigned to you right now.'}</p>}
-    </section>
-    <section className="panel dashboard-section" id="waiting-on-others" aria-labelledby="waiting-title"><div className="section-head"><h2 id="waiting-title">Waiting on others</h2><span className="event-count">{waiting.length}</span></div>
-      {waiting.length ? <ul className="waiting-list">{waiting.map((w) => <li key={w.key}><div><strong>{w.what}</strong><span>{w.jobNumber} · {w.client}</span></div><div><small>Waiting on</small><span>{w.waitingOn}</span>{w.since && <small>since {when(w.since)}</small>}</div><button type="button" className="outline-button" onClick={() => onOpenWaiting(w)}>View</button></li>)}</ul> : <p className="empty-state">Nothing you submitted is waiting on others.</p>}
-    </section>
-    {blocked.length > 0 && <section className="panel dashboard-section blocked-section" id="blocked-work" aria-labelledby="blocked-title"><div className="section-head"><h2 id="blocked-title">Blocked by missing settings</h2></div><ul className="blocked-list">{blocked.map((b) => <li key={b.key}><div><strong>{settingLabel[b.setting]} not configured</strong><p>{b.what} Jobs: {b.jobs.join(', ')}.</p></div>{isAdmin ? <a className="outline-button" href={`#settings/authorization/${settingAnchor[b.setting]}`}><Settings size={15} /> Open the setting</a> : <small>An administrator needs to configure this in Settings → Authorization.</small>}</li>)}</ul></section>}
+  const found = rows.filter((r) => !term || rowSearchText(r).includes(term));
+  const match: Record<Filter, (r: InboxRow) => boolean> = { action: (r) => r.state === 'action', waiting: (r) => r.state === 'waiting' || r.state === 'blocked', all: () => true };
+  const shown = found.filter(match[filter]);
+  const pages = Math.max(1, Math.ceil(shown.length / PER_PAGE)), current = Math.min(page, pages - 1);
+  const pageRows = shown.slice(current * PER_PAGE, current * PER_PAGE + PER_PAGE);
+  const tabs: [Filter, string][] = [['action', 'Needs my action'], ['waiting', 'Waiting'], ['all', 'All my jobs']];
+  const range = shown.length ? `${current * PER_PAGE + 1}–${current * PER_PAGE + pageRows.length} of ${shown.length}` : '0 of 0';
+  const pager = (where: string) => <nav className="inbox-pager" aria-label={`Pages (${where})`}><span>{range}</span><button type="button" aria-label="Previous page" disabled={current === 0} onClick={() => setPage(current - 1)}>‹</button><button type="button" aria-label="Next page" disabled={current >= pages - 1} onClick={() => setPage(current + 1)}>›</button></nav>;
+  const settingNote = (b: BlockedItem) => <p key={b.key} className="inbox-comment is-blocked"><strong>{settingLabel[b.setting]} not configured.</strong> {b.what} {isAdmin ? <a href={`#settings/authorization/${settingAnchor[b.setting]}`}>Open the setting</a> : 'An administrator must configure this in Settings → Authorization; nothing more is needed from you for this step.'}</p>;
+
+  const entries = (r: InboxRow): Entry[] => [
+    ...r.actions.map((i): Entry => ({ key: i.key, tone: 'action', tags: [...(i.kind === 'returned' ? ['Returned'] : []), ...(i.overdue ? ['Overdue'] : []), ...(isNew(i) ? ['New'] : []), ...(i.key.startsWith('draft:') ? ['Draft'] : [])], headline: i.action, sub: ident(i.test, i.sample, i.container) || (i.from ? `${i.fromLabel || 'From'} ${name(i.from)}` : i.status), due: i.due, overdue: i.overdue, button: i.button, open: () => onOpen(i),
+      facts: [['Status', i.status] as [string, string], ...(i.from ? [[i.fromLabel || 'From', name(i.from)] as [string, string]] : []), ...(i.stream ? [['Laboratory', i.stream] as [string, string]] : [])], comment: i.comment, commentLabel: i.kind === 'returned' ? 'Correction requested' : i.fromLabel === 'Assigned by' ? 'Assignment note' : 'Note', commentTone: i.kind === 'returned' ? 'correction' : 'note' })),
+    ...r.blockedActions.map((i): Entry => ({ key: i.key, tone: 'blocked', tags: ['Blocked'], headline: blockedHeadline.teams, sub: `${i.action} · ${i.stream} team has no members`, due: i.due, button: 'View job', open: () => onOpen(i), facts: [['Status', i.status]] })),
+    ...r.waiting.map((w): Entry => ({ key: w.key, tone: w.blocked ? 'blocked' : 'waiting', tags: [w.blocked ? 'Blocked' : 'Waiting'], headline: w.blocked ? blockedHeadline[w.blocked] : w.label || `Waiting on ${w.waitingOn}`, sub: w.what, button: w.open.tab.startsWith('laboratory?') ? 'View test' : 'View job', open: () => onOpenWaiting(w),
+      facts: [...(w.blocked ? [] : [['Waiting on', w.waitingOn] as [string, string]]), ...(w.since ? [['Since', when(w.since)] as [string, string]] : [])], comment: w.comment, commentLabel: w.commentLabel, commentTone: 'neutral' })),
+  ];
+  const dueCell = (due: string | undefined, late?: boolean) => <div className={'inbox-due' + (late ? ' is-late' : '')}>{due ? when(due) : <span className="muted">No due date</span>}{late && due ? <small>{Math.round((Date.parse(today) - Date.parse(due)) / 864e5)} day(s) overdue</small> : due === today ? <small>Due today</small> : null}</div>;
+
+  return <div className="my-work">
+    <header className="inbox-head"><h1>My work</h1><nav className="inbox-links" aria-label="Other views">{canPlan && <button type="button" className="text-button" onClick={onPlanning}>Weekly plan</button>}{canOverview && <button type="button" className="text-button" onClick={onOverview}>Overview &amp; activity</button>}</nav>{canCreate && <button type="button" className="primary-button" onClick={onCreate}>+ Create Job</button>}</header>
     {children}
+    {isAdmin && missing.length > 0 && <p className="inbox-admin-note" role="note"><strong>{missing.length} workflow setting{missing.length === 1 ? '' : 's'} missing:</strong> {missing.map((b, n) => <span key={b.key}>{n ? ', ' : ''}<a href={`#settings/authorization/${settingAnchor[b.setting]}`}>{settingLabel[b.setting]}</a> ({b.jobs.length} job{b.jobs.length === 1 ? '' : 's'})</span>)}</p>}
+    <div className="inbox-bar">
+      <div className="inbox-tabs" role="group" aria-label="Filter my work">{tabs.map(([id, label]) => <button key={id} type="button" className={filter === id ? 'is-on' : ''} aria-pressed={filter === id} onClick={() => { setFilter(id); setPage(0); }}>{label}<b>{found.filter(match[id]).length}</b></button>)}</div>
+      {pager('top')}
+      <label className="inbox-search"><span className="sr-only">Search my work</span><input value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} placeholder="Search job, client, sample or test" /></label>
+    </div>
+    <div className="inbox-list" role="table" aria-label="My work">
+      <div className="inbox-th" role="row"><span role="columnheader">Job / client</span><span role="columnheader">Required action</span><span role="columnheader">Due</span><span role="columnheader">Action</span></div>
+      {pageRows.map((r) => {
+        const list = entries(r), primary = list[0], rest = list.slice(1), expanded = open.includes(r.jobId);
+        const tone = r.returned ? 'is-returned' : r.overdue ? 'is-overdue' : r.state === 'blocked' ? 'is-blocked' : '';
+        const toggle = () => setOpen(expanded ? open.filter((id) => id !== r.jobId) : [...open, r.jobId]);
+        return <div key={r.jobId} className={'inbox-item ' + tone} role="rowgroup">
+          <div className="inbox-row" role="row">
+            <div className="inbox-job" role="cell"><b>{r.jobNumber}</b><span>{r.client}</span></div>
+            <div className="inbox-act" role="cell">{primary ? <>{primary.tags.map((t) => <span key={t} className={'inbox-tag tag-' + t.toLowerCase()}>{t}</span>)}<strong>{primary.headline}</strong><span className="inbox-sub">{primary.sub}</span></> : <><span className="inbox-tag tag-info">In progress</span><strong>No action needed from you</strong><span className="inbox-sub">{r.stage}</span></>}</div>
+            <div role="cell">{dueCell(primary?.tone === 'action' ? r.due : primary?.due || r.due, primary?.tone === 'action' && r.overdue)}</div>
+            <div className="inbox-go" role="cell"><button type="button" className="inbox-more" aria-expanded={expanded} onClick={toggle}>{expanded ? 'Hide' : rest.length ? `+${rest.length} more` : 'Details'}</button>
+              {primary ? <button type="button" className={primary.tone === 'action' ? 'primary-button' : 'outline-button'} onClick={primary.open}>{primary.button}</button> : <button type="button" className="outline-button" onClick={() => onOpenJob(r)}>View job</button>}</div>
+          </div>
+          {expanded && <div className="inbox-detail">
+            {primary ? <><dl className="inbox-facts">{primary.facts.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>{primary.comment && <p className={'inbox-comment tone-' + primary.commentTone}><strong>{primary.commentLabel}:</strong> {primary.comment}</p>}</> : <dl className="inbox-facts"><div><dt>Current stage</dt><dd>{r.stage}</dd></div></dl>}
+            {r.blocked.map(settingNote)}
+            {rest.length > 0 && <ul className="inbox-subs">{rest.map((e) => <li key={e.key} className={'tone-' + e.tone}>
+              <div>{e.tags.filter((t) => t !== 'Draft').map((t) => <span key={t} className={'inbox-tag tag-' + t.toLowerCase()}>{t}</span>)}<strong>{e.headline}</strong><span className="inbox-sub">{e.sub}</span>{e.comment && <p className={'inbox-comment tone-' + e.commentTone}><strong>{e.commentLabel}:</strong> {e.comment}</p>}</div>
+              {dueCell(e.due, e.overdue)}
+              <div className="inbox-go"><button type="button" className={e.tone === 'action' ? 'primary-button' : 'outline-button'} onClick={e.open}>{e.button}</button></div>
+            </li>)}</ul>}
+          </div>}
+        </div>;
+      })}
+      {!pageRows.length && <p className="inbox-empty">{term ? 'Nothing matches this search.' : filter === 'action' ? (rows.some((r) => r.state !== 'info') ? 'Nothing needs your action right now. See Waiting for work that is with others.' : 'Nothing needs your action right now.') : filter === 'waiting' ? 'Nothing of yours is waiting on others.' : 'No jobs are assigned to you.'}</p>}
+    </div>
+    <div className="inbox-foot">{pager('bottom')}<span>Browser-local trial: records stay in this browser; the profile selector is not secure sign-in.</span></div>
   </div>;
 }
 
@@ -48,7 +88,7 @@ export function MyDashboard({ name, firstName, date, actions, waiting, blocked, 
 export function LabSummary({ rows, onOpen }: { rows: { stream: string; counts: [string, number][] }[]; onOpen: () => void }) {
   if (!rows.length) return null;
   return <section className="panel dashboard-section" aria-labelledby="lab-summary-title"><div className="section-head"><h2 id="lab-summary-title">Laboratory progress</h2><button type="button" className="outline-button" onClick={onOpen}>Open PVT Lab overview</button></div>
-    <p className="filter-note">Read-only summary. Assignment and review actions appear in My actions only for their configured holders.</p>
+    <p className="filter-note">Read-only summary. Assignment and review actions appear in My work only for their configured holders.</p>
     <div className="lab-summary-grid">{rows.map((row) => <div key={row.stream}><strong>{row.stream}</strong><ul>{row.counts.map(([label, n]) => <li key={label}><span>{label}</span><b>{n}</b></li>)}</ul></div>)}</div>
   </section>;
 }

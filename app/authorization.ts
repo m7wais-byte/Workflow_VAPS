@@ -6,6 +6,7 @@ export const permissionLabels = {
   sampling: 'Access sampling and reports',
   analysis: 'Access PVT analysis',
   inventory: 'Access bottle inventory',
+  companyOverview: 'View company overview & activity',
   settings: 'Manage clients',
   company: 'Manage company',
   employees: 'Manage employees & options',
@@ -19,15 +20,19 @@ export type Authorization = Record<Permission, string[]>;
  */
 export const driverOnlyAccess: Permission[] = ['jobDetails'];
 export const driverOnlyIds = ['HUMAID'];
+/** Company-wide overview (all jobs, pipeline, activity): administrator, coordinator and PVT supervisor by default. */
+export const companyOverviewDefault = [administratorId, 'SALIM', 'WILFRED'];
 export function defaultAuthorization(ids: string[]): Authorization {
   const broad = ids.filter(id => !driverOnlyIds.includes(id));
-  return { createJob: ['SALIM'], jobDetails: [...ids], sampling: [...broad], analysis: [...broad], inventory: [...broad], settings: [administratorId], company: [administratorId], employees: [administratorId], authorization: [administratorId] };
+  return { createJob: ['SALIM'], jobDetails: [...ids], sampling: [...broad], analysis: [...broad], inventory: [...broad], companyOverview: companyOverviewDefault.filter(id => ids.includes(id)), settings: [administratorId], company: [administratorId], employees: [administratorId], authorization: [administratorId] };
 }
 export function readAuthorization(raw: string | null, ids: string[]): Authorization {
   if (raw === null) return defaultAuthorization(ids);
   const value = JSON.parse(raw);
   if (!value || typeof value !== 'object') throw Error('Invalid authorization settings');
   for (const key of ['company','employees','authorization']) { if (value[key] === undefined) value[key] = [administratorId]; }
+  // Added later: defaults apply only when the setting was never saved. A saved empty selection stays empty.
+  if (value.companyOverview === undefined) value.companyOverview = companyOverviewDefault.filter(id => ids.includes(id));
   for (const key of Object.keys(permissionLabels) as Permission[]) {
     if (!Array.isArray(value[key]) || value[key].some((id: unknown) => typeof id !== 'string' || !ids.includes(id))) throw Error('Invalid authorization settings');
   }
