@@ -2468,3 +2468,12 @@ main,.workspace-content,.settings-workspace .panel {min-width:0;}
  .inbox-subs li{grid-template-columns:minmax(0,1fr);row-gap:6px;padding:10px 0}.inbox-subs li .inbox-due{text-align:left}.inbox-subs li .inbox-go{justify-content:stretch}.inbox-subs li .inbox-go button{flex:1}
  .inbox-detail{padding:10px 12px}
 }
+
+/* Recoverable job deletion */
+.register-delete{color:#a3262d;font-size:13.5px;padding:6px 8px;margin-left:4px}.register-delete:hover{text-decoration:underline}
+.confirm-dialog{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:min(480px,calc(100vw - 32px));background:#fff;border-radius:12px;padding:22px 24px;box-shadow:0 24px 60px rgba(10,30,40,.3);z-index:60}
+.confirm-dialog h2{margin:0 0 12px;font-size:20px}.confirm-dialog dl{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:0 0 12px;padding:10px 12px;background:#f6f8f8;border-radius:8px}.confirm-dialog dl div{display:contents}.confirm-dialog dt{color:var(--muted);font-size:13px}.confirm-dialog dd{margin:0;font-weight:650;overflow-wrap:anywhere}
+.confirm-dialog ul{margin:0 0 14px;padding-left:18px;color:#3f525b;font-size:14px;line-height:1.55}.confirm-error{color:#a3262d;background:#fdf0f0;padding:8px 10px;border-radius:6px;font-size:14px}
+.confirm-dialog footer{display:flex;justify-content:flex-end;gap:10px}
+.danger-button{border:0;border-radius:5px;background:#b4232c;color:#fff;min-height:40px;padding:0 16px;font-weight:700;cursor:pointer}.danger-button:hover{background:#951c24}.danger-button:disabled{opacity:.6;cursor:default}
+.jobs-register-table.trash-table{min-width:900px;table-layout:auto}.trash-table td:last-child{text-align:right;white-space:nowrap}.trash-table .register-action{margin:0}

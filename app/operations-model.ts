@@ -95,6 +95,18 @@ export function hasAccess(actor:Actor,permission:Permission) {return actor.emplo
 function requireAccess(actor:Actor,permission:Permission,id?:string){if(!hasAccess(actor,permission)||(id&&actor.id!==id))throw Error('This action is not assigned to your active profile or permission.');}
 /** Draft jobs are visible to job creators, their author and the project administrator only. */
 export const canSeeDraft=(job:JobRecord,actor:Actor)=>!isDraft(job)||actor.id===job.createdById||actor.id==='MA001'||hasAccess(actor,'createJob');
+export const isTrashed=(job:JobRecord)=>!!job.trash;
+/** Recoverable deletion: marks the job only. Samples, operations, files, reports and history stay in the record. */
+export function trashJob(job:JobRecord,actor:Actor,now=new Date().toISOString()):JobRecord{
+ if(!hasAccess(actor,'deleteJobs')||!canSeeDraft(job,actor))throw Error('You do not have permission to delete jobs.');
+ if(job.trash)throw Error('This job is already in Trash.');
+ return {...job,trash:{deletedBy:actor.id,deletedAt:now},trashLog:[...(job.trashLog||[]),{action:'deleted',by:actor.id,at:now}]};
+}
+export function restoreJob(job:JobRecord,actor:Actor,now=new Date().toISOString()):JobRecord{
+ if(!hasAccess(actor,'deleteJobs')||!canSeeDraft(job,actor))throw Error('You do not have permission to restore jobs.');
+ if(!job.trash)throw Error('This job is not in Trash.');
+ const restored:JobRecord={...job,trashLog:[...(job.trashLog||[]),{action:'restored',by:actor.id,at:now}]};delete restored.trash;return restored;
+}
 const canSample=(actor:Actor,id:string)=>id==='MA001'||actor.policy.sampling.includes(id);
 function active(actor:Actor,id:string){if(!actor.employees.some(e=>e.id===id&&e.active))throw Error('Select an active employee.');}
 /** Permission and duty must both pass. An unassigned duty blocks the action instead of opening it to everyone. */
@@ -156,6 +168,7 @@ export type Command =
  | {type:'handover-receive';notes:string};
 export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new Date().toISOString()):JobRecord {
  requireAccess(actor,'jobDetails');
+ if(job.trash)throw Error('This job is in Trash. Restore it before making changes.');
  const o:Operations=structuredClone(operationsFor(job));const next={...job,operations:o};let reason='';
  const currentActivity=()=>{const a=o.activities.find(a=>'id'in command&&a.id===command.id);if(!a)throw Error('Activity no longer exists.');return a;};
  const snapshot=(kind:'sampling'|'final')=>JSON.stringify(kind==='sampling'?{samples:job.samples,events:job.events,source:job.samplingSource,jobNumber:job.jobNumber,clientName:job.clientName,well:job.well,fieldArea:job.fieldArea}:{scope:o.scope,conditions:o.conditions,activities:o.activities,samples:job.samples,handOver:o.handover});
