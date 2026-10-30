@@ -7,7 +7,7 @@ const {applyOperation,pendingActions,canSeeDraft,isDraft,finalReady,qcPending,la
 const {defaultAuthorization,defaultResponsibilities}=await bundle('app/authorization.ts');
 const {initialDirectory}=await bundle('app/employee-directory.ts');
 const {readTestRouting,storedTestRouting,testRoutingKey,testsFor,unclassifiedTests}=await bundle('app/test-routing.ts');
-const {nextJobSequence}=await bundle('app/job-numbering.ts');
+const {nextJobSequence,nextJobRecordId,assertJobNumberAvailable}=await bundle('app/job-numbering.ts');
 
 const employees=initialDirectory().employees,policy=defaultAuthorization(employees.map(e=>e.id));
 const routing={'Black Oil — DL':'PVT','Black Oil — Validation':'PVT','Others — Water Analysis':'Chemical','Specialised Analysis — SARA':'Both'};
@@ -51,10 +51,10 @@ test('drafts stay with their creator; sent jobs reach every assigned sampling em
  assert.equal(canSeeDraft(job,actor('MOHSIN')),true);
 });
 
-test('job numbers never reuse an ID already recorded',()=>{
+test('job numbers follow active jobs rather than the saved counter',()=>{
  const jobs=[{id:'OM-P-26-007',globalSequence:7},{id:'OM-Q-26-009',globalSequence:9},{id:'OM-P-25-040',globalSequence:40}];
  assert.equal(nextJobSequence(3,jobs,'26'),10,'a stale counter cannot reissue 004–009');
- assert.equal(nextJobSequence(12,jobs,'26'),13);
+ assert.equal(nextJobSequence(12,jobs,'26'),10);
  assert.equal(nextJobSequence(0,[],'26'),1);
 });
 
@@ -144,4 +144,20 @@ test('test routing settings are validated and never assumed',()=>{
  assert.deepEqual(testsFor('Chemical',routing),['Others — Water Analysis','Specialised Analysis — SARA']);
  for(const raw of ['bad','[]',JSON.stringify({'Not a test':'PVT'}),JSON.stringify({'Black Oil — DL':'Lab'})])assert.throws(()=>readTestRouting(raw));
  store.set(testRoutingKey,'corrupt');assert.equal(storedTestRouting(),null,'unreadable settings block release');store.delete(testRoutingKey);
+});
+
+ test('deleted trailing numbers are reused with unique record keys and safe restoration',()=>{
+ const old={id:'OM-P-26-010',jobNumber:'OM-P-26-010',globalSequence:10,trash:{deletedAt:'now'}};
+ const nine={id:'OM-P-26-009',globalSequence:9};
+ assert.equal(nextJobSequence(99,[nine,old],'26'),10);
+ assert.equal(nextJobSequence(99,[{...nine,trash:{}},old],'26'),1);
+ assert.equal(nextJobSequence(99,[],'26'),1);
+ const id=nextJobRecordId(old.jobNumber,[old,nine]);
+ assert.notEqual(id,old.id);
+ const replacement={id,jobNumber:old.jobNumber,globalSequence:10};
+ assert.doesNotThrow(()=>assertJobNumberAvailable(replacement,[old,nine]));
+ assert.throws(()=>assertJobNumberAvailable(old,[old,nine,replacement]),/already used/);
+ assert.doesNotThrow(()=>assertJobNumberAvailable(old,[old,nine,{...replacement,trash:{}}]));
+ assert.equal(nextJobSequence(0,[replacement],'26'),11);
+ assert.notEqual(nextJobRecordId(old.jobNumber,[old,replacement]),id);
 });

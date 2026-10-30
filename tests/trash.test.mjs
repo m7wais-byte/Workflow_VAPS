@@ -50,7 +50,7 @@ test('a deleted job leaves every queue and count, and cannot be changed until re
  assert.ok(!after.nasser.some(r=>r.jobNumber==='OM-P-26-116'));assert.equal(after.nasser.length,before.nasser.length-1);
  assert.throws(()=>applyOperation(list.find(j=>j.jobNumber==='OM-P-26-105'),{type:'data-approve'},actor('SALIM'),later),/in Trash/);
  assert.throws(()=>trashJob(list.find(j=>j.jobNumber==='OM-P-26-105'),actor('MA001'),later),/already in Trash/);
- assert.equal(nextJobSequence(0,list,'26'),nextJobSequence(0,jobs,'26'),'deleted job IDs are never reissued');
+ assert.equal(nextJobSequence(0,list,'26'),nextJobSequence(0,jobs,'26'),'deleting non-trailing jobs leaves the highest active sequence unchanged');
 });
 
 test('restoration brings back the identical record and logs who did what and when',()=>{

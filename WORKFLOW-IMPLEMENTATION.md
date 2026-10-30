@@ -229,3 +229,7 @@ Defects found and fixed:
 The empty-looking "Samples: 2" area seen in earlier full-page screenshots is not a defect: it holds the "Source preparation and logistics" note above the sticky tracking bar.
 
 The review walkthrough used browser-local settings (teams, QC, receipt) set through the Settings interface in a disposable browser profile. Nothing was written to repository defaults, and the demo's fictional configuration was not saved.
+
+
+## Active-job numbering correction
+The next annual sequence is the highest non-Trash job sequence plus one; an empty active year starts at 001. The old cached counter does not prevent reuse. Existing jobs are not renumbered. Reused display numbers receive distinct internal record keys, preserving old Trash records, shared-link identities and deep links. Restore refuses an active display-number collision without modifying records. Job creation displays its number in the top page header instead of the second form section.
