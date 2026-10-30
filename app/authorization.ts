@@ -15,6 +15,8 @@ export const permissionLabels = {
 };
 export type Permission = keyof typeof permissionLabels;
 export type Authorization = Record<Permission, string[]>;
+/** Follow the saved setting for every employee: the administrator's automatic access does not cover them. */
+export const explicitPermissions: Permission[] = ['createJob', 'deleteJobs'];
 /**
  * There is no shared Driver permission profile; permissions are per employee. Drivers added later
  * receive only job details, and driver actions are authorized by the job's driver assignment.
@@ -41,8 +43,8 @@ export function readAuthorization(raw: string | null, ids: string[]): Authorizat
   return Object.fromEntries(Object.keys(permissionLabels).map(key => [key, [...new Set(value[key])]])) as Authorization;
 }
 export function allowed(policy: Authorization, id: string | undefined, permission: Permission): boolean {
-  // The administrator retains access to the project, but job creation is explicitly assigned.
-  return !!id && ((id === administratorId && permission !== 'createJob') || policy[permission].includes(id));
+  // The administrator retains access to the project; job creation and deletion are explicitly assigned.
+  return !!id && ((id === administratorId && !explicitPermissions.includes(permission)) || policy[permission].includes(id));
 }
 
 /** Workflow duties, assigned to employee IDs. A duty never grants a permission; both must pass. */

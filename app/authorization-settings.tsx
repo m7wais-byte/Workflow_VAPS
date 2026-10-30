@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { scopeTestGroups } from './lab-work';
 import { testSections, type TestRouting, type TestSection } from './test-routing';
 import type { LabTeams } from './lab-teams';
-import { administratorId, permissionLabels, responsibilityLabels, responsibilityPermission, invalidResponsibilities, driverOnlyIds, type Authorization, type Permission, type Responsibilities, type Responsibility } from './authorization';
+import { administratorId, explicitPermissions, permissionLabels, responsibilityLabels, responsibilityPermission, invalidResponsibilities, driverOnlyIds, type Authorization, type Permission, type Responsibilities, type Responsibility } from './authorization';
 
 const roleNotes: Partial<Record<Responsibility, string>> = {
   pvtSupervisor: 'Supervisory overview of PVT work. Test assignment and workbook review stay with the PVT Team Lead.',
@@ -98,7 +98,7 @@ export function AuthorizationSettings({ policy, employees, onSave, error, depart
     <p>Managed by Mohammed Al Awaisi. Administrator access is retained for all pages. Creating jobs is assigned separately.</p>
     <div className="settings-filters"><label>Search employees<input value={search} onChange={e=>setSearch(e.target.value)} /></label><label>Department<select value={department} onChange={e=>setDepartment(e.target.value)}><option value="">All departments</option>{departments.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></label></div><p>Access permissions open the named workspace. Management permissions allow saving that category. Existing workflow ownership rules still apply. Inactive employees retain their assignments but cannot use their permissions.</p><div className="authorization-table-wrap"><table className="client-table"><thead><tr><th>Person</th>{Object.values(permissionLabels).map(label => <th key={label}>{label}</th>)}</tr></thead>
       <tbody>{employees.filter(p=>p.name.toLowerCase().includes(search.toLowerCase()) && (!department||p.departmentId===department)).map(person => <tr key={person.id}><th scope="row">{person.name}{!person.active && " (Inactive)"}<small>{person.id === administratorId ? 'Project administrator' : person.role}</small></th>{(Object.keys(permissionLabels) as Permission[]).map(permission => {
-        const fixed = person.id === administratorId && permission !== 'createJob';
+        const fixed = person.id === administratorId && !explicitPermissions.includes(permission);
         return <td key={permission}><input type="checkbox" aria-label={`${person.name}: ${permissionLabels[permission]}`} checked={fixed || draft[permission].includes(person.id)} disabled={fixed || !!error || !person.active} onChange={event => {
           const checked = event.target.checked;
           setSaved(false);

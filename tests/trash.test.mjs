@@ -10,6 +10,7 @@ const {defaultAuthorization,defaultResponsibilities,readAuthorization,allowed}=a
 const {initialDirectory}=await bundle('app/employee-directory.ts');
 const {addDays}=await bundle('app/local-date.ts');
 const {nextJobSequence}=await bundle('app/job-numbering.ts');
+const {getShare,pauseShare,resumeShare}=await bundle('app/job-sharing.ts');
 
 const employees=initialDirectory().employees,ids=employees.map(e=>e.id),policy=defaultAuthorization(ids),roles=inboxRoles(defaultResponsibilities),today='2026-10-29';
 const jobs=buildInboxJobs({applyOperation,employees,policy,roles,today,addDays});
@@ -70,4 +71,44 @@ test('drafts in Trash stay limited to people who may see the draft',()=>{
  const granted={...policy,deleteJobs:['MA001','NASSER']};
  assert.throws(()=>trashJob(draft,actor('NASSER',granted),at),/permission/,'a draft the employee cannot see cannot be deleted by them');
  assert.equal(trashJob(draft,actor('MA001'),at).trash.deletedBy,'MA001');
+});
+
+test('Delete and restore jobs follows the saved setting for the administrator too',()=>{
+ assert.equal(allowed(policy,'MA001','deleteJobs'),true,'enabled for MA001 by default');
+ const removed=readAuthorization(JSON.stringify({...policy,deleteJobs:[]}),ids);
+ assert.equal(allowed(removed,'MA001','deleteJobs'),false,'an explicit saved removal is not overridden');
+ assert.throws(()=>trashJob(find(105),actor('MA001',removed),at),/permission to delete/);
+ assert.throws(()=>restoreJob(trashJob(find(105),actor('MA001'),at),actor('MA001',removed),later),/permission to restore/);
+ assert.equal(allowed(removed,'MA001','settings'),true,'other administrator permissions stay automatic');
+ assert.equal(allowed(removed,'MA001','companyOverview'),true);
+});
+
+test('restoring reactivates a shared link only if it was active before deletion',async()=>{
+ const calls=[];globalThis.fetch=async(url,init)=>{calls.push([init.method,url,JSON.parse(init.body||'null')?.revision]);return new Response(JSON.stringify(init.method==='PUT'?{revision:1}:{stopped:true}),{status:200});};
+ const links=k=>JSON.parse(localStorage.getItem('vaps-job-summary-links-v1')||'{}')[k];
+ const put=(jobId,record)=>{const all=JSON.parse(localStorage.getItem('vaps-job-summary-links-v1')||'{}');all[jobId]=record;localStorage.setItem('vaps-job-summary-links-v1',JSON.stringify(all));};
+ const active=find(113),inactive=find(114),none=find(115);
+ const id='11111111-1111-4111-8111-111111111111',key='a'.repeat(64);
+ put(active.id,{id,key,revision:3,audience:'link',enabled:true,fingerprint:'x'});
+ put(inactive.id,{id:'22222222-2222-4222-8222-222222222222',key:'b'.repeat(64),revision:0,audience:'signed-in',enabled:false});
+ // Delete: only the active link is withdrawn, keeping its address.
+ for(const job of [active,inactive,none])await pauseShare(job.id);
+ assert.deepEqual(calls,[['DELETE','/api/job-summary/'+id,undefined]]);
+ assert.deepEqual({...links(active.id),fingerprint:links(active.id).fingerprint},{id,key,revision:0,audience:'link',enabled:false,fingerprint:undefined,paused:true});
+ assert.equal(links(inactive.id).paused,undefined);assert.equal(links(none.id),undefined);
+ // Restore: only the paused link is republished, to the same id and key.
+ calls.length=0;
+ for(const job of [active,inactive,none])await resumeShare(job);
+ assert.deepEqual(calls,[['PUT','/api/job-summary/'+id,0]]);
+ assert.equal(getShare(active.id).enabled,true);assert.equal(getShare(active.id).id,id);assert.equal(getShare(active.id).key,key);assert.equal(getShare(active.id).paused,false);
+ assert.equal(getShare(inactive.id).enabled,false,'a previously inactive link stays inactive');assert.equal(getShare(none.id),undefined,'no link is created');
+ // Restoring again does not republish.
+ calls.length=0;await resumeShare(active);assert.equal(calls.length,0);
+});
+
+test('a link that cannot be paused keeps the job out of Trash (pause error surfaces)',async()=>{
+ globalThis.fetch=async()=>new Response('{}',{status:503});
+ const all=JSON.parse(localStorage.getItem('vaps-job-summary-links-v1')||'{}');all[find(117).id]={id:'33333333-3333-4333-8333-333333333333',key:'c'.repeat(64),revision:2,audience:'link',enabled:true};localStorage.setItem('vaps-job-summary-links-v1',JSON.stringify(all));
+ await assert.rejects(()=>pauseShare(find(117).id),/could not be paused/);
+ assert.equal(getShare(find(117).id).enabled,true,'the link stays active');
 });
