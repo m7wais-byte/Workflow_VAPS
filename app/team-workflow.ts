@@ -18,6 +18,8 @@ export const route=(job:JobRecord)=>job.samplingRequired===false?['transport','a
 export const activeTeam=(job:JobRecord)=>route(job).find(t=>!job.teamWork?.[t]?.completedAt);
 export const canWork=(job:JobRecord,team:string,id?:string)=>activeTeam(job)===team && !!id && job.teamWork?.[team]?.owner===id;
 export function handoff(job:JobRecord,team:string,id:string,action:string,at:string):JobRecord {
+ // Retired team-handoff model: it must never change a job that uses the current workflow (it would overwrite the assigned engineer or driver).
+ if(job.operations) throw Error('This job uses the current workflow. Team handoffs are retired; use the job workspace.');
  if(activeTeam(job)!==team || !eligibleForTeam(id,team)) throw Error('This handoff is not available to you.');
  const old=job.teamWork?.[team]||{};
  if(action==='accept'&&old.owner) throw Error('A team member already accepted ownership.');

@@ -25,7 +25,7 @@ test("server-renders the VAPS workspace shell", async () => {
 test("navigation keeps Sampling Reports inside Sampling", async () => {
   const { readFile } = await import("node:fs/promises");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /const navItems = \["Dashboard", "Jobs", "Sampling", "PVT Lab", "Inventory", "Settings"\]/);
+  assert.match(page, /const navItems = \["My work", "Jobs", "Sampling", "Laboratory", "Inventory", "Settings"\]/);
   assert.match(page, /role="tab"[^>]*>[^]*?Sampling Reports/);
 });
 

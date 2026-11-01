@@ -2,7 +2,7 @@ import type { JobRecord } from './page';
 import { defaultResponsibilities, explicitPermissions, roleHolder, storedResponsibilities, responsibilityLabels, type Authorization, type Permission, type Responsibilities, type Responsibility } from './authorization';
 import type { Employee } from './employee-directory';
 import { containerId, containerLabel, isGlass, type ContainerType } from './sample-container';
-import { scopeTestOptions, isValidationTest } from './lab-work';
+import { scopeTestOptions, isValidationTest, validationStepNames } from './lab-work';
 import type { TestRouting } from './test-routing';
 import { preparationDone } from './sampling-validation';
 import type { LabTeams } from './lab-teams';
@@ -32,7 +32,7 @@ export const clarificationItems = [
  ['lab-entry','Laboratory entry dependency','Confirm whether laboratory execution may start before approved sampling reports or physical receipt. These milestones are displayed separately; no new automatic execution gate is inferred.'],
  ['validation-rules','Validation applicability','Confirm which steps are mandatory and whether individual steps may be omitted. The supplied sequence is generated per sample; no automatic omission rule is applied.'],
  ['validation-source','Other sampling types','Validation sequences are supplied for Bottom-hole, Wellhead and Separator only. Confirm the sequence for other sampling or transfer methods before confirming their Validation scope.'],
- ['bv','PV / historical BV terminology','New Validation sequences use PV as specified in the latest verification request. Existing BV and PV records are preserved. Confirm their technical meaning and equivalence before renaming or reconciling historical work.'],
+ ['bv','PV terminology in older records','Validation uses PV. Older records are preserved exactly as saved; confirm before reconciling any historical PV entries.'],
  ['workbook-review','Workbook review ownership','Team leads review workbooks. QC review is a separate responsibility that stays unassigned until configured in Settings; no QC identity is invented.'],
  ['final-review','Final preparation / review overlap','Ahmed prepares and reviews the final report; Wilfred approves. Confirm whether an independent reviewer is additionally required.'],
  ['scope-additions','Scope addition authority','Confirm who may authorize additional work. Requests are recorded and the scope selector explicitly confirms lab scope; planning remains with the PVT and Chemical Team Leads.'],
@@ -88,6 +88,10 @@ export function legacyDispatch(job:JobRecord):boolean { const o=operationsFor(jo
 export function allWorkDone(job:JobRecord):boolean {const o=operationsFor(job);return !!o.scopeConfirmedAt && o.activities.filter(a=>a.required).every(a=>a.status==='Completed'&&a.files.some(f=>f.status==='Available')) && !o.additions.some(a=>!a.confirmedAt);}
 export function finalReady(job:JobRecord):boolean {const o=operationsFor(job);const required=[...new Set(o.scope.flatMap(s=>s.sampleIds))];return allWorkDone(job)&&samplingApproved(job)&&!!o.handover?.receivedAt&&required.every(id=>o.handover!.sampleIds.includes(id));}
 export function operationComplete(job:JobRecord):boolean {return finalReady(job)&&latest(operationsFor(job).finalReports)?.status==='Approved';}
+/** A job that had an approved final report and now has further work open (e.g. Validation added later). Earlier versions stay unchanged. */
+export function additionalWorkPending(job:JobRecord):boolean {return operationsFor(job).finalReports.some(r=>r.status==='Approved'&&!!r.approvedAt)&&!operationComplete(job);}
+/** The full Validation catalogue in its logical order (guidance only). */
+export const validationCatalogue=[...validationStepNames];
 export type Actor = { id:string; employees:Employee[]; policy:Authorization; roles?:Responsibilities; /** Current test routing; null when the saved settings cannot be read. */routing?:TestRouting|null; /** Laboratory team lists; null when the saved settings cannot be read. */teams?:LabTeams|null };
 /** The valid holder of a duty for this actor's settings ('' when unassigned or invalid). */
 export const holder=(actor:Actor,key:Responsibility)=>roleHolder(actor.roles||defaultResponsibilities,key,actor.employees);
@@ -156,6 +160,8 @@ export type Command =
  | {type:'lab-scope';action:'save'|'release';samples:Omit<SampleScope,'containerType'|'containerLabel'>[];conditions:Operations['conditions'];reason:string}
  | {type:'scope';items:{title:string;sampleIds:string[];stream:Stream}[];conditions:Operations['conditions'];reason:string;additionId?:string}
  | {type:'request-addition';title:string;reason:string}
+ /** Adds Validation to any job with sample records, from the full catalogue, as additional tracked work. Steps are guidance only: none blocks another. */
+ | {type:'add-validation';sampleIds:string[];steps:string[];reason:string}
  | {type:'schedule';id:string;owner:string;start:string;due:string;conditions:string;notes:string}
  | {type:'progress';id:string;status:WorkState;notes:string}
  | {type:'workbook';id:string;notes?:string;file:Omit<FileVersion,'version'|'submittedBy'|'submittedAt'|'status'|'comments'>}
@@ -257,7 +263,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
  case 'lab-scope':{
   requireRole(actor,'analysis','scopeSelector');
   if(!samplingApproved(job))throw Error('The laboratory scope is selected after the sampling report is approved.');
-  if(o.scope.some(s=>!s.id.startsWith('labscope:'))&&!o.labScopes?.length)throw Error('This job’s scope was confirmed in the earlier workflow. Record further work as an additional-work request.');
+  if(o.scope.some(s=>!s.id.startsWith('labscope:')&&!s.id.startsWith('addval:'))&&!o.labScopes?.length)throw Error('This job’s scope was confirmed in the earlier workflow. Record further work as an additional-work request.');
   const versions=o.labScopes||(o.labScopes=[]);const last=versions.at(-1);const previous=[...versions].reverse().find(v=>v.status==='Released');
   const samples:SampleScope[]=command.samples.map(s=>{const sample=job.samples?.find(x=>x.id===s.sampleId);if(!sample)throw Error('Sample '+s.sampleId+' no longer exists.');return {...s,pvtTests:[...s.pvtTests],chemicalTests:[...s.chemicalTests],notes:s.notes.trim(),exclusionReason:s.exclusionReason.trim(),containerType:isGlass(sample)?'Glass container':'Bottle',containerLabel:containerLabel(sample)};});
   const version:LabScopeVersion={version:last?.status==='Draft'?last.version:versions.length+1,status:'Draft',samples,conditions:{...command.conditions},routing:{...(actor.routing||{})},reason:command.reason.trim(),preparedBy:actor.id,savedAt:now,job:{jobNumber:job.jobNumber,clientName:job.clientName,fieldArea:job.fieldArea||'',well:job.wellMode==='multiple'?(job.wells||[]).filter(Boolean).join(', '):job.well||'',samplingSource:job.samplingSource||''}};
@@ -279,6 +285,24 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
    o.conditions={...command.conditions};o.scopeConfirmedAt=o.scopeConfirmedAt||now;
   } else reason='Laboratory scope draft v'+version.version+' saved';
   if(last?.status==='Draft')versions[versions.length-1]=version;else versions.push(version);
+  break;
+ }
+ case 'add-validation':{
+  requireRole(actor,'analysis','scopeSelector');requireText(command.reason,'Reason for adding Validation');
+  if(isDraft(job))throw Error('Send the job to Sampling before adding laboratory work.');
+  if(!job.samples?.length)throw Error('This job has no sample records yet.');
+  const sampleIds=[...new Set(command.sampleIds)];if(!sampleIds.length)throw Error('Select at least one sample/container.');
+  if(sampleIds.some(id=>!job.samples!.some(s=>s.id===id)))throw Error('Select existing samples.');
+  const steps=validationStepNames.filter(step=>command.steps.includes(step));
+  if(!steps.length||steps.length!==new Set(command.steps).size)throw Error('Choose Validation activities from the catalogue.');
+  const n=o.additions.filter(a=>a.id.startsWith('addval:')).length+1,additionId='addval:'+n;reason=command.reason.trim();
+  for(const sampleId of sampleIds){
+   const scopeId=additionId+':'+sampleId;
+   o.scope.push({id:scopeId,linkId:scopeId,title:'Validation',sampleIds:[sampleId],stream:'PVT',notes:steps.join(', '),addedBy:actor.id,at:now,reason,source:'Additional work'});
+   for(const title of steps)o.activities.push({kind:'validation',id:scopeId+':validation:'+title,scopeId,linkId:scopeId,sampleId,title,stream:'PVT',owner:'',start:'',due:'',conditions:title==='Restoration'&&o.conditions.pressure?`${o.conditions.pressure} ${o.conditions.pressureUnit}; ${o.conditions.temperature} ${o.conditions.temperatureUnit}`:title==='Water Check'?'Check for water on the sample side.':'',notes:'',status:'Unassigned',files:[],required:true});
+  }
+  o.additions.push({id:additionId,title:'Validation · '+steps.join(', ')+' · Sample '+sampleIds.join(', '),reason,by:actor.id,at:now,confirmedAt:now});
+  reason='Validation added · Sample '+sampleIds.join(', ')+' · '+steps.join(', ')+' · '+reason;
   break;
  }
  case 'request-addition':requireAccess(actor,'analysis');requireText(command.title,'Requested work');requireText(command.reason,'Reason');reason=command.reason;o.additions.push({id:now+':'+o.additions.length,title:command.title.trim(),reason,by:actor.id,at:now});break;
@@ -392,7 +416,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
  }
  }
  // A scope or workbook change invalidates a pending final review, never overwrites an approved version.
- if(['scope','request-addition','workbook-return'].includes(command.type)||(command.type==='lab-scope'&&command.action==='release')){
+ if(['scope','request-addition','add-validation','workbook-return'].includes(command.type)||(command.type==='lab-scope'&&command.action==='release')){
   const r=latest(o.finalReports);if(r?.status==='Awaiting Approval'){r.status='Changes Requested';r.comments='Scope or workbook state changed. Review a new revision.';}
   if(r?.status==='Approved')o.finalReports.push({...r,version:o.finalReports.length+1,status:'Changes Requested',file:undefined,approvedAt:undefined,approvedBy:undefined,comments:'Additional work or workbook correction requires a new report revision.'});
  }
@@ -459,8 +483,8 @@ export function pendingActions(job:JobRecord, actor:Actor) {
   if(returned)actions.push({id:'laboratory',label:'Returned tests',done:false,owner:actor.id,next:'Correct and resubmit '+returned+' returned workbook(s)'});
   if(mine.length>returned)actions.push({id:'laboratory',label:'Assigned tests',done:false,owner:actor.id,next:'Complete '+(mine.length-returned)+' test(s) and submit the workbook'});
   const waiting=o.activities.filter(a=>a.status==='Awaiting QC').length;
+  // An unconfigured QC reviewer is a blocker shown in My work, not an action for team leads or the supervisor.
   if(waiting&&roles.qcReviewer===actor.id)actions.push({id:'reporting',label:'QC review',done:false,owner:actor.id,next:'QC review '+waiting+' team-lead-approved workbook(s)'});
-  if(waiting&&!roles.qcReviewer&&[roles.pvtTeamLead,roles.chemicalTeamLead,roles.pvtSupervisor].includes(actor.id))actions.push({id:'reporting',label:'QC not configured',done:false,owner:actor.id,next:waiting+' workbook(s) waiting: QC reviewer not configured in Settings → Authorization'});
  }
  return actions;
 }

@@ -75,12 +75,12 @@ test('the dashboard follows the whole journey with one next responsible person a
  for(const id of ['SALIM','MOHSIN','SHEREIQI','BAHRI','WILFRED','RANJITH','NASSER','YAQEEN','ALI'])assert.deepEqual(acts(j,id),[],id+' has nothing left');
 });
 
-test('a person with several duties sees each action once; ordering puts returned and overdue work first',()=>{
+test('a person with several duties sees each action once; ordering puts overdue work first and New only breaks ties',()=>{
  const multi={...roles,samplingApproval:'SHEREIQI',scopeSelector:'SHEREIQI',qcReviewer:'SHEREIQI'};
  let j=step(draft(),{type:'dispatch',engineer:'MOHSIN',driver:'ALI'},'SALIM');j=step(j,{type:'data-submit',note:''},'MOHSIN');
  const list=workItems([j,{...j,id:'OM-P-26-402',jobNumber:'OM-P-26-402'}],actor('SHEREIQI',{roles:multi}),today).actions;
  assert.equal(new Set(list.map(i=>i.key)).size,list.length,'no duplicate cards');assert.deepEqual(list.map(i=>i.action),['Review sampling data','Review sampling data']);
  const sorted=sortItems([{key:'a',kind:'task',overdue:false,jobNumber:'1'},{key:'b',kind:'review',overdue:false,jobNumber:'2'},{key:'c',kind:'task',overdue:true,jobNumber:'3'},{key:'d',kind:'returned',overdue:false,jobNumber:'4'},{key:'e',kind:'assignment',overdue:false,jobNumber:'5'}],i=>i.key==='e');
- assert.deepEqual(sorted.map(i=>i.key),['d','c','b','e','a']);
+ assert.deepEqual(sorted.map(i=>i.key),['c','d','b','e','a'],'overdue, then returned, reviews, then New only as a tie-breaker');
  assert.deepEqual(workItems([j],actor('SHEREIQI',{policy:{...policy,sampling:policy.sampling.filter(x=>x!=='SHEREIQI')},roles:multi}),today).actions,[],'a duty without its permission gives no action');
 });
