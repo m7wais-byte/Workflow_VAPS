@@ -138,3 +138,39 @@ test('visible text uses PVT and PV terminology',()=>{
  for(const f of ['app/page.tsx','app/operations-workspace.tsx','app/dashboard.tsx','app/work-items.ts']){const text=fs.readFileSync(f,'utf8');assert.ok(!/\bBVT\b|\bBV\b|\bDVT\b/.test(text),f);}
  const model=fs.readFileSync('app/operations-model.ts','utf8').replace(/\/\*\*[^]*?\*\/|'BVT'|"BVT"/g,'');assert.ok(!/\bBV\b|\bDVT\b/.test(model));
 });
+
+test('PVT Supervisor: no workflow command requires the duty, so supervisor-only gives no action; real duties still appear',()=>{
+ const model=fs.readFileSync('app/operations-model.ts','utf8');
+ assert.ok(!/requireRole\([^)]*pvtSupervisor/.test(model)&&!/holder\(actor,'pvtSupervisor'\)/.test(model),'no review or approval is gated on the PVT Supervisor duty');
+ // Supervisor-only (final approval held by someone else): nothing actionable is hidden from them.
+ const supOnly={roles:{...roles,pvtSupervisor:'WILFRED',finalApproval:'SALIM'}};
+ let j=released();for(const a of acts(j))j=assign(j,a,a.stream==='PVT'?'NASSER':'YAQEEN');
+ j=step(j,{type:'workbook',id:acts(j)[0].id,file:file('w')},'NASSER');
+ assert.equal(view([j],'WILFRED',supOnly).actions.length,0);assert.ok(view([j],'SHEREIQI',supOnly).actions.some(i=>/^Review workbook/.test(i.action)),'team-lead review stays with the team lead');
+ assert.throws(()=>step(j,{type:'lead-review',id:acts(j)[0].id,decision:'approve',target:'',comments:''},'WILFRED',supOnly),/not assigned|Team Lead/,'the supervisor cannot take over team-lead review');
+ // With the default final-approval duty, Wilfred's approval appears as soon as it is actionable.
+ for(const a of acts(j).slice(1))j=step(j,{type:'workbook',id:a.id,file:file(a.id)},a.owner);
+ for(const a of acts(j)){j=step(j,{type:'lead-review',id:a.id,decision:'approve',target:'',comments:''},a.stream==='PVT'?'SHEREIQI':'BAHRI');j=step(j,{type:'qc-review',id:a.id,decision:'approve',target:'',comments:''},'AHAD');}
+ j=step(j,{type:'report-draft',kind:'final',text:'Final',checker:'SHEREIQI',file:{...file('final'),version:1,submittedBy:'SHEREIQI',submittedAt:at(),status:'Available',comments:''}},'SHEREIQI');
+ assert.equal(view([j],'WILFRED').actions.length,0,'no approve button before submission');
+ j=step(j,{type:'report-action',kind:'final',action:'submit',comments:''},'SHEREIQI');
+ assert.deepEqual(view([j],'WILFRED').actions.map(i=>i.action),['Approve final laboratory report v1']);
+});
+
+test('unassigned scope never disappears: ageing or reading the alert leaves the planner action in My work',()=>{
+ const j=released();const later='2026-12-31';
+ const w=workItems([j],actor('SHEREIQI'),later);
+ assert.equal(w.alerts.filter(a=>a.kind==='scope').length,1,'alert still shown two months later while work is unassigned');
+ assert.ok(w.actions.some(i=>i.key.startsWith('assign:')&&i.action==='Assign 2 PVT test(s)'),'the assignment task is in Do now regardless of alerts');
+ const seen=new Set(w.alerts.flatMap(a=>a.keys));
+ const rows=inboxRows(w,[j],actor('SHEREIQI'),later,{isNew:i=>!i.events.every(k=>seen.has(k)),isClosed:()=>false,stage:()=>''});
+ assert.equal(rows[0].state,'action','reading the alert does not change the work');
+ // Empty team: the assignment is shown as blocked, not removed.
+ const emptyTeam={teams:{PVT:[],Chemical:['YAQEEN']}};
+ const b=inboxRows(workItems([j],actor('SHEREIQI',emptyTeam),later),[j],actor('SHEREIQI',emptyTeam),later,{isNew:()=>false,isClosed:()=>false,stage:()=>''});
+ assert.ok(b[0].blockedActions.some(i=>i.key.startsWith('assign:')));
+ // Once everything is assigned, the alert ages out after two days; the assigned work stays with the employees.
+ let k=j;for(const a of acts(k))k=assign(k,a,a.stream==='PVT'?'NASSER':'YAQEEN');
+ assert.equal(workItems([k],actor('SHEREIQI'),later).alerts.filter(a=>a.kind==='scope').length,0);
+ assert.equal(workItems([k],actor('SHEREIQI'),today).alerts.filter(a=>a.kind==='scope').length,1,'shown for two days after release even when fully assigned');
+});
