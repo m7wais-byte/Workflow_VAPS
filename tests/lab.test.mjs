@@ -84,7 +84,7 @@ test('QC needs team-lead approval and a valid reviewer, records the exact versio
  assert.throws(()=>step(j,{type:'qc-review',id:a0.id,decision:'approve',target:'',comments:''},'RANJITH',{policy:{...policy,analysis:policy.analysis.filter(id=>id!=='RANJITH')}}),/not assigned/,'QC holder without lab permission cannot approve');
  assert.throws(()=>step(j,{type:'qc-review',id:a0.id,decision:'approve',target:'',comments:''},'SHEREIQI'),/not assigned/,'a team lead cannot QC approve');
  assert.ok(pendingActions(j,actor('RANJITH')).some(p=>p.label==='QC review'));
- assert.ok(pendingActions(j,actor('SHEREIQI',{roles:{...roles,qcReviewer:''}})).some(p=>p.label==='QC not configured'));
+ assert.ok(!pendingActions(j,actor('SHEREIQI',{roles:{...roles,qcReviewer:''}})).some(p=>p.label==='QC not configured'),'a missing QC reviewer is a blocker shown in My work, not a team-lead action');
  const back=step(j,{type:'qc-review',id:a0.id,decision:'return',target:'Sheet Results',comments:'Units for density are missing in the summary.'},'RANJITH');
  let a=act(back,'1.01','PVT');assert.equal(a.status,'QC Returned');assert.equal(labStatus(a),'Under team-lead review');assert.ok(pendingActions(back,actor('SHEREIQI')).some(p=>p.label==='PVT QC returns'));
  assert.throws(()=>approve(back,a,'SHEREIQI'),/Return it to the employee/);

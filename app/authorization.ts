@@ -47,6 +47,14 @@ export function allowed(policy: Authorization, id: string | undefined, permissio
   return !!id && ((id === administratorId && !explicitPermissions.includes(permission)) || policy[permission].includes(id));
 }
 
+/** While the labelled demo setup is on, its duties replace the saved ones for the duties it lists. Settings are not changed. */
+export function withDemoRoles(saved: Responsibilities): Responsibilities {
+  // Read directly (same key and shape as demo-setup.ts) so this module stays free of imports.
+  let demo: { enabled?: boolean; roles?: Record<string, string> } | null = null;
+  try { demo = typeof window !== 'undefined' && window.localStorage ? JSON.parse(window.localStorage.getItem('vaps-demo-setup-v1') || 'null') : null; } catch { demo = null; }
+  if (!demo?.enabled || !demo.roles || typeof demo.roles !== 'object') return saved;
+  return Object.fromEntries((Object.keys(responsibilityLabels) as Responsibility[]).map(key => [key, typeof demo!.roles![key] === 'string' ? demo!.roles![key] : saved[key]])) as Responsibilities;
+}
 /** Workflow duties, assigned to employee IDs. A duty never grants a permission; both must pass. */
 export const responsibilityLabels = {
   scopeSelector: 'Scope selection',
@@ -97,5 +105,7 @@ export function migrateDriverAccess(policy: Authorization, ids: string[]): Autho
 /** Saved duties for views without an actor. Unreadable settings block every duty instead of restoring defaults. */
 export function storedResponsibilities(): Responsibilities {
   if (typeof window === 'undefined' || !window.localStorage) return { ...defaultResponsibilities };
-  try { return readResponsibilities(window.localStorage.getItem(responsibilitiesKey)); } catch { return { ...unassignedResponsibilities }; }
+  let saved: Responsibilities;
+  try { saved = readResponsibilities(window.localStorage.getItem(responsibilitiesKey)); } catch { saved = { ...unassignedResponsibilities }; }
+  return withDemoRoles(saved);
 }

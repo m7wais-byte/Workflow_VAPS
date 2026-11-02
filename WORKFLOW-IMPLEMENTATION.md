@@ -6,7 +6,7 @@ Settings has five dedicated, addressable categories: Company, Clients, Employees
 
 The job workspace now separates overview, scope, sampling, sampling reports, physical handover, laboratory work, final reporting, and history. Initial requests remain recorded; additional scope has a reason and history. Validation is generated per sample using the supplied Bottomhole, Wellhead, and Separator sequences. Reservoir values must be entered rather than fabricated.
 
-BVT and Chemical work can run in parallel. Weekly views support multi-day and cross-week assignments, individual dashboards, workbooks, corrections, and completed-work filtering. Sampling reports have named checking and approval stages with version snapshots. Physical dispatch and receipt are separate records. Final reports collect completed work, require an attached document, and retain earlier approved versions when additional work reopens a job.
+PVT and Chemical work can run in parallel. Weekly views support multi-day and cross-week assignments, individual dashboards, workbooks, corrections, and completed-work filtering. Sampling reports have named checking and approval stages with version snapshots. Physical dispatch and receipt are separate records. Final reports collect completed work, require an attached document, and retain earlier approved versions when additional work reopens a job.
 
 ## Responsibilities
 
@@ -20,7 +20,7 @@ Duties are assigned to employee IDs in Settings → Authorization → Responsibi
 - Drivers: Ali (ALI) and Humaid Al Habsi (HUMAID). There is no shared Driver permission profile; Humaid has job details access only, and handover actions follow the job's driver assignment.
 - Assigned active employees: execution and workbook submission, subject to existing area permissions.
 
-The laboratory stream formerly stored as "BVT" is read as "PVT". Samples are held in a bottle (inventory type + serial) or a glass container (`containerType`, `containerId`).
+Older records that stored the laboratory stream under a former label are read as "PVT" without being rewritten. Samples are held in a bottle (inventory type + serial) or a glass container (`containerType`, `containerId`).
 
 ## Data preservation and storage
 
@@ -48,7 +48,7 @@ These are explicitly displayed as Needs clarification in the application, rather
 3. Whether lab execution must wait for sampling approval and/or physical receipt.
 4. Which validation steps are mandatory and whether steps may be omitted.
 5. Validation sequences for sampling methods other than Bottomhole, Wellhead and Separator.
-6. BV meaning and its relationship to historical PV entries.
+6. PV terminology in older records and how historical PV entries are reconciled.
 7. Workbook reviewer ownership and whether independent QC is required.
 8. Whether final reporting needs an independent reviewer in addition to Ahmed and Wilfred.
 9. Authority for additional scope; currently requests are recorded and Salem confirms lab scope.
@@ -69,7 +69,7 @@ The existing workflow implementation was reviewed and retained. This pass fixed 
 - Repeated Validation requested as additional work gets distinct activity IDs, preserving every original step and workbook.
 - Re-dispatch cannot overwrite the original dispatch record. The obsolete, disabled startup reset branch was removed entirely.
 - Original scope cannot be changed through the older job editor after operations have begun; changes are directed to the reasoned additional-work process.
-- Personal queues show actionable sampling, handover and reporting milestones. Chemical planning goes to Al-Yaqzan independently of BVT planning. Report corrections follow the recorded preparer.
+- Personal queues show actionable sampling, handover and reporting milestones. Chemical planning goes to Al-Yaqzan independently of PVT planning. Report corrections follow the recorded preparer.
 - The job overview highlights the active stage, uses a horizontal eight-stage layout on wide desktops and collapses on smaller screens. Unknown ownership is displayed as unrecorded, not as completed work.
 - The reporting collection explicitly explains browser-local file retention and lack of cross-device synchronization. Scope request reasons now participate in unsaved-edit protection.
 
@@ -233,3 +233,22 @@ The review walkthrough used browser-local settings (teams, QC, receipt) set thro
 
 ## Active-job numbering correction
 The next annual sequence is the highest non-Trash job sequence plus one; an empty active year starts at 001. The old cached counter does not prevent reuse. Existing jobs are not renumbered. Reused display numbers receive distinct internal record keys, preserving old Trash records, shared-link identities and deep links. Restore refuses an active display-number collision without modifying records. Job creation displays its number in the top page header instead of the second form section.
+
+
+## Usability pass — My work, Laboratory teams, alerts and added Validation (1 November 2026)
+
+Business rules, duties, permissions, review stages, QC, report approvals, returns and version history are unchanged. Existing jobs, employee IDs, assignments, workbooks, reports and Settings are not migrated or rewritten.
+
+- **Identity bar:** full name, configured position/department, PVT or Chemical team membership and configured duties. One selector, “Demo: view as employee”, changes only whose view is shown; work is still assigned inside a job. The Profile “Team inbox” and its second “Trial identity” selector are removed, and the retired team-handoff function now refuses any job that uses the current workflow, so it can never overwrite the assigned engineer or driver.
+- **One work-item model** (`app/work-items.ts`) feeds My work, the Jobs “Needs my action” count, the Sampling queue, the Laboratory views, the weekly planning list and the navigation badges. The older `pendingActions` calculation is no longer used by the interface (it remains for existing tests; its PVT-only QC blocker no longer counts as an action for the Chemical lead or supervisor).
+- **My work:** Do now (one row per task, with area tag PVT/Chemical/Sampling/QC/…, job ID, sample/container, test, status, one primary action), plus compact Coming up, Waiting on others, Blocked and My jobs views. Rows show the task’s own deadline (“Test due”) or, where a task has none, the “Job due” date, labelled. Overdue and due-today work comes first, then returned corrections and reviews; “New” only breaks ties. Tests whose planned start is later wait in Coming up (still openable, never blocked).
+- **Coming up** lists real responsibilities that are not the employee’s turn yet: transport (driver), sampling review/approval, scope release, sample receipt, team-lead review, QC review, final report preparation and approval. None shows an approve/submit button before its prerequisites.
+- **My jobs / company-wide lists:** My jobs contains only jobs with a responsibility of the selected employee. “All jobs”, “Active”, “Completed”, the Sampling team overview and the full sampling-report register require the existing `companyOverview` permission; job links remain openable with `jobDetails` so employees keep access to their own work.
+- **Laboratory** (renamed from “PVT Lab”) has PVT and Chemical views. Each person opens on their own team (from duties, then current assignments, then team membership). Leads keep a separate queue selection per team. Inside a job, the Lab work tab opens on the viewer’s team with their assignments first, then unassigned work with a single “Assign to” control (normal schedule rules per activity, saved together), then the rest; other teams are one click away.
+- **Scope and assignment alerts** (in-app) are derived from the stored scope records and activity history, so refresh never duplicates them. New/extended PVT scope goes to the configured PVT Team Lead, Chemical scope to the configured Chemical Team Lead; a “Both” sample reaches each lead once for their own linked work. Assignment alerts go to the assignee (grouped per job and team) and link to the task. Reading an alert only hides it. If the team lead is not configured, the scope is saved as Unassigned and an administrator sees a configuration blocker.
+- **Add Validation** (Laboratory scope tab, configured scope selector): any job with sample records, at any stage and for any sampling type; choose samples/containers and activities from the full catalogue (Sample Transfer … Recombination). It creates additional, distinct PVT activities; completed work, submissions and approved report versions are kept, and a completed job shows “Additional work pending” with a new report revision required. The catalogue order is shown for guidance only; no activity blocks another.
+- **Job workspace:** job ID at the top, “Your next action” for the selected employee and “Who is acting now” listing every parallel owner per team (replacing the single “Next action by”). The stage strip matches the tabs (Sample handover added; QC opens the QC review view). Opening a task shows it first as “Your task” with sample/container, instructions, required submission, files, test deadline and a handover line (“After you submit → … reviews your workbook”); the rest of the job is collapsed below. Back returns to the view the task was opened from, with its My work tab preserved.
+- **Historical laboratory plans** are no longer in normal navigation; the administrator sees a read-only section only when pre-workflow jobs exist.
+- **Demo setup:** loading the demo stores a labelled demo configuration (duties, PVT team Nasser/Ranjith, Chemical team Yaqeen, QC Ahad, receipt Ahmed Al Shereiqi, test routing) under `vaps-demo-setup-v1`, separate from Settings, with an on/off switch in the identity bar. Six demo jobs show PVT-only, Chemical-only and Both per-sample scope, new scope alerts, Validation added to a completed job, assigned work, team-lead review, a return, QC and completed work. Demo assignments always match the demo teams.
+
+Limitations: data, alerts and read markers remain browser-local; no email is sent; physical custody/aliquot rules between PVT and Chemical are not modelled and do not block work.

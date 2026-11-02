@@ -46,13 +46,18 @@ test('Nasser sees only his own tests, with identifiers, several actions in one r
  assert.ok(!rows.some(r=>r.actions.some(i=>/scope|draft|sampling|approve|assign/i.test(i.action))));
  assert.ok(!rows.some(r=>['OM-P-26-101','OM-P-26-127'].includes(r.jobNumber)),'drafts stay with their creator');
  assert.ok(!row(rows,120),'jobs whose tests belong to others are not his');
- assert.equal(rows[0].returned,true,'returned work first');
- const multi=row(rows,116);assert.equal(multi.actions.length,3);assert.deepEqual(multi.actions.map(i=>[i.test,i.sample]),[['Black Oil — DL','1.01'],['Black Oil — DL','1.02'],['Black Oil — Sep Test','1.01']]);assert.equal(multi.overdue,true);
+ assert.equal(rows[0].overdue,true,'overdue work first; returned corrections follow overdue and due-today work');
+ const rest=rows.filter(r=>r.state==='action'&&!r.overdue&&!r.actions[0].dueToday),firstPlain=rest.findIndex(r=>r.actions[0].kind!=='returned');
+ assert.ok(firstPlain===-1||rest.slice(firstPlain).every(r=>r.actions[0].kind!=='returned'),'returned work before ordinary tasks');
+ const multi=row(rows,116);assert.deepEqual(multi.actions.map(i=>[i.test,i.sample]),[['Black Oil — DL','1.01'],['Black Oil — DL','1.02']]);assert.equal(multi.overdue,true);
+ assert.deepEqual(multi.upcoming.map(u=>[u.test,u.sample,u.after]),[['Black Oil — Sep Test','1.01','Planned start 2026-10-31']],'a test planned to start later waits in Coming up');
+ assert.equal(multi.due,multi.actions[0].due,'the row deadline belongs to its primary task');
  const mixed=row(rows,119);assert.equal(mixed.actions[0].kind,'returned');assert.equal(mixed.actions[0].sample,'1.01');assert.match(mixed.actions[0].comment,/base temperature/);assert.equal(mixed.actions[1].sample,'1.02');
  const blocked=row(rows,118);assert.equal(blocked.state,'blocked');assert.equal(blocked.waiting[0].blocked,'qcReviewer');assert.ok(blocked.blocked.some(b=>b.setting==='qcReviewer'));
  const waiting=row(rows,117);assert.equal(waiting.state,'waiting');assert.equal(waiting.waiting[0].waitingOn,'Ahmed Al Shereiqi (team lead)');assert.equal(waiting.waiting[0].test,'Black Oil — DL');
- assert.equal(row(rows,113).actions[0].comment,'Use the 700 cc transfer cylinder.');
- assert.deepEqual(count(rows),{action:11,waiting:2,all:13});
+ const later=row(rows,113);assert.equal(later.actions.length,0);assert.equal(later.upcoming[0].after,'Planned start 2026-10-30','a test planned for tomorrow is Coming up, still openable');
+ assert.equal(jobs.find(j=>j.jobNumber==='OM-P-26-113').operations.activities.find(a=>a.owner==='NASSER').notes,'Use the 700 cc transfer cylinder.');
+ assert.deepEqual(count(rows),{action:4,waiting:2,all:13},'tests planned to start later are in Coming up; the jobs stay in My jobs');
  assert.ok(rows.length>10,'more than one page');
 });
 
@@ -96,7 +101,9 @@ test('company overview has its own permission; defaults apply only when the sett
 
 test('All my jobs counts current involvement only; history and access stay with the job',()=>{
  const nums=id=>view(id).rows.map(r=>r.jobNumber.slice(-3)).sort();
- assert.deepEqual(nums('ALI'),['109','110'],'driver: from sampling approval until the samples are received');
+ assert.deepEqual(nums('ALI'),['102','103','104','105','106','107','108','109','110'],'driver: Coming up from dispatch, then actionable until the samples are received');
+ assert.deepEqual(view('ALI').w.upcoming.map(u=>u.jobNumber.slice(-3)).sort(),['102','103','104','105','106','107','108'],'transport waits in Coming up until the sampling report is approved');
+ assert.ok(view('ALI').w.actions.every(i=>!/^soon/.test(i.key)));
  assert.deepEqual(nums('MOHSIN'),['102','103','105','106','108'],'engineer: until sampling is approved');
  assert.deepEqual(nums('RANJITH'),['120'],'test owner: while the test is unfinished');
  assert.deepEqual(nums('YAQEEN'),['120']);
