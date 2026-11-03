@@ -2521,3 +2521,9 @@ main,.workspace-content,.settings-workspace .panel {min-width:0;}
 .current-step.your-next li small{letter-spacing:normal;text-transform:none;font-size:12.5px}
 .current-step.your-next>strong{display:block;margin-top:4px}
 .lab-workspace .lab-table td .inbox-tag{display:inline-block;width:auto;margin:0 6px 2px 0}
+
+/* Sampling and Analysis Report preview (the A4 document styles live in app/sampling-report.tsx). */
+.sr-preview{background:#e5e7eb;padding:16px 0 8px;overflow-x:auto;border-radius:6px;margin-top:10px}
+.final-sampling-report.sr-preview{max-width:none;width:100%}
+.sr-preview-actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:12px 0 0}
+.sr-preview-actions small{color:#5b6b73}

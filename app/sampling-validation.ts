@@ -39,9 +39,24 @@ export function reviewTargets(job: SamplingJob): { target: string; label: string
   return [{ target: 'job', label: 'Job details' }, { target: 'preparation', label: 'Preparation' }, { target: 'events', label: 'Sequence of events' },
     ...(job.samples || []).flatMap((s) => [{ target: `sample:${s.id}`, label: `Sample ${s.id}` }, { target: `sample:${s.id}:container`, label: `Sample ${s.id} · container (${containerLabel(s)})` }, { target: `sample:${s.id}:data`, label: `Sample ${s.id} · sampling data` }])];
 }
-/** Default sampling-report summary generated from the recorded job and samples. */
+const countWords = ['None', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve'];
+const count = (n: number) => countWords[n] || String(n);
+/**
+ * Default sampling-report summary, in the style of the reference report. Only recorded facts are stated:
+ * no shipping, regulation or approval claims (the preparer adds those when they apply).
+ */
 export function samplingSummary(job: SamplingJob & { clientName?: string; well?: string; jobNumber?: string }): string {
   const source = job.samplingSource || '';
-  const action = source === 'Cased Hole (Bottomhole / Downhole Sampling)' ? 'bottom-hole sampling and sample transfer activities' : `${source || 'sampling'} activities`;
-  return `VAPS was contracted by ${job.clientName || 'the client'} to perform ${action} for well ${job.well || 'not recorded'}. A total of ${job.samples?.length || 0} samples were collected or handled and recorded under job ${job.jobNumber || ''}.`;
+  const samples = job.samples || [], n = samples.length;
+  const containers = [...new Set(samples.map((s) => isGlass(s) ? 'glass container' : (s.bottle || '').trim()).filter(Boolean))].join(' / ') || 'sample containers';
+  const action = !n ? `perform ${source || 'sampling'} activities. No samples are recorded for this job`
+    : source === 'Open Hole (MPSR - Lab Transfer)' ? `transfer a total of ${count(n)} MPSR into ${count(n)} ${containers}`
+    : source === 'Open Hole (MDT Transfer)' ? `transfer a total of ${count(n)} MDT samples into ${count(n)} ${containers}`
+    : source === 'Open Hole (SPMC - Field Sampling)' ? `perform open hole field sampling (SPMC) and collect a total of ${count(n)} samples`
+    : source === 'Cased Hole (Bottomhole / Downhole Sampling)' ? `perform cased hole bottomhole sampling and collect a total of ${count(n)} samples`
+    : ['Wellhead Sampling', 'Separator Sampling', 'Station Sampling'].includes(source) ? `perform ${source.toLowerCase()} and collect a total of ${count(n)} samples`
+    : `perform sampling and collect a total of ${count(n)} samples`;
+  const paragraphs = [`Vision Advanced Petroleum Solutions was contracted by ${job.clientName || 'the client'} to ${action}.`];
+  if (n) paragraphs.push(`All of the samples were collected from the well ${job.well || 'not recorded'}.`);
+  return paragraphs.join('\n\n');
 }
