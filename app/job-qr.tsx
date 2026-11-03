@@ -3,7 +3,13 @@ import { useEffect, useState } from "react";
 import qrcode from "qrcode-generator";
 import type { JobRecord } from "./page";
 import { getShare, stopShare, syncShare, type ShareRecord } from "./job-sharing";
+import { staticPages, sharingUnavailableMessage } from "./deployment";
+/** GitHub Pages has no server or database, so it shows why sharing is off instead of controls that cannot work. */
 export function JobQR({ job }: { job: JobRecord }) {
+ if (staticPages) return <section className="panel job-qr job-qr-unavailable" aria-labelledby={"share-off-" + job.id}><div><h2 id={"share-off-" + job.id}>Job QR code</h2><p role="note">{sharingUnavailableMessage}</p></div></section>;
+ return <LiveJobQR job={job} />;
+}
+function LiveJobQR({ job }: { job: JobRecord }) {
  const [share, setShare] = useState<ShareRecord>(); const [audience, setAudience] = useState<"" | ShareRecord["audience"]>(""); const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [message, setMessage] = useState(""); const [url, setUrl] = useState("");
  // Sharing settings live in this browser's storage, so they can only be read after mount.
  // eslint-disable-next-line react-hooks/set-state-in-effect
