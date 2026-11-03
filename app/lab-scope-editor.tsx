@@ -126,7 +126,7 @@ function SampleScopeCard({ job, actor, entry, released, open, onToggle, update }
     {open && <div className="scope-sample-body">
       {!entry.excluded && <>
         <div className="scope-step"><span className="step-label">1 · Fluid type</span>
-          <Segmented label={'Fluid type for sample ' + entry.sampleId} value={entry.fluidType} options={fluidTypes} onChange={(v: FluidType) => update({ fluidType: v })} />
+          <Segmented label={'Fluid type for sample ' + entry.sampleId} value={entry.fluidType} options={fluidTypes} render={(v) => v === 'Other' ? 'Add Other' : v} onChange={(v: FluidType) => update({ fluidType: v })} />
           {!entry.fluidType && (ids.length > 0 || validation) && <p className="flag-note">Fluid type not recorded for this older scope. Select it before release; the existing selections are kept.</p>}
           {entry.fluidType === 'Other' && <div className="settings-form-grid scope-other-fluid"><label>Fluid / sample description *<input value={entry.fluidDescription || ''} onChange={(e) => update({ fluidDescription: e.target.value })} placeholder="e.g. Volatile oil, emulsion, produced water" /></label><label>Fluid notes<textarea value={entry.fluidNotes || ''} onChange={(e) => update({ fluidNotes: e.target.value })} /></label></div>}
         </div>

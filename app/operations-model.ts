@@ -37,7 +37,7 @@ export type LabScopeVersion = { version:number; status:'Draft'|'Released'; sampl
 export type ReviewComment = { target:string; label:string; text:string };
 /** One submission of sampling data and its review. Data approval is separate from sampling-report approval. */
 export type DataReview = { version:number; status:'Submitted'|'Returned'|'Approved'|'Reopened'; submittedBy:string; submittedAt:string; snapshot:string; note:string; reviewedBy?:string; reviewedAt?:string; general?:string; comments:ReviewComment[]; reopenedBy?:string; reopenedAt?:string; reason?:string };
-export type Operations = { version:1; labScopes?:LabScopeVersion[]; samplingData?:DataReview[]; revision:number; originalRequest:string[]; scope:ScopeRecord[]; activities:ActivityRecord[]; conditions:{pressure:string;pressureUnit:string;temperature:string;temperatureUnit:string;notes:string}; scopeConfirmedAt?:string; dispatchedAt?:string; dispatchedBy?:string; samplingReports:ReportVersion[]; finalReports:ReportVersion[]; handover?:{sampleIds:string[];/** Container identifier per sample (bottle serial or glass-container ID). */bottles:Record<string,string>;containerTypes?:Record<string,ContainerType>;sentBy:string;sentAt:string;receivedBy?:string;receivedAt?:string;notes:string}; additions:{id:string;title:string;reason:string;by:string;at:string;confirmedAt?:string}[]; history:{at:string;by:string;action:string;reason:string}[] };
+export type Operations = { version:1; labScopes?:LabScopeVersion[]; samplingData?:DataReview[]; revision:number; originalRequest:string[]; scope:ScopeRecord[]; activities:ActivityRecord[]; conditions:{pressure:string;pressureUnit:string;temperature:string;temperatureUnit:string;notes:string}; scopeConfirmedAt?:string; dispatchedAt?:string; dispatchedBy?:string; samplingReports:ReportVersion[]; finalReports:ReportVersion[]; handover?:{sampleIds:string[];/** Container identifier per sample (bottle serial or glass-container ID). */bottles:Record<string,string>;containerTypes?:Record<string,ContainerType>;sentBy:string;sentAt:string;receivedBy?:string;receivedAt?:string;notes:string}; additions:{id:string;title:string;reason:string;by:string;at:string;confirmedAt?:string;destination?:Destination}[]; history:{at:string;by:string;action:string;reason:string}[] };
 export const clarificationItems = [
  ['initial-scope','Initial scope owner','Confirm who selects and signs off the initial request before sampling. Existing job-creation permissions remain in use.'],
  ['sampling-review','Sampling preparer and checker','Confirm eligibility and independence rules. A named active preparer and checker are required; the checker forwards the reviewed version to the sampling approver.'],
@@ -168,7 +168,7 @@ export function labScopeProblems(job:JobRecord,samples:Omit<SampleScope,'contain
  for(const s of samples){
   const label='Sample '+s.sampleId;const tests=[...s.pvtTests,...s.chemicalTests];const custom=s.customTests||[];const validation=entryValidation(s);
   if(s.excluded){if(!s.exclusionReason.trim())problems.push(label+': give a reason for excluding it.');if(tests.length||custom.length||s.validation)problems.push(label+': an excluded sample cannot have tests.');continue;}
-  if(!s.fluidType)problems.push(label+': select the fluid type (Black Oil, Gas Condensate or Other).');
+  if(!s.fluidType)problems.push(label+': select the fluid type (Black Oil, Gas Condensate, Water, Chemical, OBM or Add Other).');
   else if(s.fluidType==='Other'&&!s.fluidDescription?.trim())problems.push(label+': describe the fluid/sample for fluid type Other.');
   if(!tests.length&&!custom.length&&!validation)problems.push(label+' has no tests. Select tests, request Validation or add a custom test, or explicitly exclude it with a reason.');
   // Validation is available for every sample: it always adds PVT responsibility (planned by the PVT Team Lead), whatever the sample's team.
@@ -215,7 +215,7 @@ export type Command =
  | {type:'data-reopen';reason:string}
  | {type:'lab-scope';action:'save'|'release';samples:Omit<SampleScope,'containerType'|'containerLabel'>[];conditions:Operations['conditions'];reason:string}
  | {type:'scope';items:{title:string;sampleIds:string[];stream:Stream}[];conditions:Operations['conditions'];reason:string;additionId?:string}
- | {type:'request-addition';title:string;reason:string}
+ | {type:'request-addition';title:string;reason:string;destination?:Destination;requests?:{title:string;reason:string;destination:Destination}[]}
  /** Adds Validation to any job with sample records, from the full catalogue, as additional tracked work. Steps are guidance only: none blocks another. */
  | {type:'add-validation';sampleIds:string[];steps:string[];reason:string}
  /** The PVT Team Lead chooses the Validation steps for one requested sample. Existing steps are reused, never duplicated. */
@@ -264,15 +264,20 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   if(!['psi','bar','kPa','MPa'].includes(command.conditions.pressureUnit)||!['°C','°F','K'].includes(command.conditions.temperatureUnit))throw Error('Select valid pressure and temperature units.');
   for(const value of [command.conditions.pressure,command.conditions.temperature])if(value&&!Number.isFinite(Number(value)))throw Error('Conditions must be numeric when supplied.');
   const addition=command.additionId?o.additions.find(a=>a.id===command.additionId&&!a.confirmedAt):undefined;if(command.additionId&&!addition)throw Error('Additional-work request was already confirmed.');
+  if(addition?.destination){
+   const required:Stream[]=addition.destination==='Both'?['PVT','Chemical']:[addition.destination];
+   if(command.items.length!==required.length||required.some(stream=>command.items.filter(item=>item.stream===stream).length!==1))throw Error('Confirm all requested teams without changing the request destination.');
+   if(required.length===2&&JSON.stringify([...command.items[0].sampleIds].sort())!==JSON.stringify([...command.items[1].sampleIds].sort()))throw Error('Both teams must receive the same requested samples.');
+  }
   for(const item of command.items){
    requireText(item.title,'Activity');if(!item.sampleIds.length||item.sampleIds.some(id=>!job.samples?.some(s=>s.id===id)))throw Error('Select existing samples for each scope item.');
    if(!addition&&!o.originalRequest.includes(item.title))throw Error('New work must first be recorded as an additional-work request.');
    if(addition&&item.title!==addition.title)throw Error('Confirm the requested additional work without replacing its identity.');
-   const scopeId=(addition?.id||'original')+':'+item.title;
+   const scopeId=(addition?.id||'original')+':'+item.title+(addition?.destination?':'+item.stream:'');
    const existing=o.scope.find(s=>s.id===scopeId);
    if(existing&&(existing.stream!==item.stream||item.sampleIds.length!==existing.sampleIds.length||item.sampleIds.some(id=>!existing.sampleIds.includes(id))))throw Error('Use an additional-work request to change an existing confirmed scope.');
    if(existing)continue;
-   const validation=/Validation$/.test(item.title);
+   const validation=/Validation$/.test(item.title)&&item.stream==='PVT';
    const sequenceFor=(sampleId:string)=>sampleSequence(job,sampleId);
    if(validation&&item.sampleIds.some(id=>!sequenceFor(id).length))throw Error('Needs clarification: confirm the Validation sequence for this sampling type.');
    if(validation&&(!command.conditions.pressure||!command.conditions.temperature))throw Error('Record reservoir pressure and temperature for Restoration.');
@@ -457,7 +462,19 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   }
   break;
  }
- case 'request-addition':requireAccess(actor,'analysis');requireText(command.title,'Requested work');requireText(command.reason,'Reason');reason=command.reason;o.additions.push({id:now+':'+o.additions.length,title:command.title.trim(),reason,by:actor.id,at:now});break;
+ case 'request-addition':{
+  requireAccess(actor,'analysis');
+  const requests=command.requests||[{title:command.title,reason:command.reason,destination:command.destination}];
+  if(!requests.length)throw Error('Add at least one additional-work request.');
+  for(const request of requests){
+   requireText(request.title,'Requested work');requireText(request.reason,'Reason');
+   if(request.destination!==undefined&&!['PVT','Chemical','Both'].includes(request.destination))throw Error('Select PVT, Chemical or Both for each request.');
+   if(command.requests&&!request.destination)throw Error('Select a responsible team for each request.');
+  }
+  reason=requests.map(request=>request.reason.trim()).join('; ');
+  for(const request of requests)o.additions.push({id:now+':'+o.additions.length,title:request.title.trim(),reason:request.reason.trim(),destination:request.destination,by:actor.id,at:now});
+  break;
+ }
  case 'schedule':{
   const a=currentActivity();requireRole(actor,'analysis',streamLead(a.stream));active(actor,command.owner);
   if(!actor.policy.analysis.includes(command.owner)&&command.owner!=='MA001')throw Error('The employee needs laboratory access before assignment.');

@@ -187,3 +187,33 @@ test('outsourced work without a coordinator: draft allowed, team-lead task and b
  assert.ok(view([j],'YAQEEN').actions.some(i=>/Dispatch to Intertek/.test(i.action)));
  j=step(j,{type:'external-dispatch',id:w.id,sentOn:'2026-11-02',expectedReturn:'',notes:''},'YAQEEN');assert.equal(externalStage(acts(j).find(a=>a.id===w.id)),'Sent to third party · Awaiting results');
 });
+
+test('Water, Chemical and OBM are saved as fluid types and custom fluids keep their description',()=>{
+ for(const fluidType of ['Water','Chemical','OBM','Other']){
+  const j=release(approved(),[e('1.01',{fluidType,fluidDescription:fluidType==='Other'?'Custom brine':'',destination:'Chemical',chemicalTests:['Others — Water Analysis']}),e('1.02',{excluded:true,exclusionReason:'n/a'}),e('1.03',{excluded:true,exclusionReason:'n/a'})]);
+  assert.equal(operationsFor(j).labScopes.at(-1).samples[0].fluidType,fluidType);
+ }
+});
+test('multiple additional requests route independently; Both creates work for both team leads',()=>{
+ let j=approved();
+ const requests=[{title:'Extra analysis',reason:'Check water',destination:'Chemical'},{title:'Extra analysis',reason:'Check fluid',destination:'PVT'},{title:'Joint analysis',reason:'Both teams required',destination:'Both'}];
+ j=step(j,{type:'request-addition',title:'',reason:'',requests},'SALIM');
+ const additions=operationsFor(j).additions;
+ assert.equal(additions.length,3);assert.equal(new Set(additions.map(a=>a.id)).size,3);
+ assert.deepEqual(additions.map(a=>a.destination),['Chemical','PVT','Both']);
+ const confirm=(job,a,streams)=>step(job,{type:'scope',additionId:a.id,items:streams.map(stream=>({title:a.title,stream,sampleIds:['1.01']})),conditions,reason:'Confirmed client request'},'SALIM');
+ assert.throws(()=>confirm(j,additions[0],['PVT']),/requested teams/);
+ assert.throws(()=>confirm(j,additions[2],['PVT']),/requested teams/);
+ j=confirm(j,additions[0],['Chemical']);
+ assert.ok(view([j],'BAHRI').actions.some(a=>a.key.startsWith('assign:')&&a.stream==='Chemical'));
+ assert.ok(!view([j],'SHEREIQI').actions.some(a=>a.key.startsWith('assign:')));
+ j=confirm(j,additions[1],['PVT']);j=confirm(j,additions[2],['PVT','Chemical']);
+ assert.equal(acts(j).length,4);assert.equal(new Set(acts(j).map(a=>a.id)).size,4);
+ assert.deepEqual(acts(j).filter(a=>a.title==='Joint analysis').map(a=>a.stream),['PVT','Chemical']);
+ for(const [lead,stream] of [['SHEREIQI','PVT'],['BAHRI','Chemical']])assert.ok(view([j],lead).actions.some(a=>a.key.startsWith('assign:')&&a.stream===stream));
+ assert.ok(operationsFor(j).additions.every(a=>a.confirmedAt));
+ assert.throws(()=>confirm(j,additions[2],['PVT','Chemical']),/already confirmed/);
+ const before=JSON.stringify(operationsFor(j));
+ assert.throws(()=>step(j,{type:'request-addition',title:'',reason:'',requests:[requests[0],{title:'',reason:'Missing title',destination:'PVT'}]},'SALIM'),/Requested work/);
+ assert.equal(JSON.stringify(operationsFor(j)),before,'invalid batch leaves all stored work unchanged');
+});

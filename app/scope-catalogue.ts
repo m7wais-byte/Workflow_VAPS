@@ -6,8 +6,8 @@ import type { TestRouting } from './test-routing';
  * the stored identity of every selection; this module only decides which cards to show and maps a card to its IDs.
  * Validation is never a card: it is requested with the per-sample "Validation required?" control.
  */
-export type FluidType = 'Black Oil' | 'Gas Condensate' | 'Other';
-export const fluidTypes: FluidType[] = ['Black Oil', 'Gas Condensate', 'Other'];
+export type FluidType = 'Black Oil' | 'Gas Condensate' | 'Water' | 'Chemical' | 'OBM' | 'Other';
+export const fluidTypes: FluidType[] = ['Black Oil', 'Gas Condensate', 'Water', 'Chemical', 'OBM', 'Other'];
 export type TeamChoice = 'PVT' | 'Chemical' | 'Both';
 /** Catalogue group names that carry a fluid-specific method. */
 export const fluidGroup: Record<'Black Oil' | 'Gas Condensate', string> = { 'Black Oil': 'Black Oil', 'Gas Condensate': 'Gas Condensates (GC)' };
