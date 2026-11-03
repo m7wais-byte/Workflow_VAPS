@@ -85,7 +85,7 @@ test('Recombination as a Validation step is not silently duplicated with a separ
 
 test('Validation is not restricted by fluid or sampling type, needs a PVT destination, and can be added later to a completed job',()=>{
  const j0=approved();
- assert.ok(labScopeProblems(j0,[e('1.01',{fluidType:'Other',fluidDescription:'Brine',destination:'Chemical',validation:true}),e('1.02',{excluded:true,exclusionReason:'x'}),e('1.03',{excluded:true,exclusionReason:'x'})],conditions,routing,roles).some(p=>/Validation is PVT work/.test(p)));
+ 
  let j=release(j0,[e('1.01',{fluidType:'Black Oil',pvtTests:['Black Oil — DL']}),e('1.02',{fluidType:'Black Oil',excluded:true,exclusionReason:'Broken'}),e('1.03',{fluidType:'Gas Condensate',destination:'Chemical',chemicalTests:['Others — Water Analysis']})]);
  for(const a of acts(j))j=assign(j,a,a.stream==='PVT'?'NASSER':'YAQEEN');for(const a of acts(j))j=finish(j,acts(j).find(x=>x.id===a.id));
  j=step(j,{type:'report-draft',kind:'final',text:'F',checker:'SHEREIQI',file:{...file('final'),version:1,submittedBy:'SHEREIQI',submittedAt:at(),status:'Available',comments:''}},'SHEREIQI');
@@ -144,7 +144,7 @@ test('several or all tests outsourced; a third-party test needs a provider and a
  assert.ok(labScopeProblems(approved(),[{...all[0],execution:{'Black Oil — DL':{...ext,provider:''}}},...all.slice(1)],conditions,routing,roles).some(p=>/enter the provider/.test(p)));
  assert.ok(labScopeProblems(approved(),[{...all[0],execution:{'Black Oil — DL':{...ext,coordinator:'YAQEEN'}}},...all.slice(1)],conditions,routing,roles,undefined,actor('SALIM')).some(p=>/internal coordinator/.test(p)),'a Chemical member cannot coordinate PVT work');
  let j=release(approved(),all);assert.ok(acts(j).every(a=>a.external?.provider==='Intertek'&&!a.owner));
- assert.ok(view([j],'SHEREIQI').actions.some(i=>i.key.startsWith('assign:')&&i.stream==='PVT'),'the team lead assigns coordinators with the normal controls');
+ assert.ok(view([j],'SHEREIQI').actions.some(i=>i.key.startsWith('coord:')&&i.stream==='PVT'),'the team lead gets a coordinator-assignment task');
  j=assign(j,acts(j).find(a=>a.stream==='Chemical'),'YAQEEN');assert.equal(externalStage(acts(j).find(a=>a.stream==='Chemical')),'Awaiting dispatch');
 });
 
@@ -154,4 +154,36 @@ test('the Validation alert changes from "choose the steps" to planned once Ahmed
  j=step(j,{type:'validation-plan',scopeId:unplannedValidation(j)[0].id,steps:[{title:'Flash'},{title:'PV'}]},'SHEREIQI');
  const al=view([j],'SHEREIQI').alerts.find(a=>a.key===key);
  assert.equal(al.headline,'Validation steps planned');assert.equal(al.scope,'Validation: Flash, PV');assert.equal(al.button,'Assign 2');
+});
+
+test('Validation on a Chemical-only sample: no team change needed, PVT planning added, Chemical scope and assignments kept',()=>{
+ let j=release(approved(),[e('1.01',{fluidType:'Gas Condensate',destination:'Chemical',chemicalTests:['Others — Water Analysis']}),e('1.02',{excluded:true,exclusionReason:'x'}),e('1.03',{excluded:true,exclusionReason:'x'})]);
+ const water=acts(j)[0];j=assign(j,water,'YAQEEN');
+ const v1=operationsFor(j).labScopes.at(-1);const rev=v1.samples.map(x=>x.sampleId==='1.01'?{...x,validation:true}:x);
+ assert.deepEqual(labScopeProblems(j,rev,conditions,routing,roles,v1),[],'no destination change is required');
+ j=release(j,rev,'Client asked for Validation');
+ const req=unplannedValidation(j);assert.equal(req.length,1);assert.equal(req[0].stream,'PVT');assert.equal(req[0].sampleIds[0],'1.01');
+ assert.equal(operationsFor(j).labScopes.at(-1).samples[0].destination,'Chemical','the sample team is not rewritten');
+ const w=acts(j).find(a=>a.id===water.id);assert.equal(w.owner,'YAQEEN');assert.equal(w.stream,'Chemical');
+ assert.ok(view([j],'SHEREIQI').actions.some(i=>i.key.startsWith('plan-validation:')),'planning routed to the PVT Team Lead');
+ assert.ok(!view([j],'BAHRI').actions.some(i=>i.key.startsWith('plan-validation:')));
+ j=step(j,{type:'validation-plan',scopeId:req[0].id,steps:[{title:'Opening Pressure'}]},'SHEREIQI');
+ assert.equal(acts(j).find(a=>a.title==='Opening Pressure').stream,'PVT');
+});
+
+test('outsourced work without a coordinator: draft allowed, team-lead task and blocker after release, dispatch needs a coordinator, never untracked',()=>{
+ const ext={by:'Third-party',provider:'Intertek',notes:'',expectedReturn:'2026-11-20',coordinator:''};
+ const samples=[e('1.01',{fluidType:'Black Oil',destination:'Both',pvtTests:['Black Oil — DL'],chemicalTests:['Others — Water Analysis'],execution:{'Others — Water Analysis':ext}}),e('1.02',{excluded:true,exclusionReason:'x'}),e('1.03',{excluded:true,exclusionReason:'x'})];
+ let j=step(approved(),{type:'lab-scope',action:'save',reason:'',conditions,samples},'SALIM');
+ assert.equal(operationsFor(j).labScopes[0].status,'Draft','a draft keeps the coordinator unassigned');
+ j=release(j,samples);const w=acts(j).find(a=>a.external);
+ assert.equal(w.owner,'');assert.equal(externalStage(w),'Awaiting coordinator');
+ const lead=view([j],'BAHRI');const task=lead.actions.find(i=>i.key.startsWith('coord:'));
+ assert.ok(task,'the Chemical Team Lead gets an assignment task');assert.match(task.action,/Assign an internal coordinator · 1 outsourced Chemical test \(Intertek\)/);
+ assert.ok(!lead.actions.some(i=>i.key.startsWith('assign:')&&i.stream==='Chemical'),'not hidden inside the generic assignment count');
+ assert.throws(()=>step(j,{type:'external-dispatch',id:w.id,sentOn:'2026-11-02',expectedReturn:'',notes:''},'BAHRI'),/Assign an internal coordinator first/);
+ assert.ok(view([j],'MA001',{roles:{...roles,chemicalTeamLead:''}}).blocked.some(b=>b.setting==='chemicalTeamLead'),'no lead configured: an administrator blocker');
+ j=assign(j,w,'YAQEEN');assert.ok(!view([j],'BAHRI').actions.some(i=>i.key.startsWith('coord:')),'resolved once assigned');
+ assert.ok(view([j],'YAQEEN').actions.some(i=>/Dispatch to Intertek/.test(i.action)));
+ j=step(j,{type:'external-dispatch',id:w.id,sentOn:'2026-11-02',expectedReturn:'',notes:''},'YAQEEN');assert.equal(externalStage(acts(j).find(a=>a.id===w.id)),'Sent to third party · Awaiting results');
 });

@@ -138,10 +138,14 @@ export function workItems(jobs: JobRecord[], actor: Actor, today: string) {
     // Laboratory tests
     const lab = o.activities.filter((a) => a.required);
     for (const stream of ['PVT', 'Chemical'] as const) {
+      if (!roles[streamLead(stream)] && lab.some((a) => a.stream === stream && a.external && !a.owner && a.status !== 'Completed')) block(streamLead(stream) as Setting, `Outsourced ${stream} tests have no internal coordinator and no ${stream} Team Lead to assign one; dispatch is blocked.`, job);
       if (roles[streamLead(stream)] !== me || !hasAccess(actor, 'analysis')) continue;
-      const unassigned = lab.filter((a) => a.stream === stream && !a.owner && a.status !== 'Completed');
+      const open = lab.filter((a) => a.stream === stream && !a.owner && a.status !== 'Completed');
+      // Outsourced work without an accountable internal coordinator gets its own task; it cannot be dispatched until assigned.
+      const uncoordinated = open.filter((a) => a.external), unassigned = open.filter((a) => !a.external);
+      if (uncoordinated.length) add({ ...base, role: `${stream} Team Lead`, button: 'Assign coordinator', key: `coord:${job.id}:${stream}`, kind: 'task', action: `Assign an internal coordinator · ${uncoordinated.length} outsourced ${stream} test${uncoordinated.length === 1 ? '' : 's'} (${[...new Set(uncoordinated.map((a) => a.external!.provider))].join(', ')})`, stream, sample: [...new Set(uncoordinated.map((a) => a.sampleId))].join(', '), status: 'Outsourced · no coordinator · dispatch blocked', from: [...o.scope].reverse().find((s) => s.stream === stream)?.addedBy, fromLabel: 'Scope added by', events: [], open: { tab: 'laboratory?stream=' + stream } });
       if (unassigned.length) add({ ...base, role: `${stream} Team Lead`, button: 'Assign tests', key: `assign:${job.id}:${stream}`, kind: 'task', action: `Assign ${unassigned.length} ${stream} test(s)`, stream, sample: [...new Set(unassigned.map((a) => a.sampleId))].join(', '), status: 'Awaiting assignment', from: [...o.scope].reverse().find((s) => s.stream === stream)?.addedBy, fromLabel: 'Scope added by', events: [], open: { tab: 'laboratory?stream=' + stream } });
-      if (unassigned.length && !actor.teams?.[stream]?.length) block('teams', `${stream} tests cannot be assigned until the ${stream} team has members.`, job);
+      if (open.length && !actor.teams?.[stream]?.length) block('teams', `${stream} tests cannot be assigned until the ${stream} team has members.`, job);
     }
     // Validation requested per sample: the PVT Team Lead chooses the steps. It stays until planned; reading an alert never clears it.
     const toPlan = unplannedValidation(job);
@@ -279,7 +283,7 @@ export function inboxRows(work: ReturnType<typeof workItems>, jobs: JobRecord[],
     return r;
   };
   const byId = new Map(jobs.map((j) => [j.id, j]));
-  const teamEmpty = (i: WorkItem) => i.key.startsWith('assign:') && !!i.stream && !actor.teams?.[i.stream]?.length;
+  const teamEmpty = (i: WorkItem) => (i.key.startsWith('assign:') || i.key.startsWith('coord:')) && !!i.stream && !actor.teams?.[i.stream]?.length;
   for (const i of sortItems(work.actions, opts.isNew)) { const job = byId.get(i.jobId); if (job) (teamEmpty(i) ? row(job).blockedActions : row(job).actions).push(i); }
   for (const w of work.waiting) { const job = byId.get(w.jobId); if (job) row(job).waiting.push(w); }
   for (const u of work.upcoming || []) { const job = byId.get(u.jobId); if (job) row(job).upcoming.push(u); }

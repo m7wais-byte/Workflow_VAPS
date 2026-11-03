@@ -168,7 +168,7 @@ export function labScopeProblems(job:JobRecord,samples:Omit<SampleScope,'contain
   if(!s.fluidType)problems.push(label+': select the fluid type (Black Oil, Gas Condensate or Other).');
   else if(s.fluidType==='Other'&&!s.fluidDescription?.trim())problems.push(label+': describe the fluid/sample for fluid type Other.');
   if(!tests.length&&!custom.length&&!validation)problems.push(label+' has no tests. Select tests, request Validation or add a custom test, or explicitly exclude it with a reason.');
-  if(validation&&!streamsOf(s.destination).includes('PVT'))problems.push(label+': Validation is PVT work. Choose the destination PVT or PVT and Chemical.');
+  // Validation is available for every sample: it always adds PVT responsibility (planned by the PVT Team Lead), whatever the sample's team.
   for(const stream of ['PVT','Chemical'] as const){const list=testsIn(s,stream);
    if(list.length&&!streamsOf(s.destination).includes(stream))problems.push(label+': '+stream+' tests need the destination '+stream+' or PVT and Chemical.');
    if(new Set(list).size!==list.length)problems.push(label+': a test is listed twice in '+stream+'.');
