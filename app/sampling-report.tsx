@@ -1,27 +1,49 @@
 'use client';
 /* eslint-disable @next/next/no-img-element -- logos must stay plain <img> so the print/PDF copy carries them. */
 import type { ReactNode } from 'react';
-import { buildSamplingReport, unwrap, NOT_RECORDED, type Field, type ReportCompany, type ReportEvent, type ReportSample, type SamplingReportInput, type SamplingReportModel, type SampleSheet } from './sampling-report-model';
+import { buildSamplingReport, unwrap, NOT_RECORDED, type Field, type ReportCompany, type ReportEvent, type ReportLetterhead, type ReportPerson, type ReportSample, type SamplingReportInput, type SamplingReportModel, type SampleSheet } from './sampling-report-model';
 import { clientLogoSource } from './client-logo';
 
 /** Live records the report needs besides the saved job: company letterhead, client master and job titles. */
 export type ReportContext = { company: ReportCompany; clients: { code: string; name: string; shortName: string; logo?: string }[]; positionName: (employeeId?: string) => string; employeeName: (employeeId?: string) => string };
 type ReportJob = { jobNumber: string; clientCode?: string; clientName: string; fieldArea?: string; well?: string; rigInstallation?: string; dateReceived?: string; samplingSource?: string; otherSamplingType?: string };
+type ReportSnapshot = Partial<{ samples: ReportSample[]; events: ReportEvent[]; source: string; jobNumber: string; clientName: string; well: string; fieldArea: string }>;
+const findClient = (job: ReportJob, ctx: ReportContext, clientName?: string) => ctx.clients.find(c => c.code === job.clientCode) || ctx.clients.find(c => [c.shortName, c.name].includes(clientName || job.clientName));
+
 /**
- * Report input for one version. Sample, event and job identity come from the version's saved snapshot
- * (so approved versions keep their evidence); installation, job date, client branding and titles come from the live records.
+ * Captures the report details that are not part of the sample evidence (installation, job date, client name and logo,
+ * company details, and the names and job titles of the given employees) for saving with a report version.
  */
-export function samplingReportInput(job: ReportJob, ctx: ReportContext, version: { snapshot: Partial<{ samples: ReportSample[]; events: ReportEvent[]; source: string; jobNumber: string; clientName: string; well: string; fieldArea: string }>; summary: string; version?: number; status: string; approved: boolean; preparedBy?: string; preparedAt?: string; approvedBy?: string; approvedAt?: string }): SamplingReportInput {
-  const snap = version.snapshot;
-  const client = ctx.clients.find(c => c.code === job.clientCode) || ctx.clients.find(c => [c.shortName, c.name].includes(snap.clientName || job.clientName));
-  const person = (id?: string) => id ? { name: ctx.employeeName(id), title: ctx.positionName(id) } : undefined;
+export function captureLetterhead(job: ReportJob, ctx: ReportContext, employeeIds: (string | undefined)[], at: string): ReportLetterhead {
+  const client = findClient(job, ctx);
+  const people: Record<string, ReportPerson> = {};
+  for (const id of employeeIds) if (id) people[id] = { name: ctx.employeeName(id), title: ctx.positionName(id) };
+  return { capturedAt: at, installation: job.rigInstallation || '', jobDate: job.dateReceived || '', otherSamplingType: job.otherSamplingType || '',
+    client: client ? { name: client.name, shortName: client.shortName, logo: clientLogoSource(client) || undefined } : undefined,
+    company: { ...ctx.company }, people };
+}
+export const letterheadNotice = 'This version was saved before report details were recorded with each version. Installation, job date, client name and logo, company details, and names and job titles are shown from current records and may differ from the copy originally approved.';
+
+/**
+ * Report input for one version. Samples, events and job identity come from the version's saved snapshot; installation,
+ * job date, client branding, company details and people come from the version's saved letterhead. Only versions saved
+ * without a letterhead fall back to current records, and approved ones then carry a notice saying so.
+ */
+export function samplingReportInput(job: ReportJob, ctx: ReportContext, version: { snapshot: ReportSnapshot; letterhead?: ReportLetterhead; summary: string; version?: number; status: string; approved: boolean; preparedBy?: string; preparedAt?: string; approvedBy?: string; approvedAt?: string }): SamplingReportInput {
+  const snap = version.snapshot, saved = version.letterhead;
+  const live = saved ? undefined : findClient(job, ctx, snap.clientName);
+  const client = saved ? saved.client : live ? { name: live.name, shortName: live.shortName, logo: clientLogoSource(live) || undefined } : undefined;
+  let fromCurrent = !saved;
+  const person = (id?: string) => { if (!id) return undefined; const p = saved?.people[id]; if (p) return p; fromCurrent = true; return { name: ctx.employeeName(id), title: ctx.positionName(id) }; };
+  const preparedBy = person(version.preparedBy), approvedBy = version.approved ? person(version.approvedBy) : undefined;
   return {
-    jobNumber: snap.jobNumber || job.jobNumber, clientName: snap.clientName || job.clientName, clientFullName: client?.name, clientLogo: client ? clientLogoSource(client) || undefined : undefined,
-    company: ctx.company, field: snap.fieldArea ?? job.fieldArea, well: snap.well ?? job.well, installation: job.rigInstallation, jobDate: job.dateReceived,
-    source: snap.source ?? job.samplingSource, otherSamplingType: job.otherSamplingType, samples: snap.samples || [], events: snap.events || [],
+    jobNumber: snap.jobNumber || job.jobNumber, clientName: snap.clientName || job.clientName, clientFullName: client?.name, clientLogo: client?.logo,
+    company: saved ? saved.company : ctx.company, field: snap.fieldArea ?? job.fieldArea, well: snap.well ?? job.well,
+    installation: saved ? saved.installation : job.rigInstallation, jobDate: saved ? saved.jobDate : job.dateReceived,
+    source: snap.source ?? job.samplingSource, otherSamplingType: saved ? saved.otherSamplingType : job.otherSamplingType, samples: snap.samples || [], events: snap.events || [],
     summary: version.summary, version: version.version, status: version.status, approved: version.approved,
-    preparedBy: person(version.preparedBy), preparedAt: version.preparedAt,
-    approvedBy: version.approved ? person(version.approvedBy) : undefined, approvedAt: version.approved ? version.approvedAt : undefined,
+    preparedBy, preparedAt: version.preparedAt, approvedBy, approvedAt: version.approved ? version.approvedAt : undefined,
+    notice: version.approved && fromCurrent ? letterheadNotice : undefined,
   };
 }
 
@@ -35,16 +57,16 @@ export const samplingReportCss = `
 .sr-doc{--sr-blue:#3d6fd4;--sr-green:#5cb51c;--sr-ink:#111;font-family:Arial,"Liberation Sans",Helvetica,sans-serif;color:var(--sr-ink);-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .sr-doc *{box-sizing:border-box}
 .sr-doc .sr-page :is(h1,h2,p,span,b,strong,small,em,table,th,td,div,section,header,footer){font-family:inherit;color:inherit;letter-spacing:normal;text-transform:none;text-shadow:none}
-.sr-doc .sr-page :is(h1,h2,p){margin:0;max-width:none}
+.sr-doc :where(h1,h2,p){margin:0;max-width:none}
 .sr-page{position:relative;width:210mm;height:297mm;padding:16mm 20mm 0 20mm;background:#fff;overflow:hidden;margin:0 auto 8mm;box-shadow:0 1px 6px rgba(15,23,42,.25)}
-.sr-head{display:grid;grid-template-columns:15mm 47mm 19mm 1fr 40mm;align-items:end;column-gap:2mm;height:20mm;border-bottom:1.6pt solid #111;padding-bottom:1mm;font-size:7.5pt}
+.sr-doc .sr-page .sr-head{display:grid;grid-template-columns:15mm 47mm 19mm 1fr 40mm;align-items:end;column-gap:2mm;height:20mm;border-bottom:1.6pt solid #111;padding-bottom:1mm;font-size:7.5pt}
 .sr-hc{display:grid;grid-template-rows:repeat(3,4.6mm);align-items:end;min-width:0}
 .sr-hc b{font-weight:700}
 .sr-hc span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sr-head .sr-head-logo{align-self:center;height:17mm;border:0.6pt solid #555;border-radius:2.5mm;display:flex;align-items:center;justify-content:center;padding:1mm 2mm;margin-bottom:1mm}
 .sr-head .sr-head-logo img{max-height:14mm;max-width:100%;object-fit:contain}
 .sr-body{height:214mm;margin-top:3mm;overflow:hidden}
-.sr-foot{position:absolute;left:20mm;right:20mm;bottom:22mm;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);column-gap:3mm;font-size:7pt;color:#555}
+.sr-doc .sr-page .sr-foot{position:absolute;left:20mm;right:20mm;bottom:22mm;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);column-gap:3mm;font-size:7pt;color:#555}
 .sr-foot b{font-size:9pt;font-weight:400;color:#111}
 .sr-foot span:last-child{text-align:right}
 .sr-draft{position:absolute;left:0;right:0;top:44%;text-align:center;transform:rotate(-30deg);font-size:40pt;font-weight:700;letter-spacing:2mm;color:rgba(190,30,30,.10);pointer-events:none;white-space:nowrap}
@@ -71,6 +93,7 @@ export const samplingReportCss = `
 .sr-approval td span{display:block}
 .sr-approval em{color:#666;font-style:italic}
 .sr-approval{outline:1.4pt solid #111}
+.sr-notice{position:absolute;left:20mm;right:20mm;top:232mm;font-size:7pt;line-height:1.35;color:#555;font-style:italic}
 /* Index */
 .sr-index{margin:58mm 0 0 25mm;display:grid;grid-template-columns:7mm 6mm 80mm 20mm;row-gap:5mm;font-size:11pt}
 .sr-index span:nth-child(4n){text-align:right;font-size:9pt;color:#444;align-self:center}
@@ -177,6 +200,7 @@ export function SamplingReportDocument({ input }: { input: SamplingReportInput }
           <td><span>Approved By:</span>{c.approval ? <><span>{c.approval.name}</span><span>{c.approval.title}</span></> : <em>Pending approval</em>}</td>
           <td><span>Date :</span><span>{c.approval?.date || ''}</span></td>
         </tr></tbody></table>
+        {input.notice && <p className="sr-notice">{input.notice}</p>}
         <Footer m={m} n={1} />
       </section>;
       let body: ReactNode = null;

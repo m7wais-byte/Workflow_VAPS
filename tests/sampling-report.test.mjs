@@ -109,8 +109,80 @@ test('a draft never shows approval; an approved version shows its recorded appro
   const approvedHtml = renderToStaticMarkup(createElement(view.SamplingReportDocument, { input: approved }));
   assert.ok(!approvedHtml.includes('DRAFT') && approvedHtml.includes('VAPS Confidential') && (approvedHtml.match(/class="sr-page/g) || []).length === 9);
 });
-test('the default summary states only recorded facts', () => {
-  const s = validation.samplingSummary({ clientName: 'PDO', well: 'W-1', samplingSource: 'Open Hole (MPSR - Lab Transfer)', samples: input().samples });
-  assert.equal(s, 'Vision Advanced Petroleum Solutions was contracted by PDO to transfer a total of Four MPSR into Four PDS.\n\nAll of the samples were collected from the well W-1.');
-  assert.doesNotMatch(s, /IATA|shipped|approved/i);
+test('the generic Oil Rate keeps its own label; std/sep-condition rates are not assumed', () => {
+  const m = model.buildSamplingReport(input({ samples: [sample('1.01', '2026-10-07', '04:07', { oilRate: '850 bbl/d', bsw: '0.5 %' })] }));
+  const col = m.pages.find((p) => p.kind === 'sheet').sheet.production[2];
+  const rows = Object.fromEntries(col);
+  assert.equal(rows['Oil Rate:'], '850 bbl/d', 'value and units as entered');
+  assert.equal(rows['Oil Rate (std cond):'], model.NOT_RECORDED);
+  assert.equal(rows['Oil rate (sep cond):'], model.NOT_RECORDED);
+  assert.equal(rows['BSW:'], '0.5 %');
+  assert.ok(!col.some(([label]) => label === 'BSW (Choke):'), 'no sampling-point basis is claimed for BSW');
+});
+test('the default summary is built only from recorded information and adapts to the sampling type', () => {
+  const s = (job) => validation.samplingSummary({ clientName: 'PDO', well: 'W-1', ...job });
+  assert.equal(s({ samplingSource: 'Open Hole (MPSR - Lab Transfer)', samples: input().samples }),
+    'Vision Advanced Petroleum Solutions was contracted by PDO for open hole sample transfer from MPSR (laboratory transfer).\n\nA total of Four samples were recorded in Four PDS.\n\nAll of the samples are recorded for the well W-1.');
+  const wellhead = s({ samplingSource: 'Wellhead Sampling', samples: [{ id: 'A', containerType: 'Glass container', containerId: 'G1' }, { id: 'B', bottle: 'SSB', bottleSerial: '9' }, { id: 'C' }] });
+  assert.match(wellhead, /for wellhead sampling\./);
+  assert.match(wellhead, /A total of Three samples were recorded in One glass container and One SSB\. The container type is not recorded for one sample\./);
+  assert.doesNotMatch(wellhead, /MPSR|PDS|transfer/);
+  const spmc = s({ samplingSource: 'Open Hole (SPMC - Field Sampling)', samples: [{ id: 'A', bottle: 'PDS', sampler: 'SPS' }, { id: 'B', bottle: 'PDS', sampler: 'SPS' }] });
+  assert.match(spmc, /open hole field sampling \(SPMC\)\.[\s\S]*Two PDS\.[\s\S]*Samplers recorded: Two SPS\./);
+  assert.match(s({ samplingSource: 'Other', otherSamplingType: 'Tank sampling', samples: [{ id: 'A' }] }), /for sampling \(Tank sampling\)\.\n\nA total of One sample was recorded\./);
+  assert.match(s({ samplingSource: 'Separator Sampling', samples: [] }), /No samples are recorded for this job\.$/);
+  assert.match(s({ samplingSource: 'Station Sampling', wellMode: 'multiple', wells: ['A-1', 'A-2'], samples: [{ id: 'x' }] }), /recorded for the wells A-1, A-2\.$/);
+  for (const text of [wellhead, spmc]) assert.doesNotMatch(text, /IATA|shipped|approved|packed/i);
+});
+test('approved versions use the letterhead saved with them; later record edits do not change them', () => {
+  const ctx = (company, position) => ({ company, clients: [{ code: 'P', name: 'Petroleum Development Oman', shortName: 'PDO' }], employeeName: (id) => ({ A: 'Preparer', B: 'Approver' })[id], positionName: (id) => ({ A: 'Engineer', B: position })[id] });
+  const job = { jobNumber: 'J', clientCode: 'P', clientName: 'PDO', rigInstallation: 'Rig 7', dateReceived: '2026-10-01', samplingSource: 'Wellhead Sampling' };
+  const letterhead = view.captureLetterhead(job, ctx(company, 'PVT Manager'), ['A', 'B'], '2026-10-13T10:00:00Z');
+  const later = ctx({ ...company, displayName: 'Renamed', address: 'New address' }, 'Director');
+  const changedJob = { ...job, rigInstallation: 'Rig 99', dateReceived: '2026-11-30', clientCode: 'Z' };
+  const v = { snapshot: { samples: [], events: [] }, letterhead, summary: 'x', status: 'Approved', approved: true, preparedBy: 'A', approvedBy: 'B', approvedAt: '2026-10-13T10:00:00Z' };
+  const i = view.samplingReportInput(changedJob, later, v);
+  assert.equal(i.installation, 'Rig 7');
+  assert.equal(i.jobDate, '2026-10-01');
+  assert.equal(i.company.displayName, 'VAPS');
+  assert.equal(i.clientFullName, 'Petroleum Development Oman');
+  assert.equal(i.clientLogo, '/client-logos/pdo.png');
+  assert.deepEqual(i.approvedBy, { name: 'Approver', title: 'PVT Manager' });
+  assert.equal(i.notice, undefined);
+  const old = view.samplingReportInput(changedJob, later, { ...v, letterhead: undefined });
+  assert.equal(old.installation, 'Rig 99', 'an older version without a letterhead can only show current records');
+  assert.equal(old.notice, view.letterheadNotice, 'and says so on the report');
+  assert.ok(renderToStaticMarkup(createElement(view.SamplingReportDocument, { input: old })).includes('saved before report details were recorded'));
+  assert.equal(view.samplingReportInput(changedJob, later, { ...v, letterhead: undefined, status: 'Draft', approved: false }).notice, undefined, 'drafts are refreshed at submission and approval');
+});
+test('the workflow saves the letterhead with the draft, refreshes it on submission and freezes it at approval', async () => {
+  const ops = await bundle('app/operations-model.ts');
+  const ts = (await import('typescript')).default;
+  const load = (p) => import('data:text/javascript;base64,' + Buffer.from(ts.transpileModule(fs.readFileSync(p, 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText).toString('base64'));
+  const { initialDirectory } = await load('app/employee-directory.ts');
+  const { defaultAuthorization, defaultResponsibilities } = await load('app/authorization.ts');
+  const employees = initialDirectory().employees, policy = defaultAuthorization(employees.map((e) => e.id));
+  let n = 0; const at = () => new Date(Date.UTC(2026, 9, 26, 10, 0, n++)).toISOString();
+  const step = (job, c, id) => ops.applyOperation(job, c, { id, employees, policy, roles: { ...defaultResponsibilities } }, at());
+  const lh = (installation) => ({ capturedAt: at(), installation, company, people: {} });
+  let j = { id: 'J', samplingInstructions: 'x', jobNumber: 'J', clientCode: 'P', clientName: 'C', samplingSource: 'Wellhead Sampling', requiredTests: [], samples: [{ id: 'S1', bottle: 'PDS', bottleSerial: 'B1', dataComplete: true, fieldData: { sampleNature: 'WHS' } }], stages: [], status: 'Job Created', createdById: 'SALIM', events: [] };
+  j = step(j, { type: 'dispatch', engineer: 'MOHSIN', driver: 'ALI' }, 'SALIM');
+  j = step(j, { type: 'data-submit', note: '' }, 'MOHSIN'); j = step(j, { type: 'data-approve' }, 'SALIM');
+  j = step(j, { type: 'report-draft', kind: 'sampling', text: 'v1', checker: '', letterhead: lh('Rig draft') }, 'MOHSIN');
+  assert.equal(ops.latest(j.operations.samplingReports).letterhead.installation, 'Rig draft');
+  j = step(j, { type: 'report-action', kind: 'sampling', action: 'submit', comments: '', letterhead: lh('Rig submit') }, 'MOHSIN');
+  assert.equal(ops.latest(j.operations.samplingReports).letterhead.installation, 'Rig submit');
+  j = step(j, { type: 'report-action', kind: 'sampling', action: 'approve', comments: '', letterhead: lh('Rig approve') }, 'SALIM');
+  const approved = ops.latest(j.operations.samplingReports);
+  assert.equal(approved.status, 'Approved');
+  assert.equal(approved.letterhead.installation, 'Rig approve');
+  const frozen = JSON.stringify(approved);
+  j = step(j, { type: 'report-action', kind: 'sampling', action: 'revise', comments: 'Correction', letterhead: lh('Rig v2') }, 'MOHSIN');
+  assert.equal(JSON.stringify(j.operations.samplingReports[0]), frozen, 'the approved version is untouched by a revision');
+  assert.equal(ops.latest(j.operations.samplingReports).letterhead.installation, 'Rig v2', 'the new version records its own');
+  // Commands without a letterhead (older callers) keep working and leave versions without one.
+  let k = step({ ...j, operations: undefined, id: 'K' }, { type: 'dispatch', engineer: 'MOHSIN', driver: 'ALI' }, 'SALIM');
+  k = step(k, { type: 'data-submit', note: '' }, 'MOHSIN'); k = step(k, { type: 'data-approve' }, 'SALIM');
+  k = step(k, { type: 'report-draft', kind: 'sampling', text: 'v1', checker: '' }, 'MOHSIN');
+  assert.equal('letterhead' in ops.latest(k.operations.samplingReports), false);
 });

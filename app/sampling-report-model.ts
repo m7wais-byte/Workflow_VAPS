@@ -11,6 +11,19 @@ export type ReportSample = ContainerFields & { id: string; sampler?: string; sam
 export type ReportEvent = { date?: string; time?: string; description?: string };
 export type ReportPerson = { name: string; title?: string };
 export type ReportCompany = { name: string; displayName: string; logo: string; address: string; country: string };
+/**
+ * Report details that live outside the job's sample evidence. Saved with each sampling report version
+ * (on draft and submission, frozen at approval) so later edits to the job, client, company or employee
+ * records cannot change an approved report.
+ */
+export type ReportLetterhead = {
+  capturedAt: string;
+  installation?: string; jobDate?: string; otherSamplingType?: string;
+  client?: { name: string; shortName: string; logo?: string };
+  company: ReportCompany;
+  /** Name and job title by employee ID, as they were when captured. */
+  people: Record<string, ReportPerson>;
+};
 export type SamplingReportInput = {
   jobNumber: string;
   /** Client as recorded on the job (short name, e.g. "PDO"). */
@@ -31,6 +44,8 @@ export type SamplingReportInput = {
   approved: boolean;
   preparedBy?: ReportPerson; preparedAt?: string;
   approvedBy?: ReportPerson; approvedAt?: string;
+  /** Shown on the report when some details had to be taken from current records. */
+  notice?: string;
 };
 
 export type Field = [label: string, value: string];
@@ -171,7 +186,9 @@ function sheetFor(sample: ReportSample, title: string): Omit<SampleSheet, 'remar
     production: [
       [['BHP:', withUnit(f.bhp, f.bhpUnit)], ['BHT:', withUnit(f.bht, f.bhtUnit)], ['At Depth:', NOT_RECORDED], ['WHP:', withUnit(f.whp, f.whpUnit)], ['WHT:', withUnit(f.wht, f.whtUnit)], ['Choke Size:', orNR(f.chokeSize)], ['Stable Since:', orNR(f.stableSince)], ['H2S:', orNR(f.h2s)], ['CO2:', orNR(f.co2)]],
       [['Sep Press:', withUnit(f.separatorPressure, f.separatorPressureUnit)], ['Sep Temp:', withUnit(f.separatorTemperature, f.separatorTemperatureUnit)], ['Gas Rate (std):', orNR(f.gasRate)], ['Gas Gravity:', orNR(f.gasGravity)], ['Gas diff press:', withUnit(f.gasDifferentialPressure, f.gasDifferentialPressureUnit)], ['Gas Press:', withUnit(f.gasPressure, f.gasPressureUnit)], ['Gas Temp:', withUnit(f.gasTemperature, f.gasTemperatureUnit)], ['Fb factor:', orNR(f.fbFactor)], ['Fpv factor:', orNR(f.fpvFactor)]],
-      [['Oil Rate (std cond):', orNR(f.oilRate)], ['Corrected by:', orNR(f.correctedBy)], ['Oil rate (sep cond):', NOT_RECORDED], ['Con. gravity 60/60:', orNR(f.condensateGravity)], ['Oil line temp:', withUnit(f.oilLineTemperature, f.oilLineTemperatureUnit)], ['Water rate:', orNR(f.waterRate)], ['CGR:', orNR(f.cgr)], ['WOR:', orNR(f.wor)], ['BSW (Choke):', orNR(f.bsw)]],
+      // The data sheet records one "Oil Rate" without its condition basis, so it keeps its own label and the
+      // std/sep-condition rows stay "Not recorded". Likewise BSW is recorded without a sampling point.
+      [['Oil Rate (std cond):', NOT_RECORDED], ['Corrected by:', orNR(f.correctedBy)], ['Oil rate (sep cond):', NOT_RECORDED], ['Oil Rate:', orNR(f.oilRate)], ['Con. gravity 60/60:', orNR(f.condensateGravity)], ['Oil line temp:', withUnit(f.oilLineTemperature, f.oilLineTemperatureUnit)], ['Water rate:', orNR(f.waterRate)], ['CGR:', orNR(f.cgr)], ['WOR:', orNR(f.wor)], ['BSW:', orNR(f.bsw)]],
     ],
   };
 }
@@ -180,9 +197,11 @@ function sheetOverflow(s: Omit<SampleSheet, 'remarks' | 'remarksContinue'>): num
   const { row, extraLine } = LAYOUT.sheet;
   const pairs = (a: Field[], b: Field[], ca: number, cb: number) => Array.from({ length: Math.max(a.length, b.length) }, (_, i) => Math.max(a[i] ? lines(a[i][1], ca) : 1, b[i] ? lines(b[i][1], cb) : 1));
   const extra = [...pairs(s.identification.left, s.identification.right, 34, 26), ...pairs(s.shipping.left, s.shipping.right, 28, 26), ...pairs(s.matched.left, s.matched.right, 28, 22),
-    ...s.production[0].map((_, i) => Math.max(...s.production.map((c, k) => lines(c[i][1], [12, 13, 12][k]))))].reduce((sum, n) => sum + (n - 1) * extraLine, 0);
+    ...Array.from({ length: Math.max(...s.production.map((c) => c.length)) }, (_, i) => Math.max(...s.production.map((c, k) => c[i] ? lines(c[i][1], [12, 13, 12][k]) : 1)))].reduce((sum, n) => sum + (n - 1) * extraLine, 0);
+  // Rows beyond the nine the fixed layout allows for in Production Conditions.
+  const extraProduction = Math.max(0, Math.max(...s.production.map((c) => c.length)) - 9) * row;
   const rightOnly = Math.max(0, s.identification.right.length - s.identification.left.length) * row;
-  return extra + rightOnly;
+  return extra + rightOnly + extraProduction;
 }
 
 export function buildSamplingReport(input: SamplingReportInput): SamplingReportModel {
