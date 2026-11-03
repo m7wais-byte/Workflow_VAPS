@@ -93,7 +93,12 @@ export function labStatus(a:ActivityRecord):LabStatus{
  if(a.status==='Changes Requested')return 'Returned';if(!a.owner)return 'Not assigned';return 'In progress';
 }
 /** The assignee is no longer in the stream's configured team. Shown as a flag; the assignment is never changed automatically. */
-export const teamMismatch=(a:ActivityRecord,teams?:LabTeams|null)=>!!a.owner&&a.status!=='Completed'&&!!teams&&!teams[a.stream].includes(a.owner);
+export const teamMismatch=(a:ActivityRecord,teams?:LabTeams|null,roles?:Responsibilities)=>!!a.owner&&a.status!=='Completed'&&!!teams&&!teams[a.stream].includes(a.owner)&&roles?.[streamLead(a.stream)]!==a.owner;
+/** Configured lead may work alongside their own team; laboratory access is still required. */
+export function assignmentEngineers(actor:Actor,stream:Stream):string[]{
+ if(!actor.teams)return [];
+ return [...new Set([...(actor.teams[stream]||[]),holder(actor,streamLead(stream))].filter((id):id is string=>!!id))].filter(id=>actor.employees.some(e=>e.id===id&&e.active)&&(id==='MA001'||actor.policy.analysis.includes(id)));
+}
 export function samplingApproved(job:JobRecord):boolean { const reports=operationsFor(job).samplingReports;return reports.length?latest(reports)?.status==='Approved':job.report?.reportStatus==='Completed'&&!!job.report.approvedAt&&!!job.report.approvedBy; }
 /** Sampling was approved in the older workflow, before dispatch records existed. No dispatch is fabricated. */
 export function legacyDispatch(job:JobRecord):boolean { const o=operationsFor(job);return !o.dispatchedAt&&!o.samplingReports.length&&samplingApproved(job); }
@@ -479,7 +484,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   const a=currentActivity();requireRole(actor,'analysis',streamLead(a.stream));active(actor,command.owner);
   if(!actor.policy.analysis.includes(command.owner)&&command.owner!=='MA001')throw Error('The employee needs laboratory access before assignment.');
   if(!actor.teams)throw Error('Laboratory team settings cannot be read. Ask an administrator to restore them in Settings → Authorization.');
-  if(command.owner!==a.owner&&!actor.teams[a.stream].includes(command.owner))throw Error((actor.employees.find(e=>e.id===command.owner)?.name||command.owner)+' is not in the '+a.stream+' team. Ask an administrator to add them in Settings → Authorization.');
+  if(command.owner!==a.owner&&!assignmentEngineers(actor,a.stream).includes(command.owner))throw Error((actor.employees.find(e=>e.id===command.owner)?.name||command.owner)+' is not in the '+a.stream+' team. Ask an administrator to add them in Settings → Authorization.');
   if(!/^\d{4}-\d{2}-\d{2}$/.test(command.start)||!/^\d{4}-\d{2}-\d{2}$/.test(command.due)||command.due<command.start)throw Error('Enter a planned start and a due date on or after it.');
   if(a.status==='Completed')throw Error('Completed work is retained; request additional work instead.');
   if(command.owner!==a.owner&&['Workbook Submitted','Awaiting QC','QC Returned'].includes(a.status))throw Error('This test is under review. Finish the review before reassigning it.');

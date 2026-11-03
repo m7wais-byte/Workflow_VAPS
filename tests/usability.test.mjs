@@ -165,10 +165,11 @@ test('unassigned scope never disappears: ageing or reading the alert leaves the 
  const seen=new Set(w.alerts.flatMap(a=>a.keys));
  const rows=inboxRows(w,[j],actor('SHEREIQI'),later,{isNew:i=>!i.events.every(k=>seen.has(k)),isClosed:()=>false,stage:()=>''});
  assert.equal(rows[0].state,'action','reading the alert does not change the work');
- // Empty team: the assignment is shown as blocked, not removed.
+ // Empty team: the lead can still assign themselves.
  const emptyTeam={teams:{PVT:[],Chemical:['YAQEEN']}};
  const b=inboxRows(workItems([j],actor('SHEREIQI',emptyTeam),later),[j],actor('SHEREIQI',emptyTeam),later,{isNew:()=>false,isClosed:()=>false,stage:()=>''});
- assert.ok(b[0].blockedActions.some(i=>i.key.startsWith('assign:')));
+ assert.ok(b[0].actions.some(i=>i.key.startsWith('assign:')));
+ assert.ok(!b[0].blockedActions.some(i=>i.key.startsWith('assign:')));
  // Once everything is assigned, the alert ages out after two days; the assigned work stays with the employees.
  let k=j;for(const a of acts(k))k=assign(k,a,a.stream==='PVT'?'NASSER':'YAQEEN');
  assert.equal(workItems([k],actor('SHEREIQI'),later).alerts.filter(a=>a.kind==='scope').length,0);

@@ -217,3 +217,19 @@ test('multiple additional requests route independently; Both creates work for bo
  assert.throws(()=>step(j,{type:'request-addition',title:'',reason:'',requests:[requests[0],{title:'',reason:'Missing title',destination:'PVT'}]},'SALIM'),/Requested work/);
  assert.equal(JSON.stringify(operationsFor(j)),before,'invalid batch leaves all stored work unchanged');
 });
+
+test('team leads assign themselves and Validation steps to different engineers without team membership changes',()=>{
+ let j=release(approved(),[e('1.01',{fluidType:'Black Oil',validation:true,pvtTests:['Black Oil — DL']}),e('1.02',{fluidType:'Water',destination:'Chemical',chemicalTests:['Others — Water Analysis']}),e('1.03',{excluded:true,exclusionReason:'n/a'})]);
+ const scopeId=unplannedValidation(j)[0].id;
+ j=step(j,{type:'validation-plan',scopeId,steps:[{title:'Opening Pressure'},{title:'Flash'},{title:'PV'}]},'SHEREIQI');
+ const targets={'Opening Pressure':'NASSER',Flash:'RANJITH',PV:'SHEREIQI'};
+ for(const a of acts(j).filter(a=>a.kind==='validation'))j=assign(j,a,targets[a.title]);
+ j=assign(j,acts(j).find(a=>a.title==='Black Oil — DL'),'SHEREIQI');
+ j=assign(j,acts(j).find(a=>a.stream==='Chemical'),'BAHRI');
+ assert.deepEqual(acts(j).filter(a=>a.kind==='validation').map(a=>a.owner),['NASSER','RANJITH','SHEREIQI']);
+ assert.equal(acts(j).find(a=>a.stream==='Chemical').owner,'BAHRI');
+ assert.ok(view([j],'SHEREIQI').actions.some(a=>a.open.tab.includes('activity=')));
+ const chemical=acts(j).find(a=>a.stream==='Chemical');
+ assert.throws(()=>step(j,{type:'schedule',id:chemical.id,owner:'SHEREIQI',start:'2026-11-02',due:'2026-11-06',conditions:'',notes:''},'BAHRI'),/not in the Chemical team/);
+ assert.deepEqual(teams,{PVT:['NASSER','RANJITH'],Chemical:['YAQEEN']});
+});
