@@ -6,19 +6,28 @@ import { scopeTestOptions, isValidationTest, validationStepNames } from './lab-w
 import type { TestRouting } from './test-routing';
 import { preparationDone } from './sampling-validation';
 import type { LabTeams } from './lab-teams';
+import { needsReview, type FluidType } from './scope-catalogue';
 export type Stream = 'PVT' | 'Chemical';
 /** Team lead who plans, assigns and reviews each laboratory workstream. */
 export const streamLead = (stream:Stream):Responsibility=>stream==='PVT'?'pvtTeamLead':'chemicalTeamLead';
 /** Workbook Submitted = awaiting team-lead review; Changes Requested = returned to the employee; QC Returned = back with the team lead; Completed = QC approved. */
 export type WorkState = 'Unassigned' | 'Scheduled' | 'In Progress' | 'Workbook Submitted' | 'Changes Requested' | 'Awaiting QC' | 'QC Returned' | 'Completed';
 export type FileVersion = { id:string; name:string; size:number; type:string; version:number; submittedBy:string; submittedAt:string; status:'Available'|'Changes Requested'; comments:string; /** Sheet, section or attachment reference named in a return. */target?:string; leadApprovedBy?:string; leadApprovedAt?:string; qcApprovedBy?:string; qcApprovedAt?:string; qcReturnedBy?:string; qcReturnedAt?:string; qcComments?:string };
-export type ActivityEvent = { at:string; by:string; action:'assigned'|'reassigned'|'submitted'|'lead-approved'|'lead-returned'|'qc-approved'|'qc-returned'; version?:number; target?:string; comments?:string; from?:string; to?:string };
-export type ActivityRecord = { id:string; scopeId:string; /** Shared by the PVT and Chemical items created for one test sent to both sections. */linkId?:string; sampleId:string; title:string; stream:Stream; owner:string; start:string; due:string; conditions:string; notes:string; status:WorkState; files:FileVersion[]; required:boolean; kind?:'validation'|'analysis'; /** Assignment, submission and review decisions, oldest first. */history?:ActivityEvent[]; /** The assigned employee's own progress notes; notes keep the team lead's instructions. */progressNotes?:string };
-export type ScopeRecord = { id:string; linkId?:string; title:string; sampleIds:string[]; stream:Stream; notes:string; addedBy:string; at:string; reason:string; source:'Original request'|'Additional work' };
+export type ActivityEvent = { at:string; by:string; action:'assigned'|'reassigned'|'submitted'|'lead-approved'|'lead-returned'|'qc-approved'|'qc-returned'|'dispatched'|'results-received'|'planned'; version?:number; target?:string; comments?:string; from?:string; to?:string };
+export type ActivityRecord = { id:string; scopeId:string; /** Shared by the PVT and Chemical items created for one test sent to both sections. */linkId?:string; sampleId:string; title:string; stream:Stream; owner:string; start:string; due:string; conditions:string; notes:string; status:WorkState; files:FileVersion[]; required:boolean; kind?:'validation'|'analysis'; /** Assignment, submission and review decisions, oldest first. */history?:ActivityEvent[]; /** The assigned employee's own progress notes; notes keep the team lead's instructions. */progressNotes?:string; /** A job-specific test entered in the scope (never added to the global catalogue). */custom?:boolean; /** Performed by a third-party laboratory; the owner is the internal coordinator. Absent = performed internally. */external?:ExternalWork };
+/** Third-party execution of one activity. Recording only: nothing is sent to the provider. */
+export type ExternalWork = { provider:string; notes:string; expectedReturn:string; sentOn?:string; sentAt?:string; sentBy?:string; dispatchNotes?:string; receivedOn?:string; receivedAt?:string; receivedBy?:string };
+/** Who performs a selected test. Third-party work keeps an internal owner (the coordinator) and the normal team review. */
+export type ExecutionChoice = { by:'Internal'|'Third-party'; provider?:string; /** Optional at scope time; otherwise the team lead assigns the coordinator. */coordinator?:string; notes?:string; expectedReturn?:string };
+export type CustomTest = { /** Stable ID kept through drafts, release and tracking. */id:string; name:string; notes:string; team:Destination; execution?:ExecutionChoice };
+export type ScopeRecord = { id:string; linkId?:string; title:string; sampleIds:string[]; stream:Stream; notes:string; addedBy:string; at:string; reason:string; source:'Original request'|'Additional work'; /** Validation requested for the sample; the PVT Team Lead chooses the steps. */validationRequest?:boolean; plannedBy?:string; plannedAt?:string };
 export type ReportVersion = { version:number; status:'Draft'|'Checking'|'Awaiting Approval'|'Changes Requested'|'Approved'; text:string; preparedBy:string; preparedAt:string; checker:string; checkedAt?:string; submittedAt?:string; approvedBy?:string; approvedAt?:string; comments:string; snapshot:string; file?:FileVersion };
 export type Destination = Stream | 'Both';
 /** One sample in a laboratory-scope version. Container details are copied so issued documents never change. */
-export type SampleScope = { sampleId:string; containerType:ContainerType; containerLabel:string; destination:Destination; pvtTests:string[]; chemicalTests:string[]; notes:string; excluded:boolean; exclusionReason:string };
+export type SampleScope = { sampleId:string; containerType:ContainerType; containerLabel:string; destination:Destination; pvtTests:string[]; chemicalTests:string[]; notes:string; excluded:boolean; exclusionReason:string;
+ /** Not set on older records: never guessed, requested when the scope is next edited. */fluidType?:FluidType; fluidDescription?:string; fluidNotes?:string;
+ /** Validation required for this sample. Older records express it as a catalogue "— Validation" test instead. */validation?:boolean;
+ customTests?:CustomTest[]; /** Per catalogue test; a missing entry means performed internally. */execution?:Record<string,ExecutionChoice> };
 /** Per-sample laboratory scope selected after sampling-report approval. Released versions are never edited. */
 export type LabScopeVersion = { version:number; status:'Draft'|'Released'; samples:SampleScope[]; conditions:Operations['conditions']; /** Test routing in force when this version was saved or released. */routing:TestRouting; reason:string; preparedBy:string; savedAt:string; releasedBy?:string; releasedAt?:string; job:{jobNumber:string;clientName:string;fieldArea:string;well:string;samplingSource:string} };
 /** A reviewer comment pointing at the job, a section, or a sample (target ids from reviewTargets). */
@@ -85,13 +94,30 @@ export const teamMismatch=(a:ActivityRecord,teams?:LabTeams|null)=>!!a.owner&&a.
 export function samplingApproved(job:JobRecord):boolean { const reports=operationsFor(job).samplingReports;return reports.length?latest(reports)?.status==='Approved':job.report?.reportStatus==='Completed'&&!!job.report.approvedAt&&!!job.report.approvedBy; }
 /** Sampling was approved in the older workflow, before dispatch records existed. No dispatch is fabricated. */
 export function legacyDispatch(job:JobRecord):boolean { const o=operationsFor(job);return !o.dispatchedAt&&!o.samplingReports.length&&samplingApproved(job); }
-export function allWorkDone(job:JobRecord):boolean {const o=operationsFor(job);return !!o.scopeConfirmedAt && o.activities.filter(a=>a.required).every(a=>a.status==='Completed'&&a.files.some(f=>f.status==='Available')) && !o.additions.some(a=>!a.confirmedAt);}
+export function allWorkDone(job:JobRecord):boolean {const o=operationsFor(job);return !!o.scopeConfirmedAt && !unplannedValidation(job).length && o.activities.filter(a=>a.required).every(a=>a.status==='Completed'&&a.files.some(f=>f.status==='Available')) && !o.additions.some(a=>!a.confirmedAt);}
 export function finalReady(job:JobRecord):boolean {const o=operationsFor(job);const required=[...new Set(o.scope.flatMap(s=>s.sampleIds))];return allWorkDone(job)&&samplingApproved(job)&&!!o.handover?.receivedAt&&required.every(id=>o.handover!.sampleIds.includes(id));}
 export function operationComplete(job:JobRecord):boolean {return finalReady(job)&&latest(operationsFor(job).finalReports)?.status==='Approved';}
 /** A job that had an approved final report and now has further work open (e.g. Validation added later). Earlier versions stay unchanged. */
 export function additionalWorkPending(job:JobRecord):boolean {return operationsFor(job).finalReports.some(r=>r.status==='Approved'&&!!r.approvedAt)&&!operationComplete(job);}
 /** The full Validation catalogue in its logical order (guidance only). */
 export const validationCatalogue=[...validationStepNames];
+/** Validation is requested for a scope entry, by the new Yes/No control or (older records) a catalogue Validation test. */
+export const entryValidation=(s:Pick<SampleScope,'pvtTests'|'chemicalTests'|'validation'>)=>!!s.validation||[...s.pvtTests,...s.chemicalTests].some(isValidationTest);
+/** Validation scope records the PVT Team Lead plans: new requests, Validation added later, and older Validation scope. */
+export const validationScopes=(job:JobRecord)=>operationsFor(job).scope.filter(r=>r.stream==='PVT'&&(r.validationRequest||r.id.startsWith('addval:')||isValidationTest(r.title)));
+/** Validation requests whose steps the PVT Team Lead has not chosen yet. They stay open until planned. */
+export const unplannedValidation=(job:JobRecord)=>operationsFor(job).scope.filter(r=>r.validationRequest&&!r.plannedAt);
+/** A separately requested Recombination test on the same sample (kept distinct from a Validation Recombination step). */
+export const separateRecombination=(job:JobRecord,sampleId:string)=>operationsFor(job).activities.filter(a=>a.sampleId===sampleId&&a.kind!=='validation'&&/Recombination$/.test(a.title));
+/** One understandable external-work state, mapped onto the existing work states. Empty for internal work. */
+export function externalStage(a:ActivityRecord):string{
+ if(!a.external)return '';
+ if(a.status==='Completed')return 'Completed';if(a.status==='Awaiting QC')return 'Internal review · QC';
+ if(a.status==='Workbook Submitted'||a.status==='QC Returned')return 'Internal review';if(a.status==='Changes Requested')return 'Returned · internal review';
+ if(!a.owner)return 'Awaiting coordinator';if(!a.external.sentAt)return 'Awaiting dispatch';if(!a.external.receivedAt)return 'Sent to third party · Awaiting results';return 'Results received';
+}
+export const externalLabel=(a:Pick<ActivityRecord,'external'>)=>a.external?'External · '+(a.external.provider||'provider not recorded'):'';
+const externalFrom=(e?:ExecutionChoice):ExternalWork|undefined=>e?.by==='Third-party'?{provider:(e.provider||'').trim(),notes:(e.notes||'').trim(),expectedReturn:e.expectedReturn||''}:undefined;
 export type Actor = { id:string; employees:Employee[]; policy:Authorization; roles?:Responsibilities; /** Current test routing; null when the saved settings cannot be read. */routing?:TestRouting|null; /** Laboratory team lists; null when the saved settings cannot be read. */teams?:LabTeams|null };
 /** The valid holder of a duty for this actor's settings ('' when unassigned or invalid). */
 export const holder=(actor:Actor,key:Responsibility)=>roleHolder(actor.roles||defaultResponsibilities,key,actor.employees);
@@ -125,32 +151,59 @@ const testsIn=(s:Pick<SampleScope,'pvtTests'|'chemicalTests'>,stream:Stream)=>st
 /** Work already released keeps its section even if Settings routing changes later. */
 const releasedIn=(v:LabScopeVersion|undefined,sampleId:string,stream:Stream,test:string)=>!!v?.samples.some(p=>p.sampleId===sampleId&&!p.excluded&&testsIn(p,stream).includes(test));
 /** Every check a scope release needs. Returns problems instead of throwing so the review panel can list them. */
-export function labScopeProblems(job:JobRecord,samples:Omit<SampleScope,'containerType'|'containerLabel'>[],conditions:Operations['conditions'],routing:TestRouting|null|undefined,roles:Responsibilities,previous?:LabScopeVersion):string[]{
+export function labScopeProblems(job:JobRecord,samples:Omit<SampleScope,'containerType'|'containerLabel'>[],conditions:Operations['conditions'],routing:TestRouting|null|undefined,roles:Responsibilities,previous?:LabScopeVersion,actor?:Actor):string[]{
  const problems:string[]=[];
  if(!routing)return ['Laboratory test routing settings cannot be read. Ask an administrator to restore them in Settings → Authorization.'];
  const ids=(job.samples||[]).map(s=>s.id);
  if(samples.length!==ids.length||ids.some(id=>samples.filter(s=>s.sampleId===id).length!==1))problems.push('Every job sample needs one scope entry.');
+ const execProblems=(label:string,what:string,e:ExecutionChoice|undefined,streams:Stream[])=>{
+  if(e?.by!=='Third-party')return;
+  if(!e.provider?.trim())problems.push(label+': “'+what+'” is performed by a third-party laboratory; enter the provider/laboratory name.');
+  if(e.expectedReturn&&!/^\d{4}-\d{2}-\d{2}$/.test(e.expectedReturn))problems.push(label+': “'+what+'” needs a valid expected return date.');
+  if(e.coordinator&&actor){const c=e.coordinator;const ok=actor.employees.some(x=>x.id===c&&x.active)&&(c==='MA001'||actor.policy.analysis.includes(c))&&streams.some(st=>actor.teams?.[st]?.includes(c));if(!ok)problems.push(label+': the internal coordinator for “'+what+'” must be an active '+streams.join(' or ')+' team member with laboratory access.');}
+ };
  for(const s of samples){
-  const label='Sample '+s.sampleId;const tests=[...s.pvtTests,...s.chemicalTests];
-  if(s.excluded){if(!s.exclusionReason.trim())problems.push(label+': give a reason for excluding it.');if(tests.length)problems.push(label+': an excluded sample cannot have tests.');continue;}
-  if(!tests.length)problems.push(label+' has no tests. Select tests or explicitly exclude it with a reason.');
+  const label='Sample '+s.sampleId;const tests=[...s.pvtTests,...s.chemicalTests];const custom=s.customTests||[];const validation=entryValidation(s);
+  if(s.excluded){if(!s.exclusionReason.trim())problems.push(label+': give a reason for excluding it.');if(tests.length||custom.length||s.validation)problems.push(label+': an excluded sample cannot have tests.');continue;}
+  if(!s.fluidType)problems.push(label+': select the fluid type (Black Oil, Gas Condensate or Other).');
+  else if(s.fluidType==='Other'&&!s.fluidDescription?.trim())problems.push(label+': describe the fluid/sample for fluid type Other.');
+  if(!tests.length&&!custom.length&&!validation)problems.push(label+' has no tests. Select tests, request Validation or add a custom test, or explicitly exclude it with a reason.');
+  if(validation&&!streamsOf(s.destination).includes('PVT'))problems.push(label+': Validation is PVT work. Choose the destination PVT or PVT and Chemical.');
   for(const stream of ['PVT','Chemical'] as const){const list=testsIn(s,stream);
-   if(list.length&&!streamsOf(s.destination).includes(stream))problems.push(label+': '+stream+' tests need the destination '+stream+' or Both.');
+   if(list.length&&!streamsOf(s.destination).includes(stream))problems.push(label+': '+stream+' tests need the destination '+stream+' or PVT and Chemical.');
    if(new Set(list).size!==list.length)problems.push(label+': a test is listed twice in '+stream+'.');
    for(const test of list){if(!scopeTestOptions.includes(test))problems.push(label+': “'+test+'” is not in the test catalog.');else if(routing[test]&&routing[test]!=='Both'&&routing[test]!==stream&&!releasedIn(previous,s.sampleId,stream,test))problems.push(label+': “'+test+'” is routed to '+routing[test]+' in Settings, not '+stream+'.');}
   }
-  if(tests.some(isValidationTest)&&!sampleSequence(job,s.sampleId).length)problems.push(label+': needs clarification — no Validation sequence for this sampling type.');
+  for(const test of [...new Set(tests)])execProblems(label,shortName(test),s.execution?.[test],(['PVT','Chemical'] as const).filter(st=>testsIn(s,st).includes(test)));
+  const customIds=new Set<string>();
+  for(const c of custom){
+   if(!c.id||customIds.has(c.id))problems.push(label+': each custom test needs its own ID.');customIds.add(c.id);
+   if(!c.name.trim())problems.push(label+': enter a name for each custom test, or remove it.');
+   else if(streamsOf(c.team).some(st=>!streamsOf(s.destination).includes(st)))problems.push(label+': custom test “'+c.name.trim()+'” goes to '+(c.team==='Both'?'PVT and Chemical':c.team)+'; the sample destination must include it.');
+   execProblems(label,c.name.trim()||'custom test',c.execution,streamsOf(c.team));
+  }
  }
- const used=new Set(samples.flatMap(s=>(['PVT','Chemical'] as const).filter(stream=>testsIn(s,stream).length)));
+ const used=new Set(samples.filter(s=>!s.excluded).flatMap(s=>[...(['PVT','Chemical'] as const).filter(stream=>testsIn(s,stream).length),...(s.customTests||[]).flatMap(c=>streamsOf(c.team)),...(entryValidation(s)?['PVT' as const]:[])]));
  for(const stream of used)if(!roles[streamLead(stream)])problems.push(responsibilityLabels[streamLead(stream)]+' is not configured. Ask an administrator to assign it in Settings → Authorization.');
- if(samples.some(s=>!s.excluded&&[...s.pvtTests,...s.chemicalTests].some(isValidationTest))&&(!conditions.pressure||!conditions.temperature))problems.push('Record reservoir pressure and temperature for Validation (Restoration).');
+ if(samples.some(s=>!s.excluded&&entryValidation(s))&&(!conditions.pressure||!conditions.temperature))problems.push('Record reservoir pressure and temperature for Validation (Restoration).');
  for(const value of [conditions.pressure,conditions.temperature])if(value&&!Number.isFinite(Number(value)))problems.push('Reservoir conditions must be numeric.');
  if(!samples.some(s=>!s.excluded))problems.push('Select tests for at least one sample.');
- if(previous)for(const p of previous.samples){if(p.excluded)continue;const n=samples.find(s=>s.sampleId===p.sampleId);
+ if(previous){for(const p of previous.samples){if(p.excluded)continue;const n=samples.find(s=>s.sampleId===p.sampleId);
   if(!n||n.excluded){problems.push('Sample '+p.sampleId+' was released for testing and cannot be excluded in a revision.');continue;}
-  for(const stream of ['PVT','Chemical'] as const)for(const test of testsIn(p,stream))if(!testsIn(n,stream).includes(test))problems.push('Sample '+p.sampleId+': released '+stream+' test “'+test+'” cannot be removed or moved in a revision.');}
+  for(const stream of ['PVT','Chemical'] as const)for(const test of testsIn(p,stream))if(!testsIn(n,stream).includes(test))problems.push('Sample '+p.sampleId+': released '+stream+' test “'+shortName(test)+'” cannot be removed or moved in a revision.');
+  if(entryValidation(p)&&!entryValidation(n))problems.push('Sample '+p.sampleId+': released Validation cannot be removed in a revision.');
+  for(const c of p.customTests||[]){const m=(n.customTests||[]).find(x=>x.id===c.id);if(!m||streamsOf(c.team).some(st=>!streamsOf(m.team).includes(st)))problems.push('Sample '+p.sampleId+': released custom test “'+c.name+'” cannot be removed or moved in a revision.');}}
+  if(!problems.length&&!scopeChanged(previous,samples,conditions))problems.push('Nothing has changed since released version '+previous.version+'. Change the scope before releasing a revision.');}
  return [...new Set(problems)];
 }
+const shortName=(test:string)=>test.split(' — ').slice(1).join(' — ')||test;
+/** Compares the released content only (not draft-only fields), so saving unchanged scope never creates a new release. */
+function scopeChanged(previous:LabScopeVersion,samples:Omit<SampleScope,'containerType'|'containerLabel'>[],conditions:Operations['conditions']){
+ const norm=(list:Omit<SampleScope,'containerType'|'containerLabel'>[])=>JSON.stringify([...list].sort((a,b)=>a.sampleId.localeCompare(b.sampleId)).map(s=>({id:s.sampleId,d:s.destination,p:[...s.pvtTests].sort(),c:[...s.chemicalTests].sort(),v:entryValidation(s),x:s.excluded,r:s.exclusionReason.trim(),n:s.notes.trim(),f:s.fluidType||'',fd:(s.fluidDescription||'').trim(),fn:(s.fluidNotes||'').trim(),ct:(s.customTests||[]).map(c=>({...c,name:c.name.trim(),notes:c.notes.trim()})),e:s.execution||{}})));
+ return norm(previous.samples)!==norm(samples)||JSON.stringify(previous.conditions)!==JSON.stringify(conditions);
+}
+/** Saved catalogue selections not listed for the sample's chosen fluid type (flagged, never removed automatically). */
+export const scopeReview=(s:Pick<SampleScope,'pvtTests'|'chemicalTests'|'fluidType'>)=>needsReview([...s.pvtTests,...s.chemicalTests],s.fluidType);
 export type Command =
  | {type:'dispatch';engineer:string;driver:string;/** Supporting sampling employees besides the accountable engineer. */team?:string[]}
  | {type:'data-submit';note:string}
@@ -162,6 +215,12 @@ export type Command =
  | {type:'request-addition';title:string;reason:string}
  /** Adds Validation to any job with sample records, from the full catalogue, as additional tracked work. Steps are guidance only: none blocks another. */
  | {type:'add-validation';sampleIds:string[];steps:string[];reason:string}
+ /** The PVT Team Lead chooses the Validation steps for one requested sample. Existing steps are reused, never duplicated. */
+ | {type:'validation-plan';scopeId:string;steps:{title:string;external?:ExecutionChoice}[];instructions?:string;/** Deliberately add a Validation Recombination step although Recombination is requested separately. */confirmRecombination?:boolean}
+ /** Third-party work: the coordinator records dispatch, the returned results, then submits them for the normal internal review. */
+ | {type:'external-dispatch';id:string;sentOn:string;expectedReturn:string;notes:string}
+ | {type:'external-results';id:string;receivedOn:string;notes:string;file:Omit<FileVersion,'version'|'submittedBy'|'submittedAt'|'status'|'comments'>}
+ | {type:'external-submit';id:string;notes:string}
  | {type:'schedule';id:string;owner:string;start:string;due:string;conditions:string;notes:string}
  | {type:'progress';id:string;status:WorkState;notes:string}
  | {type:'workbook';id:string;notes?:string;file:Omit<FileVersion,'version'|'submittedBy'|'submittedAt'|'status'|'comments'>}
@@ -265,21 +324,44 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   if(!samplingApproved(job))throw Error('The laboratory scope is selected after the sampling report is approved.');
   if(o.scope.some(s=>!s.id.startsWith('labscope:')&&!s.id.startsWith('addval:'))&&!o.labScopes?.length)throw Error('This job’s scope was confirmed in the earlier workflow. Record further work as an additional-work request.');
   const versions=o.labScopes||(o.labScopes=[]);const last=versions.at(-1);const previous=[...versions].reverse().find(v=>v.status==='Released');
-  const samples:SampleScope[]=command.samples.map(s=>{const sample=job.samples?.find(x=>x.id===s.sampleId);if(!sample)throw Error('Sample '+s.sampleId+' no longer exists.');return {...s,pvtTests:[...s.pvtTests],chemicalTests:[...s.chemicalTests],notes:s.notes.trim(),exclusionReason:s.exclusionReason.trim(),containerType:isGlass(sample)?'Glass container':'Bottle',containerLabel:containerLabel(sample)};});
+  const samples:SampleScope[]=command.samples.map(s=>{const sample=job.samples?.find(x=>x.id===s.sampleId);if(!sample)throw Error('Sample '+s.sampleId+' no longer exists.');return {...s,pvtTests:[...s.pvtTests],chemicalTests:[...s.chemicalTests],notes:s.notes.trim(),exclusionReason:s.exclusionReason.trim(),...(s.fluidDescription!==undefined?{fluidDescription:s.fluidDescription.trim()}:{}),...(s.fluidNotes!==undefined?{fluidNotes:s.fluidNotes.trim()}:{}),...(s.customTests?{customTests:s.customTests.map(c=>({...c,name:c.name.trim(),notes:c.notes.trim()}))}:{}),containerType:isGlass(sample)?'Glass container':'Bottle',containerLabel:containerLabel(sample)};});
   const version:LabScopeVersion={version:last?.status==='Draft'?last.version:versions.length+1,status:'Draft',samples,conditions:{...command.conditions},routing:{...(actor.routing||{})},reason:command.reason.trim(),preparedBy:actor.id,savedAt:now,job:{jobNumber:job.jobNumber,clientName:job.clientName,fieldArea:job.fieldArea||'',well:job.wellMode==='multiple'?(job.wells||[]).filter(Boolean).join(', '):job.well||'',samplingSource:job.samplingSource||''}};
   if(command.action==='release'){
-   const problems=labScopeProblems(job,command.samples,command.conditions,actor.routing,actorRoles(actor),previous);if(problems.length)throw Error(problems.join(' '));
+   const problems=labScopeProblems(job,command.samples,command.conditions,actor.routing,actorRoles(actor),previous,actor);if(problems.length)throw Error(problems.join(' '));
    if(previous)requireText(command.reason,'Revision reason');
    version.status='Released';version.releasedBy=actor.id;version.releasedAt=now;reason=command.reason.trim()||'Laboratory scope released';
    const source=previous?'Additional work':'Original request';
-   for(const s of samples)for(const stream of ['PVT','Chemical'] as const)for(const test of testsIn(s,stream)){
-    const linkId='labscope:'+s.sampleId+':'+test,scopeId='labscope:'+s.sampleId+':'+stream+':'+test;
-    if(!o.scope.some(x=>x.id===scopeId))o.scope.push({id:scopeId,linkId,title:test,sampleIds:[s.sampleId],stream,notes:s.notes,addedBy:actor.id,at:now,reason,source});
-    const validation=isValidationTest(test);
-    for(const title of validation?sampleSequence(job,s.sampleId):[test]){
-     const id=validation?'labscope:'+s.sampleId+':'+stream+':validation:'+title:scopeId;
-     if(o.activities.some(a=>a.id===id))continue;
-     o.activities.push({kind:validation?'validation':'analysis',id,scopeId,linkId,sampleId:s.sampleId,title,stream,owner:'',start:'',due:'',conditions:title==='Restoration'?`${command.conditions.pressure} ${command.conditions.pressureUnit}; ${command.conditions.temperature} ${command.conditions.temperatureUnit}`:title==='Water Check'?'Check for water on the sample side.':[command.conditions.notes,s.notes].filter(Boolean).join(' · '),notes:'',status:'Unassigned',files:[],required:true});
+   const day=now.slice(0,10);
+   /** A coordinator chosen in the scope is assigned on release, only for the stream whose team they belong to. */
+   const coordinate=(a:ActivityRecord,e?:ExecutionChoice)=>{const c=e?.by==='Third-party'?e.coordinator:'';if(!c||!actor.teams?.[a.stream]?.includes(c))return;a.owner=c;a.start=day;a.due=e?.expectedReturn||'';a.status='Scheduled';a.history=[{at:now,by:actor.id,action:'assigned',to:c,comments:'Internal coordinator for third-party work ('+(e?.provider||'').trim()+')'}];};
+   const conditionText=(title:string,notes:string)=>title==='Restoration'?`${command.conditions.pressure} ${command.conditions.pressureUnit}; ${command.conditions.temperature} ${command.conditions.temperatureUnit}`:title==='Water Check'?'Check for water on the sample side.':[command.conditions.notes,notes].filter(Boolean).join(' · ');
+   for(const s of samples){
+    if(s.excluded)continue;
+    for(const stream of ['PVT','Chemical'] as const)for(const test of testsIn(s,stream)){
+     const linkId='labscope:'+s.sampleId+':'+test,scopeId='labscope:'+s.sampleId+':'+stream+':'+test;
+     if(!o.scope.some(x=>x.id===scopeId))o.scope.push({id:scopeId,linkId,title:test,sampleIds:[s.sampleId],stream,notes:s.notes,addedBy:actor.id,at:now,reason,source});
+     const validation=isValidationTest(test);
+     // Older records: a catalogue Validation test keeps its generated sequence (activities already exist after release).
+     for(const title of validation?sampleSequence(job,s.sampleId):[test]){
+      const id=validation?'labscope:'+s.sampleId+':'+stream+':validation:'+title:scopeId;
+      if(o.activities.some(a=>a.id===id))continue;
+      const a:ActivityRecord={kind:validation?'validation':'analysis',id,scopeId,linkId,sampleId:s.sampleId,title,stream,owner:'',start:'',due:'',conditions:conditionText(title,s.notes),notes:'',status:'Unassigned',files:[],required:true};
+      if(!validation){const ext=externalFrom(s.execution?.[test]);if(ext){a.external=ext;coordinate(a,s.execution?.[test]);}}
+      o.activities.push(a);
+     }
+    }
+    // Validation requested: one planning item for the PVT Team Lead. No step is created or assigned until the lead chooses them.
+    if(s.validation&&![...s.pvtTests,...s.chemicalTests].some(isValidationTest)){
+     const scopeId='labscope:'+s.sampleId+':PVT:Validation';
+     if(!o.scope.some(x=>x.id===scopeId))o.scope.push({id:scopeId,linkId:'labscope:'+s.sampleId+':Validation',title:'Validation',sampleIds:[s.sampleId],stream:'PVT',notes:s.notes,addedBy:actor.id,at:now,reason,source,validationRequest:true});
+    }
+    for(const c of s.customTests||[])for(const stream of streamsOf(c.team)){
+     const linkId='labscope:'+s.sampleId+':custom:'+c.id,scopeId='labscope:'+s.sampleId+':'+stream+':custom:'+c.id;
+     if(o.scope.some(x=>x.id===scopeId))continue;
+     o.scope.push({id:scopeId,linkId,title:c.name,sampleIds:[s.sampleId],stream,notes:c.notes,addedBy:actor.id,at:now,reason,source});
+     const a:ActivityRecord={kind:'analysis',custom:true,id:scopeId,scopeId,linkId,sampleId:s.sampleId,title:c.name,stream,owner:'',start:'',due:'',conditions:[command.conditions.notes,s.notes,c.notes].filter(Boolean).join(' · '),notes:'',status:'Unassigned',files:[],required:true};
+     const ext=externalFrom(c.execution);if(ext){a.external=ext;coordinate(a,c.execution);}
+     o.activities.push(a);
     }
    }
    o.conditions={...command.conditions};o.scopeConfirmedAt=o.scopeConfirmedAt||now;
@@ -294,8 +376,16 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   const sampleIds=[...new Set(command.sampleIds)];if(!sampleIds.length)throw Error('Select at least one sample/container.');
   if(sampleIds.some(id=>!job.samples!.some(s=>s.id===id)))throw Error('Select existing samples.');
   const steps=validationStepNames.filter(step=>command.steps.includes(step));
-  if(!steps.length||steps.length!==new Set(command.steps).size)throw Error('Choose Validation activities from the catalogue.');
+  if(steps.length!==new Set(command.steps).size)throw Error('Choose Validation activities from the catalogue.');
   const n=o.additions.filter(a=>a.id.startsWith('addval:')).length+1,additionId='addval:'+n;reason=command.reason.trim();
+  // No steps: Validation is requested and the PVT Team Lead chooses the steps in laboratory planning.
+  if(!steps.length){
+   const open=sampleIds.filter(id=>unplannedValidation(job).some(r=>r.sampleIds.includes(id)));
+   if(open.length)throw Error('Validation is already requested and awaiting planning for Sample '+open.join(', ')+'.');
+   for(const sampleId of sampleIds)o.scope.push({id:additionId+':'+sampleId,linkId:additionId+':'+sampleId,title:'Validation',sampleIds:[sampleId],stream:'PVT',notes:'',addedBy:actor.id,at:now,reason,source:'Additional work',validationRequest:true});
+   o.additions.push({id:additionId,title:'Validation requested · Sample '+sampleIds.join(', '),reason,by:actor.id,at:now,confirmedAt:now});
+   reason='Validation requested · Sample '+sampleIds.join(', ')+' · '+reason;break;
+  }
   for(const sampleId of sampleIds){
    const scopeId=additionId+':'+sampleId;
    o.scope.push({id:scopeId,linkId:scopeId,title:'Validation',sampleIds:[sampleId],stream:'PVT',notes:steps.join(', '),addedBy:actor.id,at:now,reason,source:'Additional work'});
@@ -303,6 +393,65 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   }
   o.additions.push({id:additionId,title:'Validation · '+steps.join(', ')+' · Sample '+sampleIds.join(', '),reason,by:actor.id,at:now,confirmedAt:now});
   reason='Validation added · Sample '+sampleIds.join(', ')+' · '+steps.join(', ')+' · '+reason;
+  break;
+ }
+ case 'validation-plan':{
+  requireRole(actor,'analysis','pvtTeamLead');
+  const record=validationScopes(job).find(r=>r.id===command.scopeId);if(!record)throw Error('This Validation request no longer exists.');
+  const r=o.scope.find(x=>x.id===record.id)!;const sampleId=r.sampleIds[0];
+  const chosen=[...new Set(command.steps.map(x=>x.title))];
+  if(chosen.some(t=>!validationStepNames.includes(t as typeof validationStepNames[number])))throw Error('Choose Validation steps from the catalogue.');
+  if(!chosen.length)throw Error('Select at least one Validation step. Steps are chosen per sample; none is mandatory.');
+  const existing=o.activities.filter(a=>a.scopeId===r.id&&a.kind==='validation');
+  if(chosen.includes('Recombination')&&!existing.some(a=>a.title==='Recombination')&&separateRecombination(job,sampleId).length&&!command.confirmRecombination)throw Error('Recombination is already requested as a separate test on Sample '+sampleId+'. Confirm that a separate Validation Recombination step is intended, or leave it unselected.');
+  for(const step of command.steps){const e=step.external;if(e?.by==='Third-party'&&!e.provider?.trim())throw Error('Enter the provider/laboratory for '+step.title+' (third-party).');}
+  const added:string[]=[],removed:string[]=[],kept:string[]=[];
+  for(const title of validationStepNames.filter(t=>chosen.includes(t))){
+   const step=command.steps.find(x=>x.title===title)!;const old=existing.find(a=>a.title===title);
+   if(old){
+    // Reused: an untouched step may switch between internal and third-party execution; started work keeps its record.
+    if(old.status==='Unassigned'&&!old.files.length){const ext=externalFrom(step.external);if(ext)old.external=ext;else delete old.external;if(command.instructions!==undefined)old.notes=command.instructions.trim();}
+    continue;
+   }
+   const a:ActivityRecord={kind:'validation',id:r.id+':validation:'+title,scopeId:r.id,linkId:r.linkId||r.id,sampleId,title,stream:'PVT',owner:'',start:'',due:'',conditions:title==='Restoration'&&o.conditions.pressure?`${o.conditions.pressure} ${o.conditions.pressureUnit}; ${o.conditions.temperature} ${o.conditions.temperatureUnit}`:title==='Water Check'?'Check for water on the sample side.':o.conditions.notes||'',notes:(command.instructions||'').trim(),status:'Unassigned',files:[],required:true};
+   const ext=externalFrom(step.external);if(ext)a.external=ext;
+   if(o.activities.some(x=>x.id===a.id))throw Error('Validation step '+title+' already exists for this request.');
+   o.activities.push(a);added.push(title);
+  }
+  // A step no longer chosen is removed only while untouched (never assigned, no files, no history); otherwise it is kept.
+  for(const a of existing.filter(a=>!chosen.includes(a.title))){
+   if(a.status==='Unassigned'&&!a.owner&&!a.files.length&&!(a.history||[]).length){o.activities.splice(o.activities.indexOf(o.activities.find(x=>x.id===a.id)!),1);removed.push(a.title);}else kept.push(a.title);
+  }
+  r.plannedBy=actor.id;r.plannedAt=now;
+  reason='Validation steps planned · Sample '+sampleId+(added.length?' · added '+added.join(', '):'')+(removed.length?' · removed '+removed.join(', '):'')+(kept.length?' · kept (already started) '+kept.join(', '):'');
+  break;
+ }
+ case 'external-dispatch':case 'external-results':case 'external-submit':{
+  const a=currentActivity();const ext=a.external;if(!ext)throw Error('This activity is performed internally.');
+  requireAccess(actor,'analysis');
+  const lead=holder(actor,streamLead(a.stream));
+  if(actor.id!==a.owner&&!(command.type!=='external-submit'&&actor.id===lead))throw Error('Only the internal coordinator ('+(actor.employees.find(e=>e.id===a.owner)?.name||'not assigned')+') records this third-party work.');
+  if(!a.owner)throw Error('Assign an internal coordinator first.');
+  const date=(v:string,label:string)=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(v))throw Error('Enter the '+label+'.');};
+  const history=(a.history||(a.history=[]));
+  if(command.type==='external-dispatch'){
+   if(ext.sentAt)throw Error('Dispatch is already recorded for this test.');if(!['Scheduled','In Progress'].includes(a.status))throw Error('This test cannot be dispatched in its current state.');
+   date(command.sentOn,'date sent');if(command.expectedReturn)date(command.expectedReturn,'expected return date');
+   Object.assign(ext,{sentOn:command.sentOn,sentAt:now,sentBy:actor.id,dispatchNotes:command.notes.trim(),expectedReturn:command.expectedReturn||ext.expectedReturn});a.status='In Progress';
+   history.push({at:now,by:actor.id,action:'dispatched',comments:['Sent to '+ext.provider+' on '+command.sentOn,command.notes.trim()].filter(Boolean).join(' · ')});reason='Sent to '+ext.provider;
+  } else if(command.type==='external-results'){
+   if(!ext.sentAt)throw Error('Record the dispatch to the third-party laboratory first.');
+   if(!['In Progress','Changes Requested'].includes(a.status))throw Error('Results are already under internal review.');
+   date(command.receivedOn,'date the results were received');if(!command.file.id||command.file.size<=0)throw Error('Attach the returned report or results file.');
+   a.files.push({...command.file,version:a.files.length+1,submittedBy:actor.id,submittedAt:now,status:'Available',comments:command.notes.trim()});
+   Object.assign(ext,{receivedOn:command.receivedOn,receivedAt:now,receivedBy:actor.id});if(a.status==='Changes Requested')a.status='In Progress';
+   history.push({at:now,by:actor.id,action:'results-received',version:a.files.length,comments:['Received from '+ext.provider+' on '+command.receivedOn,command.notes.trim()].filter(Boolean).join(' · ')});reason='Results received from '+ext.provider;
+  } else {
+   if(!ext.receivedAt||!a.files.length)throw Error('Record the returned results before submitting them for review.');
+   if(a.status!=='In Progress')throw Error(['Workbook Submitted','Awaiting QC','QC Returned'].includes(a.status)?'These results are already under internal review.':'Record the corrected results first.');
+   a.status='Workbook Submitted';if(command.notes.trim())a.progressNotes=command.notes.trim();
+   history.push({at:now,by:actor.id,action:'submitted',version:a.files.length,comments:command.notes.trim()||undefined});reason='External results submitted for review';
+  }
   break;
  }
  case 'request-addition':requireAccess(actor,'analysis');requireText(command.title,'Requested work');requireText(command.reason,'Reason');reason=command.reason;o.additions.push({id:now+':'+o.additions.length,title:command.title.trim(),reason,by:actor.id,at:now});break;
@@ -328,6 +477,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
  }
  case 'workbook':{
   const a=currentActivity();requireAccess(actor,'analysis',a.owner||'unassigned');if(a.status==='Completed')throw Error('Request a correction before replacing completed work.');
+  if(a.external)throw Error('This test is performed by a third-party laboratory. Record the returned results, then submit them for review.');
   if(['Workbook Submitted','Awaiting QC','QC Returned'].includes(a.status))throw Error('The current workbook is under review. Wait for the team lead’s decision.');
   if(!command.file.id||command.file.size<=0)throw Error('Upload a workbook first.');
   if(command.notes!==undefined)a.progressNotes=command.notes;
@@ -443,12 +593,12 @@ export function samplingStatus(job:JobRecord,roles:Responsibilities=storedRespon
  const ready=!!job.samples?.length&&job.samples.every(s=>s.dataComplete);
  return {key:'data',label:d?.status==='Reopened'?'Sampling data reopened for correction':'Sampling data in progress',owner:lead,next:ready?'Review and submit the sampling data':'Complete the sample data sheets',tab:'sampling',team:true};
 }
-export function operationMilestones(job:JobRecord,roles:Responsibilities=storedResponsibilities()){const st=samplingStatus(job,roles);const early=['draft','preparation','data','returned'].includes(st.key)&&st.tab==='sampling';const o=operationsFor(job);const needsScope=!o.scopeConfirmedAt||o.additions.some(a=>!a.confirmedAt);const unplanned=o.activities.find(a=>a.required&&(!a.owner||!a.start||!a.due));const lab=o.activities.filter(a=>a.required);const sampleDone=!!job.samples?.length&&job.samples.every(s=>s.dataComplete);return [
+export function operationMilestones(job:JobRecord,roles:Responsibilities=storedResponsibilities()){const st=samplingStatus(job,roles);const early=['draft','preparation','data','returned'].includes(st.key)&&st.tab==='sampling';const o=operationsFor(job);const needsScope=!o.scopeConfirmedAt||o.additions.some(a=>!a.confirmedAt);const unplanned=o.activities.find(a=>a.required&&(!a.owner||!a.start||!a.due))||(unplannedValidation(job).length?{stream:'PVT' as Stream}:undefined);const lab=o.activities.filter(a=>a.required);const sampleDone=!!job.samples?.length&&job.samples.every(s=>s.dataComplete);return [
  {id:'overview',label:'Job creation',done:!!o.dispatchedAt||legacyDispatch(job),note:legacyDispatch(job)?'Dispatch not recorded (legacy)':undefined,owner:job.createdById,next:isDraft(job)?'Complete the draft and send it to Sampling':'Review and send the job to Sampling'},
  {id:'sampling',label:'Sampling',done:dataReviewRequired(job)?['Submitted','Approved'].includes(latestData(job)?.status||'')||samplingApproved(job):sampleDone,owner:job.assignedEngineerId,next:early?st.next:'Complete the sample data sheets'},
  {id:'sampling-report',label:'Sampling review & report approval',done:samplingApproved(job),owner:early?job.assignedEngineerId:st.owner,next:early?'Submit sampling data for review':st.next},
  {id:'handover',label:'Sample handover',done:!!o.handover?.receivedAt,owner:o.handover?.sentAt?roles.labReceipt||undefined:job.assignedDriverId,next:o.handover?.receivedAt?'Receipt recorded':o.handover?'Confirm physical receipt':'Send approved samples'},
- {id:'scope',label:'Laboratory scope',done:!!o.scopeConfirmedAt&&lab.every(a=>a.owner&&a.start&&a.due),owner:needsScope||!unplanned?roles.scopeSelector:roles[streamLead(unplanned.stream)],next:needsScope?(samplingApproved(job)?'Select and release the laboratory scope per sample':'Laboratory scope opens after sampling-report approval'):'Team leads assign and schedule tests'},
+ {id:'scope',label:'Laboratory scope',done:!!o.scopeConfirmedAt&&!unplannedValidation(job).length&&lab.every(a=>a.owner&&a.start&&a.due),owner:needsScope||!unplanned?roles.scopeSelector:roles[streamLead(unplanned.stream)],next:needsScope?(samplingApproved(job)?'Select and release the laboratory scope per sample':'Laboratory scope opens after sampling-report approval'):'Team leads assign and schedule tests'},
  {id:'laboratory',label:'Laboratory work',done:allWorkDone(job),owner:lab.find(a=>a.status!=='Completed')?.owner,next:'Complete assigned tests, team-lead review and QC'},
  {id:'reporting',label:'Final reporting',done:latest(o.finalReports)?.status==='Approved'&&finalReady(job),owner:latest(o.finalReports)?.status==='Awaiting Approval'?roles.finalApproval:roles.reporting,next:qcPending(job)?testsAwaitingQcApproval(job).length+' test(s) awaiting QC approval':latest(o.finalReports)?.status||'Collect QC-approved workbooks and prepare the final report'},
  {id:'completion',label:'Completion',done:operationComplete(job),owner:undefined,next:operationComplete(job)?'All required work and approvals complete':'Complete required work and approvals'},

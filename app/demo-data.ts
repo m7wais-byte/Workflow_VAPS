@@ -1,7 +1,7 @@
 // Example jobs for the published workflow demo. Every name, well and value here is fictional and marked DEMO.
 // Jobs are advanced with the real workflow commands, so each one is a state the app can reach on its own.
 import type { JobRecord } from './page';
-import { applyOperation, type Command } from './operations-model';
+import { applyOperation, operationsFor, type Command } from './operations-model';
 import { initialDirectory } from './employee-directory';
 import { defaultAuthorization, defaultResponsibilities } from './authorization';
 import { cylinderCatalog } from './cylinder-catalog';
@@ -64,8 +64,8 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
   return run(j, 'SHEREIQI', { type: 'handover-receive', notes: 'Containers checked against the sampling report.' }, tick());
  };
  const conditions = (pressure: string, temperature: string) => ({ pressure, pressureUnit: 'psi', temperature, temperatureUnit: '°C', notes: 'DEMO reservoir conditions, fictional.' });
- type Entry = { sampleId: string; destination: 'PVT' | 'Chemical' | 'Both'; pvtTests: string[]; chemicalTests: string[] };
- const release = (j: JobRecord, entries: Entry[], cond: ReturnType<typeof conditions>, tick: () => string) => run(j, 'SALIM', { type: 'lab-scope', action: 'release', reason: '', conditions: cond, samples: entries.map(e => ({ ...e, notes: '', excluded: false, exclusionReason: '' })) }, tick());
+ type Entry = { sampleId: string; destination: 'PVT' | 'Chemical' | 'Both'; pvtTests: string[]; chemicalTests: string[]; fluidType?: 'Black Oil' | 'Gas Condensate' | 'Other'; fluidDescription?: string; validation?: boolean };
+ const release = (j: JobRecord, entries: Entry[], cond: ReturnType<typeof conditions>, tick: () => string) => run(j, 'SALIM', { type: 'lab-scope', action: 'release', reason: '', conditions: cond, samples: entries.map(e => ({ fluidType: 'Black Oil' as const, ...e, notes: '', excluded: false, exclusionReason: '' })) }, tick());
  const acts = (j: JobRecord) => j.operations!.activities;
  const find = (j: JobRecord, sampleId: string, title: string, stream: 'PVT' | 'Chemical' = 'PVT') => acts(j).find(a => a.sampleId === sampleId && a.title === title && a.stream === stream)!;
  const assign = (j: JobRecord, id: string, owner: string, start: number, due: number, tick: () => string, notes = 'DEMO instructions: follow the laboratory procedure for this test.') => { const a = acts(j).find(x => x.id === id)!; return run(j, a.stream === 'PVT' ? 'SHEREIQI' : 'BAHRI', { type: 'schedule', id, owner, start: addDays(day, start), due: addDays(day, due), conditions: a.conditions, notes }, tick()); };
@@ -103,7 +103,9 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
   dueDate: addDays(day, 8) }, start, 4);
  j3 = run(j3, 'SALIM', { type: 'dispatch', engineer: 'MOHSIN', driver: 'ALI' }, t());
  j3 = handover(samplingReport(j3, 'MOHSIN', t, 'report-approved'), 'ALI', t);
- j3 = release(j3, [{ sampleId: '1.01', destination: 'PVT', pvtTests: ['Black Oil — Validation', 'Black Oil — DL'], chemicalTests: [] }, { sampleId: '1.02', destination: 'Both', pvtTests: ['Black Oil — Validation'], chemicalTests: ['Others — Water Analysis'] }], conditions('3150', '92'), t);
+ j3 = release(j3, [{ sampleId: '1.01', destination: 'PVT', validation: true, pvtTests: ['Black Oil — DL'], chemicalTests: [] }, { sampleId: '1.02', destination: 'Both', validation: true, pvtTests: [], chemicalTests: ['Others — Water Analysis'] }], conditions('3150', '92'), t);
+ // Validation requested per sample; Ahmed (PVT Team Lead) chooses the steps for each sample (here the bottom-hole sequence).
+ for (const r of operationsFor(j3).scope.filter(r => r.validationRequest)) j3 = run(j3, 'SHEREIQI', { type: 'validation-plan', scopeId: r.id, steps: ['Sample Transfer', 'Opening Pressure', 'Restoration', 'Water Check', 'Agitation', 'Charging', 'Flash', 'PV', 'Direct Density'].map(title => ({ title })) }, t());
  const v1 = acts(j3).filter(a => a.kind === 'validation' && a.sampleId === '1.01'), v2 = acts(j3).filter(a => a.kind === 'validation' && a.sampleId === '1.02');
  for (const [i, a] of v1.entries()) j3 = assign(j3, a.id, 'NASSER', -6 + i, -4 + i, t);
  for (const [i, a] of v2.entries()) j3 = assign(j3, a.id, 'RANJITH', -5 + i, -3 + i, t);
@@ -145,7 +147,7 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
   samples: [{ ...sample('1.01', 'WHS', true, { samplingDate: addDays(day, -5), samplingTime: '07:45', whp: '300', wht: '45', chokeSize: '24/64' }, 'HUSSEINI', start), containerType: 'Glass container', containerId: 'DEMO-G-11', bottle: '', bottleSerial: '', bottleCapacity: '' }], dueDate: addDays(day, 9) }, start, 4);
  j5 = run(j5, 'SALIM', { type: 'dispatch', engineer: 'HUSSEINI', driver: 'ALI' }, t());
  j5 = handover(samplingReport(j5, 'HUSSEINI', t, 'report-approved'), 'ALI', t);
- j5 = release(j5, [{ sampleId: '1.01', destination: 'Chemical', pvtTests: [], chemicalTests: ['Others — Water Analysis', 'Others — Compositional Analysis'] }], conditions('', ''), clock(0));
+ j5 = release(j5, [{ sampleId: '1.01', destination: 'Chemical', fluidType: 'Other', fluidDescription: 'DEMO wellhead glass-container sample', pvtTests: [], chemicalTests: ['Others — Water Analysis', 'Others — Compositional Analysis'] }], conditions('', ''), clock(0));
 
  // 6 · PVT-only scope: CVD assigned to Nasser today (assignment alert); CCE still awaiting assignment (new PVT scope alert).
  t = clock(5); start = t();
@@ -155,7 +157,7 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
  j6 = run(j6, 'SALIM', { type: 'dispatch', engineer: 'MOHSIN', driver: 'HUMAID' }, t());
  j6 = handover(samplingReport(j6, 'MOHSIN', t, 'report-approved'), 'HUMAID', t);
  const t6 = clock(0);
- j6 = release(j6, [{ sampleId: '1.01', destination: 'PVT', pvtTests: ['Gas Condensates (GC) — CVD'], chemicalTests: [] }, { sampleId: '1.02', destination: 'PVT', pvtTests: ['Gas Condensates (GC) — CCE'], chemicalTests: [] }], conditions('', ''), t6);
+ j6 = release(j6, [{ sampleId: '1.01', destination: 'PVT', fluidType: 'Gas Condensate', pvtTests: ['Gas Condensates (GC) — CVD'], chemicalTests: [] }, { sampleId: '1.02', destination: 'PVT', fluidType: 'Gas Condensate', pvtTests: ['Gas Condensates (GC) — CCE'], chemicalTests: [] }], conditions('', ''), t6);
  j6 = assign(j6, find(j6, '1.01', 'Gas Condensates (GC) — CVD').id, 'NASSER', 0, 3, t6, 'DEMO: run CVD at reservoir temperature; report liquid dropout per stage.');
 
  return [j6, j5, j4, j3, j2, j1];
