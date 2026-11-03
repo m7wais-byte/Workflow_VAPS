@@ -1,5 +1,6 @@
 "use client";
 
+import { assetUrl } from "./deployment";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MyWork, LabSummary, type MyWorkFilter } from './dashboard';
 import { OperationsWorkspace, WeeklyWork, Clarification, ClarificationReview, LabWorkspace } from './operations-workspace';
@@ -1688,18 +1689,18 @@ export default function Home() {
   const stageTitle = stage === "job" ? "Create a new laboratory job" : stage === "type" ? "Sampling preparation" : stage === "bottomhole" ? "Sampling data" : stage === "scope" ? "Final report" : "Report preview";
   const stageCopy = stage === "job" ? "Register the client, location, sampling scope, assignment and sampling instructions. Save a draft at any time; Send to Sampling when ready." : stage === "type" ? "Prepare equipment and verify field readiness for the sampling type selected at Job Setup." : stage === "bottomhole" ? "Capture the sample register and field event details for the prepared sample set." : stage === "scope" ? "The final Sampling and Analysis Report is ready to view or print." : "Review, approve, and generate the final Sampling and Analysis Report.";
 
-  if (!authReady) return <div className="login-loading"><img src="/vaps-logo.png" alt="VAPS" /><span>Loading local workspace…</span></div>;
+  if (!authReady) return <div className="login-loading"><img src={assetUrl("/vaps-logo.png")} alt="VAPS" /><span>Loading local workspace…</span></div>;
 
   if (!currentEmployee) return (
     <main className="login-page">
       <section className="login-visual" aria-label="VAPS PVT Lab & Sampling introduction">
-        <div className="login-brand"><img src="/vaps-logo.png" alt="VAPS" /><span>INTERNAL OPERATIONS</span></div>
+        <div className="login-brand"><img src={assetUrl("/vaps-logo.png")} alt="VAPS" /><span>INTERNAL OPERATIONS</span></div>
         <div className="login-visual-copy"><span className="eyebrow">PETROLEUM LABORATORY SERVICES</span><h1>Technical workflows.<br />Clear responsibility.</h1><p>A focused workspace for managing PVT laboratory jobs, sampling records, and operational accountability.</p></div>
         <div className="login-security"><span className="status-dot" /><div><strong>Local demo environment</strong><small>Prototype credentials and workflow data stay on this device.</small></div></div>
       </section>
       <section className="login-form-side">
         <form className="login-card" onSubmit={handleLogin}>
-          <div className="login-mobile-logo"><img src="/vaps-logo.png" alt="VAPS" /></div>
+          <div className="login-mobile-logo"><img src={assetUrl("/vaps-logo.png")} alt="VAPS" /></div>
           <span className="eyebrow">EMPLOYEE ACCESS</span>
           <h2>VAPS PVT Lab & Sampling</h2>
           <p>Internal Laboratory Workflow Management</p>
@@ -1719,7 +1720,7 @@ export default function Home() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <img className="brand-logo" src={company.logo} alt={company.displayName} />
+          <img className="brand-logo" src={assetUrl(company.logo)} alt={company.displayName} />
           <small className="tool-title">PVT Lab <span>&amp; Sampling</span></small>
         </div>
         <nav aria-label="Primary navigation">

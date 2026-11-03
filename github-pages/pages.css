@@ -1,0 +1,5 @@
+/* next/font sets these variables in the Sites build; GitHub Pages loads the same Geist families from Google Fonts. */
+:root {
+  --font-geist-sans: "Geist", Arial, sans-serif;
+  --font-geist-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}

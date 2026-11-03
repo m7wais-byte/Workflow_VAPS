@@ -1,11 +1,13 @@
 import { jobSummary } from "./job-workflow-model";
 import type { JobRecord } from "./page";
+import { staticPages } from "./deployment";
 export type ShareRecord = { id: string; key: string; revision: number; audience: "link" | "signed-in"; fingerprint?: string; enabled: boolean; /** Withdrawn while the job is in Trash; republished to the same link on restore. */paused?: boolean };
 const storageKey = "vaps-job-summary-links-v1";
 const queues = new Map<string, Promise<unknown>>();
 export function getShare(jobId: string): ShareRecord | undefined { const all = JSON.parse(localStorage.getItem(storageKey) || "{}"); return all[jobId]; }
 function saveShare(jobId: string, record?: ShareRecord) { const all = JSON.parse(localStorage.getItem(storageKey) || "{}"); if (record) all[jobId] = record; else delete all[jobId]; localStorage.setItem(storageKey, JSON.stringify(all)); }
 async function save(job: JobRecord, audience?: ShareRecord["audience"]) {
+ if (staticPages) return; // GitHub Pages: no summary API, so nothing is published.
  let record = getShare(job.id);
  if (!record && !audience) return;
  if (!record) { record = { id: crypto.randomUUID(), key: crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", ""), revision: 0, audience: audience!, enabled: false }; saveShare(job.id, record); }
@@ -22,12 +24,14 @@ export function syncShare(job: JobRecord, audience?: ShareRecord["audience"]): P
  const next = previous.catch(() => {}).then(() => save(job, audience)); queues.set(job.id, next); return next;
 }
 export async function stopShare(jobId: string) {
+ if (staticPages) return;
  await queues.get(jobId)?.catch(() => {}); const record = getShare(jobId); if (!record) return;
  const response = await fetch("/api/job-summary/" + record.id, { method: "DELETE", headers: { Authorization: "Bearer " + record.key } });
  if (!response.ok) throw new Error("Could not stop sharing. Please retry."); saveShare(jobId);
 }
 /** Withdraws the server summary while keeping the link's id and key, so restoration republishes to the same address. */
 export async function pauseShare(jobId: string) {
+ if (staticPages) return;
  await queues.get(jobId)?.catch(() => {}); const record = getShare(jobId); if (!record?.enabled) return;
  const response = await fetch("/api/job-summary/" + record.id, { method: "DELETE", headers: { Authorization: "Bearer " + record.key } });
  if (!response.ok) throw new Error("The shared client link could not be paused, so the job was not moved to Trash. Please retry.");
@@ -35,6 +39,7 @@ export async function pauseShare(jobId: string) {
 }
 /** Republishes a paused link (same id and key) after restoration. */
 export async function resumeShare(job: JobRecord) {
+ if (staticPages) return;
  const record = getShare(job.id); if (!record?.paused) return;
  saveShare(job.id, { ...record, paused: false });
  return syncShare(job, record.audience);

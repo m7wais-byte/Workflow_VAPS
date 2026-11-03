@@ -1,5 +1,6 @@
 'use client';
 /* eslint-disable @next/next/no-img-element -- logos must stay plain <img> so the print/PDF copy carries them. */
+import { assetUrl, basePath } from './deployment';
 import type { ReactNode } from 'react';
 import { buildSamplingReport, unwrap, NOT_RECORDED, type Field, type ReportCompany, type ReportEvent, type ReportLetterhead, type ReportPerson, type ReportSample, type SamplingReportInput, type SamplingReportModel, type SampleSheet } from './sampling-report-model';
 import { clientLogoSource } from './client-logo';
@@ -153,7 +154,7 @@ function Header({ m }: { m: SamplingReportModel }) {
   return <header className="sr-head">
     <div className="sr-hc"><b>Client:</b><b>Job No:</b><b>Date:</b></div><div className="sr-hc"><span>{h.client}</span><span>{h.jobNo}</span><span>{h.date}</span></div>
     <div className="sr-hc"><b>Field:</b><b>Well:</b><b>Installation:</b></div><div className="sr-hc"><span>{h.field}</span><span>{h.well}</span><span>{h.installation}</span></div>
-    <div className="sr-head-logo">{m.input.company.logo ? <img src={m.input.company.logo} alt={m.input.company.displayName} /> : <strong>{m.input.company.displayName}</strong>}</div>
+    <div className="sr-head-logo">{m.input.company.logo ? <img src={assetUrl(m.input.company.logo)} alt={m.input.company.displayName} /> : <strong>{m.input.company.displayName}</strong>}</div>
   </header>;
 }
 function Footer({ m, n }: { m: SamplingReportModel; n: number }) {
@@ -188,8 +189,8 @@ export function SamplingReportDocument({ input }: { input: SamplingReportInput }
       if (page.kind === 'cover') return <section className="sr-page sr-cover" key="cover">
         {draft}
         <div className="sr-banner">
-          <div>{input.clientLogo && <img src={input.clientLogo} alt="" />}<strong>{c.clientTitle}</strong></div>
-          <div>{input.company.logo && <img src={input.company.logo} alt={input.company.displayName} />}<span><strong>{input.company.displayName}</strong>{input.company.name && input.company.name !== input.company.displayName && <><br /><small>{input.company.name}</small></>}</span></div>
+          <div>{input.clientLogo && <img src={assetUrl(input.clientLogo)} alt="" />}<strong>{c.clientTitle}</strong></div>
+          <div>{input.company.logo && <img src={assetUrl(input.company.logo)} alt={input.company.displayName} />}<span><strong>{input.company.displayName}</strong>{input.company.name && input.company.name !== input.company.displayName && <><br /><small>{input.company.name}</small></>}</span></div>
         </div>
         <p className="sr-address">{[input.company.address, input.company.address ? input.company.country : ''].filter(Boolean).join('\n')}</p>
         <div className="sr-cover-title"><p>{c.clientTitle}</p><hr /><h1>Sampling and Analysis Report</h1></div>
@@ -234,7 +235,7 @@ export async function exportSamplingReportPdf(element: HTMLElement, title: strin
   if (!doc || !win) { frame.remove(); throw Error('The print view could not be opened.'); }
   const safeTitle = title.replace(/[<>&"]/g, '');
   doc.open();
-  doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>${safeTitle}</title><base href="${location.origin}/"></head><body style="margin:0;background:#fff">${element.outerHTML}</body></html>`);
+  doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>${safeTitle}</title><base href="${location.origin}${basePath}"></head><body style="margin:0;background:#fff">${element.outerHTML}</body></html>`);
   doc.close();
   await Promise.all(Array.from(doc.images).map(img => img.complete ? Promise.resolve() : new Promise(resolve => { img.onload = img.onerror = () => resolve(null); })));
   await (doc.fonts?.ready ?? Promise.resolve());
