@@ -2621,3 +2621,9 @@ main,.workspace-content,.settings-workspace .panel {min-width:0;}
  .segmented{width:100%}.segmented button{flex:1 1 auto}
  .selected-test-controls{flex-direction:column}
 }
+
+/* Sampling and Analysis Report preview (the A4 document styles live in app/sampling-report.tsx). */
+.sr-preview{background:#e5e7eb;padding:16px 0 8px;overflow-x:auto;border-radius:6px;margin-top:10px}
+.final-sampling-report.sr-preview{max-width:none;width:100%}
+.sr-preview-actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:12px 0 0}
+.sr-preview-actions small{color:#5b6b73}

@@ -39,9 +39,43 @@ export function reviewTargets(job: SamplingJob): { target: string; label: string
   return [{ target: 'job', label: 'Job details' }, { target: 'preparation', label: 'Preparation' }, { target: 'events', label: 'Sequence of events' },
     ...(job.samples || []).flatMap((s) => [{ target: `sample:${s.id}`, label: `Sample ${s.id}` }, { target: `sample:${s.id}:container`, label: `Sample ${s.id} · container (${containerLabel(s)})` }, { target: `sample:${s.id}:data`, label: `Sample ${s.id} · sampling data` }])];
 }
-/** Default sampling-report summary generated from the recorded job and samples. */
-export function samplingSummary(job: SamplingJob & { clientName?: string; well?: string; jobNumber?: string }): string {
-  const source = job.samplingSource || '';
-  const action = source === 'Cased Hole (Bottomhole / Downhole Sampling)' ? 'bottom-hole sampling and sample transfer activities' : `${source || 'sampling'} activities`;
-  return `VAPS was contracted by ${job.clientName || 'the client'} to perform ${action} for well ${job.well || 'not recorded'}. A total of ${job.samples?.length || 0} samples were collected or handled and recorded under job ${job.jobNumber || ''}.`;
+const countWords = ['None', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve'];
+const count = (n: number) => countWords[n] || String(n);
+/** Activity wording for each recorded sampling type; nothing beyond the type itself is implied. */
+const activities: Record<string, string> = {
+  'Open Hole (MPSR - Lab Transfer)': 'open hole sample transfer from MPSR (laboratory transfer)',
+  'Open Hole (MDT Transfer)': 'open hole sample transfer from MDT',
+  'Open Hole (SPMC - Field Sampling)': 'open hole field sampling (SPMC)',
+  'Cased Hole (Bottomhole / Downhole Sampling)': 'cased hole bottomhole sampling',
+  'Wellhead Sampling': 'wellhead sampling', 'Separator Sampling': 'separator sampling', 'Station Sampling': 'station sampling',
+};
+/** "Four PDS", "Two PDS and One glass container" — grouped by the recorded type, in first-seen order. */
+function grouped(names: string[]): string {
+  const counts = new Map<string, number>();
+  for (const name of names) counts.set(name, (counts.get(name) || 0) + 1);
+  const parts = [...counts].map(([name, n]) => `${count(n)} ${name}${name === 'glass container' && n > 1 ? 's' : ''}`);
+  return parts.length > 1 ? parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1] : parts[0] || '';
+}
+type SummaryJob = SamplingJob & { clientName?: string; well?: string; wells?: string[]; wellMode?: string; jobNumber?: string; otherSamplingType?: string };
+/**
+ * Default sampling-report summary in the reference report's concise style, built only from recorded information:
+ * the recorded sampling type, the recorded receiving containers and samplers, and the job's well. It makes no
+ * transfer, shipping, regulation or approval claims; the preparer edits the text before submission when needed.
+ */
+export function samplingSummary(job: SummaryJob): string {
+  const source = (job.samplingSource || '').trim();
+  const other = (job.otherSamplingType || '').trim();
+  const activity = activities[source] || (source === 'Other' && other ? `sampling (${other})` : 'sampling');
+  const samples = job.samples || [], n = samples.length;
+  const paragraphs = [`Vision Advanced Petroleum Solutions was contracted by ${job.clientName || 'the client'} for ${activity}.`];
+  if (!n) { paragraphs.push('No samples are recorded for this job.'); return paragraphs.join('\n\n'); }
+  const typed = samples.map((s) => isGlass(s) ? 'glass container' : (s.bottle || '').trim()).filter(Boolean);
+  const untyped = n - typed.length;
+  paragraphs.push(`A total of ${count(n)} ${n === 1 ? 'sample was' : 'samples were'} recorded${typed.length ? ` in ${grouped(typed)}` : ''}.${untyped && typed.length ? ` The container type is not recorded for ${count(untyped).toLowerCase()} ${untyped === 1 ? 'sample' : 'samples'}.` : ''}`);
+  const samplers = samples.map((s) => (s.sampler || '').trim()).filter(Boolean);
+  if (samplers.length) paragraphs.push(`Samplers recorded: ${grouped(samplers)}.`);
+  const wells = job.wellMode === 'multiple' ? (job.wells || []).map((w) => w.trim()).filter(Boolean) : [];
+  if (wells.length > 1) paragraphs.push(`The samples are recorded for the wells ${wells.join(', ')}.`);
+  else if ((job.well || '').trim()) paragraphs.push(`All of the samples are recorded for the well ${job.well!.trim()}.`);
+  return paragraphs.join('\n\n');
 }

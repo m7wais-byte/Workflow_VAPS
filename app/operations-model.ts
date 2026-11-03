@@ -1,3 +1,4 @@
+import type { ReportLetterhead } from './sampling-report-model';
 import type { JobRecord } from './page';
 import { defaultResponsibilities, explicitPermissions, roleHolder, storedResponsibilities, responsibilityLabels, type Authorization, type Permission, type Responsibilities, type Responsibility } from './authorization';
 import type { Employee } from './employee-directory';
@@ -21,7 +22,9 @@ export type ExternalWork = { provider:string; notes:string; expectedReturn:strin
 export type ExecutionChoice = { by:'Internal'|'Third-party'; provider?:string; /** Optional at scope time; otherwise the team lead assigns the coordinator. */coordinator?:string; notes?:string; expectedReturn?:string };
 export type CustomTest = { /** Stable ID kept through drafts, release and tracking. */id:string; name:string; notes:string; team:Destination; execution?:ExecutionChoice };
 export type ScopeRecord = { id:string; linkId?:string; title:string; sampleIds:string[]; stream:Stream; notes:string; addedBy:string; at:string; reason:string; source:'Original request'|'Additional work'; /** Validation requested for the sample; the PVT Team Lead chooses the steps. */validationRequest?:boolean; plannedBy?:string; plannedAt?:string };
-export type ReportVersion = { version:number; status:'Draft'|'Checking'|'Awaiting Approval'|'Changes Requested'|'Approved'; text:string; preparedBy:string; preparedAt:string; checker:string; checkedAt?:string; submittedAt?:string; approvedBy?:string; approvedAt?:string; comments:string; snapshot:string; file?:FileVersion };
+export type ReportVersion = { version:number; status:'Draft'|'Checking'|'Awaiting Approval'|'Changes Requested'|'Approved'; text:string; preparedBy:string; preparedAt:string; checker:string; checkedAt?:string; submittedAt?:string; approvedBy?:string; approvedAt?:string; comments:string; snapshot:string; file?:FileVersion;
+ /** Sampling reports: details outside the sample evidence (installation, client branding, company, names/titles), saved with the version and frozen at approval. Missing on versions saved before it existed. */
+ letterhead?:ReportLetterhead };
 export type Destination = Stream | 'Both';
 /** One sample in a laboratory-scope version. Container details are copied so issued documents never change. */
 export type SampleScope = { sampleId:string; containerType:ContainerType; containerLabel:string; destination:Destination; pvtTests:string[]; chemicalTests:string[]; notes:string; excluded:boolean; exclusionReason:string;
@@ -227,8 +230,8 @@ export type Command =
  | {type:'workbook-return';id:string;comments:string}
  | {type:'lead-review';id:string;decision:'approve'|'return';target:string;comments:string}
  | {type:'qc-review';id:string;decision:'approve'|'return';target:string;comments:string}
- | {type:'report-draft';kind:'sampling'|'final';text:string;checker:string;file?:FileVersion}
- | {type:'report-action';kind:'sampling'|'final';action:'checking'|'submit'|'return'|'approve'|'revise';comments:string}
+ | {type:'report-draft';kind:'sampling'|'final';text:string;checker:string;file?:FileVersion;letterhead?:ReportLetterhead}
+ | {type:'report-action';kind:'sampling'|'final';action:'checking'|'submit'|'return'|'approve'|'revise';comments:string;letterhead?:ReportLetterhead}
  | {type:'handover-send';sampleIds:string[];notes:string}
  | {type:'handover-receive';notes:string};
 export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new Date().toISOString()):JobRecord {
@@ -514,7 +517,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   else if(command.kind==='sampling'&&old&&actor.id!==old.preparedBy)throw Error('Only the recorded preparer can edit this report version.');
   if(old&&!['Draft','Changes Requested'].includes(old.status))throw Error('Create a revision before editing a submitted report.');
   requireText(command.text,'Report summary');if(!reviewed){active(actor,command.checker);if(command.kind==='sampling'&&!actor.policy.sampling.includes(command.checker)&&command.checker!=='MA001')throw Error('The selected checker needs sampling permission.');}
-  const version:ReportVersion={version:old?.status==='Draft'?old.version:list.length+1,status:'Draft',text:command.text,preparedBy:actor.id,preparedAt:now,checker:command.kind==='final'?holder(actor,'reporting'):reviewed?'':command.checker,comments:'',snapshot:snapshot(command.kind),file:command.file};
+  const version:ReportVersion={version:old?.status==='Draft'?old.version:list.length+1,status:'Draft',text:command.text,preparedBy:actor.id,preparedAt:now,checker:command.kind==='final'?holder(actor,'reporting'):reviewed?'':command.checker,comments:'',snapshot:snapshot(command.kind),file:command.file,...(command.kind==='sampling'&&command.letterhead?{letterhead:command.letterhead}:{})};
   if(old?.status==='Draft')list[list.length-1]=version;else list.push(version);break;
  }
  case 'report-action':{
@@ -524,7 +527,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
    if(command.kind!=='sampling'||actor.id!==r.preparedBy||r.status!=='Draft')throw Error('Only the preparer can submit a draft for checking.');
    if(dataReviewRequired(job))throw Error('Reports from approved sampling data go directly to the sampling approver. Use Submit for approval.');
    if(!job.samples?.length||job.samples.some(s=>!s.dataComplete))throw Error('Complete all sample data sheets first.');
-   r.snapshot=snapshot(command.kind);r.status='Checking';r.submittedAt=now;
+   r.snapshot=snapshot(command.kind);r.status='Checking';r.submittedAt=now;if(command.letterhead)r.letterhead=command.letterhead;
   } else if(command.action==='submit'){
    const direct=command.kind==='sampling'&&dataReviewRequired(job)&&!r.checker;
    if(direct){if(actor.id!==r.preparedBy||actor.id!==job.assignedEngineerId||r.status!=='Draft')throw Error('Only the accountable sampling employee can submit this report for approval.');if(latestData(job)?.status!=='Approved')throw Error('The sampling data must be approved before the report is submitted.');}
@@ -533,7 +536,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
    if(r.snapshot!==snapshot(command.kind))throw Error('The draft or checked evidence changed. Save an updated draft or return this version for correction before submission.');
    if(command.kind==='final'&&qcPending(next))throw Error(testsAwaitingQcApproval(next).length+' required test(s) are not yet QC approved. Final reporting waits for every QC approval.');
    if(command.kind==='final'&&(!finalReady(next)||!r.file))throw Error('Complete required work, sampling approval and physical receipt, and attach the final report.');
-   if(!direct)r.checkedAt=now;r.submittedAt=now;r.status='Awaiting Approval';r.snapshot=snapshot(command.kind);
+   if(!direct)r.checkedAt=now;r.submittedAt=now;r.status='Awaiting Approval';r.snapshot=snapshot(command.kind);if(command.kind==='sampling'&&command.letterhead)r.letterhead=command.letterhead;
   } else if(command.action==='approve'){
    const approver=holder(actor,command.kind==='sampling'?'samplingApproval':'finalApproval');
    if(!approver)throw Error(responsibilityLabels[command.kind==='sampling'?'samplingApproval':'finalApproval']+' is not configured. Ask an administrator to assign it in Settings → Authorization.');
@@ -543,12 +546,14 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
    if(command.kind==='sampling'&&dataReviewRequired(job)&&latestData(job)?.status!=='Approved')throw Error('The sampling data must be approved before the report.');
    if(command.kind==='final'&&!finalReady(next))throw Error('Required work changed or remains incomplete. Return this version for correction.');
    r.approvedBy=actor.id;r.approvedAt=now;r.status='Approved';
+   // The details shown on the approved report are frozen here; later edits to job, client, company or people do not reach it.
+   if(command.kind==='sampling'&&command.letterhead)r.letterhead=command.letterhead;
   } else if(command.action==='return'){
    const reviewer=r.status==='Checking'?r.checker:holder(actor,command.kind==='sampling'?'samplingApproval':'finalApproval');if(!reviewer||actor.id!==reviewer||!['Checking','Awaiting Approval'].includes(r.status))throw Error('Only the current reviewer can return a submitted version.');
    requireText(command.comments,'Correction comments');r.status='Changes Requested';r.comments=command.comments;reason=command.comments;
   } else {
    if(actor.id!==r.preparedBy||!['Approved','Changes Requested'].includes(r.status))throw Error('Only the preparer can create a revision of an approved or returned report.');
-   requireText(command.comments,'Revision reason');list.push({...r,version:list.length+1,status:'Draft',file:command.kind==='final'?undefined:r.file,preparedAt:now,approvedAt:undefined,approvedBy:undefined,checkedAt:undefined,submittedAt:undefined,comments:command.comments,snapshot:snapshot(command.kind)});reason=command.comments;
+   requireText(command.comments,'Revision reason');list.push({...r,version:list.length+1,status:'Draft',file:command.kind==='final'?undefined:r.file,preparedAt:now,approvedAt:undefined,approvedBy:undefined,checkedAt:undefined,submittedAt:undefined,comments:command.comments,snapshot:snapshot(command.kind),letterhead:command.kind==='sampling'?command.letterhead:undefined});reason=command.comments;
   }break;
  }
  case 'handover-send':{
