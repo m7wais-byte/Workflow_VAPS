@@ -18,7 +18,7 @@ const step=(job,c,id,extra)=>applyOperation(job,c,actor(id,extra),at());
 const s=(id,extra={})=>({id,bottle:'PDS',bottleSerial:'B-'+id,dataComplete:true,fieldData:{sampleNature:'WHS'},...extra});
 const base=()=>({id:'OM-P-26-301',jobNumber:'OM-P-26-301',clientCode:'P',clientName:'Test',fieldArea:'F',well:'W',samplingSource:'Wellhead Sampling',samplingInstructions:'Collect four samples.',status:'Draft',createdById:'SALIM',stages:[],events:[],
  samples:[s('1.01'),s('1.02',{containerType:'Glass container',containerId:'G-07',bottle:'',bottleSerial:''}),s('1.03'),s('1.04')]});
-const entry=(sampleId,destination,pvtTests=[],chemicalTests=[],more={})=>({sampleId,destination,pvtTests,chemicalTests,notes:'Run at reservoir temperature.',excluded:false,exclusionReason:'',...more});
+const entry=(sampleId,destination,pvtTests=[],chemicalTests=[],more={})=>({sampleId,destination,pvtTests,chemicalTests,notes:'Run at reservoir temperature.',excluded:false,exclusionReason:'',fluidType:'Black Oil',...more});
 const conditions={pressure:'2100',pressureUnit:'psi',temperature:'88',temperatureUnit:'°C',notes:''};
 function released(){
  let j=step(base(),{type:'dispatch',engineer:'MOHSIN',driver:'ALI'},'SALIM');

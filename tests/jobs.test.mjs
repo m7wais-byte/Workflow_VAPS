@@ -19,7 +19,7 @@ const draft=(extra={})=>({id:'OM-P-26-101',jobNumber:'OM-P-26-101',globalSequenc
 const sent=(job=draft())=>step(job,{type:'dispatch',engineer:'MOHSIN',driver:'HUMAID',team:['HUSSEINI']},'SALIM');
 const approved=()=>{let job=sent();job=step(job,{type:'data-submit',note:''},'MOHSIN');job=step(job,{type:'data-approve'},'SALIM');job=step(job,{type:'report-draft',kind:'sampling',text:'Report',checker:''},'MOHSIN');job=step(job,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN');return step(job,{type:'report-action',kind:'sampling',action:'approve',comments:''},'SALIM');};
 const conditions={pressure:'2100',pressureUnit:'psi',temperature:'88',temperatureUnit:'°C',notes:''};
-const entry=(sampleId,destination,pvtTests=[],chemicalTests=[],more={})=>({sampleId,destination,pvtTests,chemicalTests,notes:'',excluded:false,exclusionReason:'',...more});
+const entry=(sampleId,destination,pvtTests=[],chemicalTests=[],more={})=>({sampleId,destination,pvtTests,chemicalTests,notes:'',excluded:false,exclusionReason:'',fluidType:'Black Oil',...more});
 const mixed=()=>[entry('1.01','PVT',['Black Oil — DL','Black Oil — Validation']),entry('1.02','Chemical',[],['Others — Water Analysis']),entry('1.03','Both',['Specialised Analysis — SARA','Specialised Analysis — Pour Point'],['Specialised Analysis — SARA','Specialised Analysis — Pour Point'])];
 const release=(job,samples=mixed(),id='SALIM',extra,reason='')=>step(job,{type:'lab-scope',action:'release',samples,conditions,reason},id,extra);
 
@@ -94,7 +94,7 @@ test('PVT-only, Chemical-only and combined samples route to the configured team 
 test('release refuses wrong routing, undecided samples and unsupported destinations',()=>{
  const job=approved();
  assert.throws(()=>release(job,[entry('1.01','Chemical',[],['Black Oil — DL']),...mixed().slice(1)]),/routed to PVT in Settings/);
- assert.throws(()=>release(job,[entry('1.01','PVT',[],['Others — Water Analysis']),...mixed().slice(1)]),/need the destination Chemical or Both/);
+ assert.throws(()=>release(job,[entry('1.01','PVT',[],['Others — Water Analysis']),...mixed().slice(1)]),/need the destination Chemical or PVT and Chemical/);
  assert.throws(()=>release(job,[entry('1.01','PVT'),...mixed().slice(1)]),/has no tests/);
  assert.throws(()=>release(job,[entry('1.01','PVT',[],[],{excluded:true}),...mixed().slice(1)]),/reason for excluding/);
  assert.throws(()=>release(job,mixed().slice(1)),/one scope entry/);

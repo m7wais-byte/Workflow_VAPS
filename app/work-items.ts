@@ -1,5 +1,5 @@
 import type { JobRecord } from './page';
-import { operationsFor, samplingStatus, latestData, latest, labStatus, isDraft, canSeeDraft, samplingTeam, samplingApproved, finalReady, testsAwaitingQcApproval, actorRoles, hasAccess, streamLead, additionalWorkPending, type Actor, type ActivityRecord, type Stream } from './operations-model';
+import { operationsFor, samplingStatus, latestData, latest, labStatus, isDraft, canSeeDraft, samplingTeam, samplingApproved, finalReady, testsAwaitingQcApproval, actorRoles, hasAccess, streamLead, additionalWorkPending, unplannedValidation, type Actor, type ActivityRecord, type Stream } from './operations-model';
 import { containerLabel } from './sample-container';
 import { addDays as addDaysIso } from './local-date';
 import type { Responsibilities } from './authorization';
@@ -33,7 +33,7 @@ export type BlockedItem = { key: string; setting: Setting; what: string; jobs: s
 export type UpcomingItem = { key: string; jobId: string; jobNumber: string; client: string; area: Area; role: string; what: string; after: string; sample?: string; test?: string; due?: string; dueKind: DueKind; open: { tab: string } };
 /** In-app scope and assignment alerts. Reading one never completes the work behind it. */
 export type Alert = {
-  key: string; kind: 'scope' | 'assignment' | 'moved'; jobId: string; jobNumber: string; headline: string;
+  key: string; kind: 'scope' | 'assignment' | 'moved' | 'external'; jobId: string; jobNumber: string; headline: string;
   samples: string; scope: string; destination: Stream | 'Both'; by: string; at: string; planner: string; assignee?: string; button: string; open: { tab: string };
   /** Seen-marker keys covered by this alert (its own key plus the "New" markers of the tasks it announces). */keys: string[];
 };
@@ -138,24 +138,45 @@ export function workItems(jobs: JobRecord[], actor: Actor, today: string) {
     // Laboratory tests
     const lab = o.activities.filter((a) => a.required);
     for (const stream of ['PVT', 'Chemical'] as const) {
+      if (!roles[streamLead(stream)] && lab.some((a) => a.stream === stream && a.external && !a.owner && a.status !== 'Completed')) block(streamLead(stream) as Setting, `Outsourced ${stream} tests have no internal coordinator and no ${stream} Team Lead to assign one; dispatch is blocked.`, job);
       if (roles[streamLead(stream)] !== me || !hasAccess(actor, 'analysis')) continue;
-      const unassigned = lab.filter((a) => a.stream === stream && !a.owner && a.status !== 'Completed');
+      const open = lab.filter((a) => a.stream === stream && !a.owner && a.status !== 'Completed');
+      // Outsourced work without an accountable internal coordinator gets its own task; it cannot be dispatched until assigned.
+      const uncoordinated = open.filter((a) => a.external), unassigned = open.filter((a) => !a.external);
+      if (uncoordinated.length) add({ ...base, role: `${stream} Team Lead`, button: 'Assign coordinator', key: `coord:${job.id}:${stream}`, kind: 'task', action: `Assign an internal coordinator · ${uncoordinated.length} outsourced ${stream} test${uncoordinated.length === 1 ? '' : 's'} (${[...new Set(uncoordinated.map((a) => a.external!.provider))].join(', ')})`, stream, sample: [...new Set(uncoordinated.map((a) => a.sampleId))].join(', '), status: 'Outsourced · no coordinator · dispatch blocked', from: [...o.scope].reverse().find((s) => s.stream === stream)?.addedBy, fromLabel: 'Scope added by', events: [], open: { tab: 'laboratory?stream=' + stream } });
       if (unassigned.length) add({ ...base, role: `${stream} Team Lead`, button: 'Assign tests', key: `assign:${job.id}:${stream}`, kind: 'task', action: `Assign ${unassigned.length} ${stream} test(s)`, stream, sample: [...new Set(unassigned.map((a) => a.sampleId))].join(', '), status: 'Awaiting assignment', from: [...o.scope].reverse().find((s) => s.stream === stream)?.addedBy, fromLabel: 'Scope added by', events: [], open: { tab: 'laboratory?stream=' + stream } });
-      if (unassigned.length && !actor.teams?.[stream]?.length) block('teams', `${stream} tests cannot be assigned until the ${stream} team has members.`, job);
+      if (open.length && !actor.teams?.[stream]?.length) block('teams', `${stream} tests cannot be assigned until the ${stream} team has members.`, job);
+    }
+    // Validation requested per sample: the PVT Team Lead chooses the steps. It stays until planned; reading an alert never clears it.
+    const toPlan = unplannedValidation(job);
+    if (toPlan.length) {
+      if (!roles.pvtTeamLead) block('pvtTeamLead', 'Validation is requested but no PVT Team Lead is configured to plan the steps.', job);
+      else if (roles.pvtTeamLead === me && hasAccess(actor, 'analysis')) {
+        const ids = [...new Set(toPlan.flatMap((r) => r.sampleIds))], first = job.samples?.find((x) => x.id === ids[0]);
+        add({ ...base, role: 'PVT Team Lead', button: 'Plan Validation', key: `plan-validation:${job.id}`, kind: 'task', action: `Plan Validation steps · ${ids.length} sample${ids.length === 1 ? '' : 's'}`, stream: 'PVT', sample: ids.join(', '), container: ids.length === 1 && first ? containerLabel(first) : undefined, status: 'Validation requested · steps not chosen', from: toPlan[toPlan.length - 1].addedBy, fromLabel: 'Requested by', events: [], open: { tab: 'laboratory?stream=PVT&plan=' + encodeURIComponent(toPlan[0].id) } });
+      }
     }
     for (const a of lab) {
       const sample = job.samples?.find((s) => s.id === a.sampleId), streamLeadId = roles[streamLead(a.stream)];
       const t = { ...base, sample: a.sampleId, container: sample ? containerLabel(sample) : undefined, test: a.title, stream: a.stream, status: labStatus(a), due: a.due || undefined, events: labEvents(a, me, streamLeadId, roles.qcReviewer), open: { tab: 'laboratory?activity=' + encodeURIComponent(a.id) } };
       const history = a.history || [], lastReturn = [...history].reverse().find((h) => h.action === 'lead-returned'), lastQc = [...history].reverse().find((h) => h.action === 'qc-returned'), assigned = [...history].reverse().find((h) => h.to === a.owner);
-      if (a.owner === me && hasAccess(actor, 'analysis')) {
-        if (a.status === 'Changes Requested') add({ ...t, role: `${a.stream} test`, button: 'Correct workbook', key: `test:${a.id}:${job.id}`, kind: 'returned', action: 'Correct and resubmit workbook', from: lastReturn?.by, fromLabel: 'Returned by', comment: [lastReturn?.target, lastReturn?.comments].filter(Boolean).join(' — ') });
+      const ext = a.external;
+      if (ext && a.owner === me && hasAccess(actor, 'analysis') && (a.status === 'Scheduled' || a.status === 'In Progress')) {
+        // Third-party work: the coordinator dispatches, waits on the provider, then submits the returned results for review.
+        const label = `External · ${ext.provider}`;
+        if (!ext.sentAt) add({ ...t, role: `${a.stream} external coordinator`, button: 'Record dispatch', key: `test:${a.id}:${job.id}`, kind: t.events.some((k) => k.includes(':assign:')) && a.status === 'Scheduled' ? 'assignment' : 'task', action: `Dispatch to ${ext.provider} (third-party)`, status: `${label} · Awaiting dispatch`, due: ext.expectedReturn || a.due || undefined, from: assigned?.by, fromLabel: 'Assigned by', comment: ext.notes || undefined });
+        else if (!ext.receivedAt) wait({ ...base, key: `w-ext:${a.id}:${job.id}`, sample: a.sampleId, test: a.title, label: `Waiting on ${ext.provider} (third party)`, what: `${a.title} · Sample ${a.sampleId} · sent ${ext.sentOn || ext.sentAt.slice(0, 10)} · expected back ${ext.expectedReturn || 'not set'}${ext.expectedReturn && ext.expectedReturn < today ? ' (overdue)' : ''}`, waitingOn: `${ext.provider} (third party)`, since: ext.sentAt, open: t.open });
+        else add({ ...t, role: `${a.stream} external coordinator`, button: 'Submit results', key: `test:${a.id}:${job.id}`, kind: 'task', action: `Submit ${ext.provider} results for internal review`, status: `${label} · Results received`, due: a.due || undefined, from: ext.receivedBy, fromLabel: 'Results recorded by' });
+      } else if (a.owner === me && hasAccess(actor, 'analysis')) {
+        if (a.status === 'Changes Requested') add({ ...t, role: ext ? `${a.stream} external coordinator` : `${a.stream} test`, button: ext ? 'Follow up return' : 'Correct workbook', key: `test:${a.id}:${job.id}`, kind: 'returned', action: ext ? `Follow up with ${ext.provider} and record corrected results` : 'Correct and resubmit workbook', from: lastReturn?.by, fromLabel: 'Returned by', comment: [lastReturn?.target, lastReturn?.comments].filter(Boolean).join(' — ') });
         // A test planned to start later waits in Coming up; it can still be opened, and nothing blocks starting it early.
         else if (a.status === 'Scheduled' && a.start && a.start > today) soon({ key: `soon-test:${a.id}:${job.id}`, area: a.stream, role: `${a.stream} test`, what: `${a.title} · Sample ${a.sampleId}`, after: `Planned start ${a.start}`, sample: a.sampleId, test: a.title, due: a.due || undefined, dueKind: 'Test due', open: t.open });
         else if (a.status === 'Scheduled' || a.status === 'In Progress' || a.status === 'Unassigned') add({ ...t, role: `${a.stream} test`, button: a.status === 'Scheduled' ? 'Start test' : 'Submit workbook', key: `test:${a.id}:${job.id}`, kind: t.events.some((k) => k.includes(':assign:')) && a.status === 'Scheduled' ? 'assignment' : 'task', action: a.status === 'Scheduled' ? 'Start test and submit workbook' : 'Submit workbook', from: assigned?.by, fromLabel: 'Assigned by', comment: assigned?.comments || undefined });
         else if (['Workbook Submitted', 'Awaiting QC', 'QC Returned'].includes(a.status)) wait({ ...base, key: `w-test:${a.id}:${job.id}`, sample: a.sampleId, test: a.title, what: `${a.title} · Sample ${a.sampleId} · workbook v${a.files.length}`, waitingOn: a.status === 'Awaiting QC' ? (roles.qcReviewer ? name(roles.qcReviewer) + ' (QC)' : 'QC (not configured)') : streamLeadId ? name(streamLeadId) + ' (team lead)' : 'Team lead (not configured)', blocked: a.status === 'Awaiting QC' && !roles.qcReviewer ? 'qcReviewer' : undefined, since: a.files.at(-1)?.submittedAt, open: t.open });
       }
       if (streamLeadId === me && hasAccess(actor, 'analysis')) {
-        if (a.status === 'Workbook Submitted') add({ ...t, role: `${a.stream} Team Lead`, button: 'Review workbook', key: `review:${a.id}:${job.id}`, kind: 'review', action: `Review workbook v${a.files.length}`, from: a.owner, fromLabel: 'Submitted by' });
+        if (a.status === 'Workbook Submitted') add({ ...t, role: `${a.stream} Team Lead`, button: a.external ? 'Review results' : 'Review workbook', key: `review:${a.id}:${job.id}`, kind: 'review', action: a.external ? `Review external results v${a.files.length} (${a.external.provider})` : `Review workbook v${a.files.length}`, from: a.owner, fromLabel: 'Submitted by' });
+        if (a.status === 'Workbook Submitted' && a.external) { const sub = [...(a.history || [])].reverse().find((h) => h.action === 'submitted'); alert({ key: `lab:ext:${a.id}:${a.files.length}`, kind: 'external', jobId: job.id, jobNumber: job.jobNumber, headline: 'External results submitted for review', samples: `Sample ${a.sampleId}${sample ? ' · ' + containerLabel(sample) : ''}`, scope: `${a.title} · External · ${a.external.provider}`, destination: a.stream, by: sub?.by || a.owner, at: sub?.at || a.files.at(-1)?.submittedAt || '', planner: me, assignee: a.owner, button: 'Review results', open: t.open, keys: [`lab:ext:${a.id}:${a.files.length}`, `lab:review:${a.id}:${a.files.length}`] }); }
         if (a.status === 'QC Returned') add({ ...t, role: `${a.stream} Team Lead`, button: 'Review QC return', key: `qcret:${a.id}:${job.id}`, kind: 'returned', action: 'Review QC return', from: lastQc?.by, fromLabel: 'Returned by QC', comment: [lastQc?.target, lastQc?.comments].filter(Boolean).join(' — ') });
         if (a.status === 'Changes Requested' && a.owner && a.owner !== me) wait({ ...base, key: `w-lead-ret:${a.id}:${job.id}`, sample: a.sampleId, test: a.title, label: `Waiting for ${name(a.owner)} to correct workbook`, what: `${a.title} · Sample ${a.sampleId} · you returned v${a.files.length}`, waitingOn: name(a.owner), since: lastReturn?.at, comment: [lastReturn?.target, lastReturn?.comments].filter(Boolean).join(' — ') || undefined, commentLabel: 'Your correction request', open: t.open });
         if (a.status === 'Awaiting QC') wait({ ...base, key: `w-qc:${a.id}:${job.id}`, sample: a.sampleId, test: a.title, blocked: roles.qcReviewer ? undefined : 'qcReviewer', what: `${a.title} · Sample ${a.sampleId} · v${a.files.length} approved by you`, waitingOn: roles.qcReviewer ? name(roles.qcReviewer) + ' (QC)' : 'QC (not configured)', since: a.files.at(-1)?.leadApprovedAt, open: t.open });
@@ -196,21 +217,23 @@ export function workItems(jobs: JobRecord[], actor: Actor, today: string) {
     const sampleBoth = (id: string) => (o.labScopes || []).some((v) => v.status === 'Released' && v.samples.some((x) => x.sampleId === id && x.destination === 'Both'));
     const containerOf = (id: string) => { const smp = job.samples?.find((x) => x.id === id); return `Sample ${id}${smp ? ' · ' + containerLabel(smp) : ''}`; };
     const groups = new Map<string, typeof o.scope>();
-    for (const r of o.scope) { const k = r.stream + '|' + r.at; groups.set(k, [...(groups.get(k) || []), r]); }
+    for (const r of o.scope) { const k = r.stream + '|' + r.at + (r.validationRequest ? '|validation' : ''); groups.set(k, [...(groups.get(k) || []), r]); }
     for (const [k, records] of groups) {
       const stream = records[0].stream, planner = roles[streamLead(stream)], ids = new Set(records.map((r) => r.id));
       const acts = o.activities.filter((a) => ids.has(a.scopeId) && a.required);
-      // A scope alert stays while work is unassigned, or for two days after the scope was added.
-      if (!acts.some((a) => a.status !== 'Completed') || (!acts.some((a) => !a.owner) && records[0].at.slice(0, 10) < addDaysIso(today, -2))) continue;
+      const toPlanHere = records.filter((r) => r.validationRequest && !r.plannedAt);
+      // A scope alert stays while work is unassigned or Validation is unplanned, or for two days after the scope was added.
+      if (!toPlanHere.length && (!acts.some((a) => a.status !== 'Completed') || (!acts.some((a) => !a.owner) && records[0].at.slice(0, 10) < addDaysIso(today, -2)))) continue;
       const both = records.some((r) => (r.id.startsWith('labscope:') && r.sampleIds.some(sampleBoth)) || (r.linkId && o.scope.some((x) => x.linkId === r.linkId && x.stream !== r.stream)));
       if (!planner) { block(streamLead(stream) as Setting, `New ${stream} scope has no planning owner; it is saved and waits as Unassigned.`, job); continue; }
       if (planner !== me || !hasAccess(actor, 'analysis')) continue;
-      const unassigned = acts.filter((a) => !a.owner).length, extended = records.some((r) => r.source === 'Additional work'), validation = records.every((r) => r.id.startsWith('addval:'));
-      alert({ key: `scope:${job.id}:${k}`, kind: 'scope', jobId: job.id, jobNumber: job.jobNumber, headline: validation ? 'Validation added' : extended ? `${stream} scope extended` : `New ${stream} scope added`,
-        samples: [...new Set(records.flatMap((r) => r.sampleIds))].map(containerOf).join('; '), scope: [...new Set(records.map((r) => r.id.startsWith('addval:') ? 'Validation: ' + r.notes : r.title))].join(', '),
+      const unassigned = acts.filter((a) => !a.owner).length, extended = records.some((r) => r.source === 'Additional work'), validation = records.every((r) => r.id.startsWith('addval:') || r.validationRequest), requested = records.every((r) => r.validationRequest);
+      const customs = new Set(acts.filter((a) => a.custom).map((a) => a.scopeId));
+      alert({ key: `scope:${job.id}:${k}`, kind: 'scope', jobId: job.id, jobNumber: job.jobNumber, headline: requested && toPlanHere.length ? 'Validation requested · choose the steps' : requested ? 'Validation steps planned' : validation ? 'Validation added' : extended ? `${stream} scope extended` : `New ${stream} scope added`,
+        samples: [...new Set(records.flatMap((r) => r.sampleIds))].map(containerOf).join('; '), scope: [...new Set(records.map((r) => r.validationRequest ? (r.plannedAt ? 'Validation: ' + acts.filter((a) => a.scopeId === r.id).map((a) => a.title).join(', ') : 'Validation (steps to plan)') : r.id.startsWith('addval:') ? 'Validation: ' + r.notes : r.title + (customs.has(r.id) ? ' (custom test)' : '') + (acts.find((a) => a.scopeId === r.id)?.external ? ' (External · ' + acts.find((a) => a.scopeId === r.id)!.external!.provider + ')' : '')))].join(', '),
         destination: both ? 'Both' : stream, by: records[0].addedBy, at: records[0].at, planner,
         assignee: [...new Set(acts.map((a) => a.owner).filter(Boolean))].map(name).join(', ') || undefined,
-        button: unassigned ? `Assign ${unassigned}` : 'Open scope', open: { tab: 'laboratory?stream=' + stream }, keys: [`scope:${job.id}:${k}`] });
+        button: toPlanHere.length ? 'Plan Validation' : unassigned ? `Assign ${unassigned}` : 'Open scope', open: { tab: 'laboratory?stream=' + stream + (toPlanHere.length ? '&plan=' + encodeURIComponent(toPlanHere[0].id) : '') }, keys: [`scope:${job.id}:${k}`] });
     }
     // Assignment alerts, grouped per job, team and assigner, while the assigned work has not been started yet.
     const assignGroups = new Map<string, { list: ActivityRecord[]; at: string; by: string; reassigned: boolean }>(), moved = new Map<string, { list: ActivityRecord[]; at: string; by: string; to: string }>();
@@ -226,11 +249,11 @@ export function workItems(jobs: JobRecord[], actor: Actor, today: string) {
         g.list.push(a); if (h.at > g.at) g.at = h.at; moved.set(k, g);
       }
     }
-    const describe = (list: ActivityRecord[]) => ({ samples: [...new Set(list.map((a) => a.sampleId))].map(containerOf).join('; '), scope: list.map((a) => a.title + (a.kind === 'validation' ? ' (Validation)' : '')).join(', '), destination: (list.some((a) => (a.id.startsWith('labscope:') && sampleBoth(a.sampleId)) || (!!a.linkId && o.scope.some((x) => x.linkId === a.linkId && x.stream !== a.stream))) ? 'Both' : list[0].stream) as Stream | 'Both' });
+    const describe = (list: ActivityRecord[]) => ({ samples: [...new Set(list.map((a) => a.sampleId))].map(containerOf).join('; '), scope: list.map((a) => a.title + (a.kind === 'validation' ? ' (Validation)' : '') + (a.external ? ` (External · ${a.external.provider})` : '')).join(', '), destination: (list.some((a) => (a.id.startsWith('labscope:') && sampleBoth(a.sampleId)) || (!!a.linkId && o.scope.some((x) => x.linkId === a.linkId && x.stream !== a.stream))) ? 'Both' : list[0].stream) as Stream | 'Both' });
     for (const [k, g] of assignGroups) {
       const stream = g.list[0].stream, n = g.list.length, keys = g.list.map((a) => `lab:assign:${a.id}:${[...(a.history || [])].reverse().find((h) => h.to === me)?.at || a.start}`);
       const first = [...g.list].sort((x, y) => (x.due || '9').localeCompare(y.due || '9'))[0];
-      alert({ key: `lab:assigned:${job.id}:${k}:${g.at}:${n}`, kind: 'assignment', jobId: job.id, jobNumber: job.jobNumber, headline: `${n === 1 ? stream + ' test' : n + ' ' + stream + ' tests'} ${g.reassigned ? 'reassigned' : 'assigned'} to you`, ...describe(g.list), by: g.by, at: g.at, planner: roles[streamLead(stream)] || '', assignee: me, button: 'Open task', open: { tab: 'laboratory?activity=' + encodeURIComponent(first.id) }, keys: [`lab:assigned:${job.id}:${k}:${g.at}:${n}`, ...keys] });
+      alert({ key: `lab:assigned:${job.id}:${k}:${g.at}:${n}`, kind: 'assignment', jobId: job.id, jobNumber: job.jobNumber, headline: g.list.every((a) => a.external) ? `External coordination ${g.reassigned ? 'reassigned' : 'assigned'} to you · ${[...new Set(g.list.map((a) => a.external!.provider))].join(', ')}` : `${n === 1 ? stream + ' test' : n + ' ' + stream + ' tests'} ${g.reassigned ? 'reassigned' : 'assigned'} to you`, ...describe(g.list), by: g.by, at: g.at, planner: roles[streamLead(stream)] || '', assignee: me, button: 'Open task', open: { tab: 'laboratory?activity=' + encodeURIComponent(first.id) }, keys: [`lab:assigned:${job.id}:${k}:${g.at}:${n}`, ...keys] });
     }
     for (const [k, g] of moved) alert({ key: `lab:moved:${job.id}:${k}:${g.at}:${g.list.length}`, kind: 'moved', jobId: job.id, jobNumber: job.jobNumber, headline: `${g.list.length === 1 ? g.list[0].stream + ' test' : g.list.length + ' ' + g.list[0].stream + ' tests'} reassigned to ${name(g.to)}`, ...describe(g.list), by: g.by, at: g.at, planner: roles[streamLead(g.list[0].stream)] || '', assignee: g.to, button: 'View test', open: { tab: 'laboratory?activity=' + encodeURIComponent(g.list[0].id) }, keys: [`lab:moved:${job.id}:${k}:${g.at}:${g.list.length}`] });
   }
@@ -260,7 +283,7 @@ export function inboxRows(work: ReturnType<typeof workItems>, jobs: JobRecord[],
     return r;
   };
   const byId = new Map(jobs.map((j) => [j.id, j]));
-  const teamEmpty = (i: WorkItem) => i.key.startsWith('assign:') && !!i.stream && !actor.teams?.[i.stream]?.length;
+  const teamEmpty = (i: WorkItem) => (i.key.startsWith('assign:') || i.key.startsWith('coord:')) && !!i.stream && !actor.teams?.[i.stream]?.length;
   for (const i of sortItems(work.actions, opts.isNew)) { const job = byId.get(i.jobId); if (job) (teamEmpty(i) ? row(job).blockedActions : row(job).actions).push(i); }
   for (const w of work.waiting) { const job = byId.get(w.jobId); if (job) row(job).waiting.push(w); }
   for (const u of work.upcoming || []) { const job = byId.get(u.jobId); if (job) row(job).upcoming.push(u); }
