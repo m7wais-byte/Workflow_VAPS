@@ -233,3 +233,15 @@ test('team leads assign themselves and Validation steps to different engineers w
  assert.throws(()=>step(j,{type:'schedule',id:chemical.id,owner:'SHEREIQI',start:'2026-11-02',due:'2026-11-06',conditions:'',notes:''},'BAHRI'),/not in the Chemical team/);
  assert.deepEqual(teams,{PVT:['NASSER','RANJITH'],Chemical:['YAQEEN']});
 });
+
+test('Validation release allows missing reservoir conditions and only Restoration planning requires them',()=>{
+ const samples=[e('1.01',{fluidType:'Black Oil',validation:true}),e('1.02',{excluded:true,exclusionReason:'n/a'}),e('1.03',{excluded:true,exclusionReason:'n/a'})];
+ const j=step(approved(),{type:'lab-scope',action:'release',reason:'',conditions:{...conditions,pressure:'',temperature:''},samples},'SALIM');
+ const scopeId=unplannedValidation(j)[0].id;
+ const plan={type:'validation-plan',scopeId,steps:[{title:'Restoration'}]};
+ assert.throws(()=>step(j,plan,'SHEREIQI'),/reservoir pressure and temperature/);
+ assert.ok(acts(step(j,{...plan,steps:[{title:'Flash'}]},'SHEREIQI')).some(a=>a.title==='Flash'));
+ const planned=step(j,{...plan,restoration:conditions},'SHEREIQI');
+ assert.equal(acts(planned).find(a=>a.title==='Restoration').conditions,'2100 psi; 88 °C');
+ assert.equal(operationsFor(planned).conditions.pressure,'');
+});

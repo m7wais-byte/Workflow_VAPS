@@ -98,7 +98,6 @@ test('release refuses wrong routing, undecided samples and unsupported destinati
  assert.throws(()=>release(job,[entry('1.01','PVT'),...mixed().slice(1)]),/has no tests/);
  assert.throws(()=>release(job,[entry('1.01','PVT',[],[],{excluded:true}),...mixed().slice(1)]),/reason for excluding/);
  assert.throws(()=>release(job,mixed().slice(1)),/one scope entry/);
- assert.throws(()=>step(job,{type:'lab-scope',action:'release',samples:mixed(),conditions:{...conditions,pressure:''},reason:''},'SALIM'),/reservoir pressure and temperature/);
  const ok=release(job,[entry('1.01','PVT',[],[],{excluded:true,exclusionReason:'Leaked during transport'}),...mixed().slice(1)]);
  assert.equal(ok.operations.activities.some(a=>a.sampleId==='1.01'),false,'an excluded sample gets no work');
  assert.deepEqual(labScopeProblems(job,mixed(),conditions,routing,defaultResponsibilities),[]);
