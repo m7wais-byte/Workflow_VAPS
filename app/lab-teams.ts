@@ -1,12 +1,18 @@
 import type { Stream } from './operations-model';
 import { activeDemoSetup } from './demo-setup';
-/** Members of each laboratory team. Team leads assign only within their team; membership never grants a permission. */
+/** Laboratory team membership groups employees in planning. Membership never grants a permission. */
 export type LabTeams = Record<Stream, string[]>;
 export const labTeamsKey = 'vaps-lab-teams-v1';
-/** Both teams start empty: membership is configured, never guessed. */
+const defaultLabTeams: LabTeams = {
+  PVT: ['SHEREIQI', 'NASSER', 'RANJITH', 'YAQEEN'],
+  Chemical: ['BAHRI', 'AHAD'],
+};
 export const emptyLabTeams = (): LabTeams => ({ PVT: [], Chemical: [] });
 export function readLabTeams(raw: string | null, ids: string[]): LabTeams {
-  if (raw === null) return emptyLabTeams();
+  if (raw === null) return {
+    PVT: defaultLabTeams.PVT.filter(id => ids.includes(id)),
+    Chemical: defaultLabTeams.Chemical.filter(id => ids.includes(id)),
+  };
   const value = JSON.parse(raw);
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw Error('Invalid laboratory team settings');
   const teams = emptyLabTeams();
