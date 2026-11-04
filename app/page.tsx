@@ -1150,12 +1150,12 @@ export default function Home() {
 
   function samplingTextField(sample: Sample, label: string, field: string, options: { required?: boolean; type?: string; placeholder?: string } = {}): ReactNode {
     const value = field === "depth" ? sample.depth : field === "notes" ? sample.notes : sample.fieldData[field] || "";
-    return <label><span>{label}{options.required ? " *" : ""}</span><input type={options.type || "text"} value={value} onBlur={(event) => { if ((options.type === "date" || options.type === "time") && event.currentTarget.value !== value) updateSampleFieldData(sample.id, field, event.currentTarget.value); }} onChange={(event) => updateSampleFieldData(sample.id, field, event.target.value)} placeholder={options.placeholder} /></label>;
+    return <label><span>{label}{options.required ? " *" : ""}</span><input type={options.type || "text"} value={value} onBlur={(event) => { const entered = event.currentTarget.value; if (options.placeholder?.endsWith("or N/A") && entered.trim() === "-") updateSampleFieldData(sample.id, field, "N/A"); else if ((options.type === "date" || options.type === "time") && entered !== value) updateSampleFieldData(sample.id, field, entered); }} onChange={(event) => updateSampleFieldData(sample.id, field, event.target.value)} placeholder={options.placeholder} /></label>;
   }
 
   function samplingUnitField(sample: Sample, label: string, field: string, unitField: string, units: string[], options: { required?: boolean; placeholder?: string } = {}): ReactNode {
     const value = field === "depth" ? sample.depth : sample.fieldData[field] || "";
-    return <label><span>{label}{options.required ? " *" : ""}</span><div className="value-unit"><input type="text" inputMode="decimal" value={value} onChange={(event) => updateSampleFieldData(sample.id, field, event.target.value)} placeholder={options.placeholder || "Value or N/A"} /><select aria-label={`${label} unit`} value={sample.fieldData[unitField]} onChange={(event) => updateSampleFieldData(sample.id, unitField, event.target.value)}>{units.map((unit) => <option key={unit}>{unit}</option>)}</select></div></label>;
+    return <label><span>{label}{options.required ? " *" : ""}</span><div className="value-unit"><input type="text" inputMode="decimal" value={value} onBlur={(event) => { if (event.currentTarget.value.trim() === "-") updateSampleFieldData(sample.id, field, "N/A"); }} onChange={(event) => updateSampleFieldData(sample.id, field, event.target.value)} placeholder={options.placeholder || "Value or N/A"} /><select aria-label={`${label} unit`} value={sample.fieldData[unitField]} onChange={(event) => updateSampleFieldData(sample.id, unitField, event.target.value)}>{units.map((unit) => <option key={unit}>{unit}</option>)}</select></div></label>;
   }
 
   function samplingSelectField(sample: Sample, label: string, field: string, options: string[]): ReactNode {
@@ -1173,7 +1173,7 @@ export default function Home() {
 
   function standardDataSheetForm(sample: Sample): ReactNode {
     return <>
-      <div className="standard-sheet-toolbar"><div><strong>Standard Sample Data Sheet</strong><small>Complete every section. Use N/A only when a condition does not apply.</small></div><button type="button" className="outline-button" onClick={() => fillBlankConditionsAsNotApplicable(sample.id)}>Set blank condition fields to N/A</button></div>
+      <div className="standard-sheet-toolbar"><div><strong>Standard Sample Data Sheet</strong><small>Complete every section. Where N/A is allowed, type <kbd>-</kbd> and move to the next field to enter N/A.</small></div><button type="button" className="outline-button" onClick={() => fillBlankConditionsAsNotApplicable(sample.id)}>Set blank condition fields to N/A</button></div>
       <section className="data-section identification-section"><header><span>01</span><div><small>REQUIRED SAMPLE CONTEXT</small><h3>Identification</h3></div></header><div className="technical-field-grid">
         {samplingTextField(sample, "Sampling Date", "samplingDate", { required: true, type: "date" })}
         {samplingTextField(sample, "Sampling Time", "samplingTime", { required: true, type: "time" })}
