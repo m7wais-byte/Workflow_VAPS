@@ -193,7 +193,6 @@ export function labScopeProblems(job:JobRecord,samples:Omit<SampleScope,'contain
  }
  const used=new Set(samples.filter(s=>!s.excluded).flatMap(s=>[...(['PVT','Chemical'] as const).filter(stream=>testsIn(s,stream).length),...(s.customTests||[]).flatMap(c=>streamsOf(c.team)),...(entryValidation(s)?['PVT' as const]:[])]));
  for(const stream of used)if(!roles[streamLead(stream)])problems.push(responsibilityLabels[streamLead(stream)]+' is not configured. Ask an administrator to assign it in Settings → Authorization.');
- if(samples.some(s=>!s.excluded&&entryValidation(s))&&(!conditions.pressure||!conditions.temperature))problems.push('Record reservoir pressure and temperature for Validation (Restoration).');
  for(const value of [conditions.pressure,conditions.temperature])if(value&&!Number.isFinite(Number(value)))problems.push('Reservoir conditions must be numeric.');
  if(!samples.some(s=>!s.excluded))problems.push('Select tests for at least one sample.');
  if(previous){for(const p of previous.samples){if(p.excluded)continue;const n=samples.find(s=>s.sampleId===p.sampleId);
@@ -224,7 +223,7 @@ export type Command =
  /** Adds Validation to any job with sample records, from the full catalogue, as additional tracked work. Steps are guidance only: none blocks another. */
  | {type:'add-validation';sampleIds:string[];steps:string[];reason:string}
  /** The PVT Team Lead chooses the Validation steps for one requested sample. Existing steps are reused, never duplicated. */
- | {type:'validation-plan';scopeId:string;steps:{title:string;external?:ExecutionChoice}[];instructions?:string;/** Deliberately add a Validation Recombination step although Recombination is requested separately. */confirmRecombination?:boolean}
+ | {type:'validation-plan';scopeId:string;steps:{title:string;external?:ExecutionChoice}[];restoration?:Pick<Operations['conditions'],'pressure'|'temperature'|'pressureUnit'|'temperatureUnit'>;instructions?:string;/** Deliberately add a Validation Recombination step although Recombination is requested separately. */confirmRecombination?:boolean}
  /** Third-party work: the coordinator records dispatch, the returned results, then submits them for the normal internal review. */
  | {type:'external-dispatch';id:string;sentOn:string;expectedReturn:string;notes:string}
  | {type:'external-results';id:string;receivedOn:string;notes:string;file:Omit<FileVersion,'version'|'submittedBy'|'submittedAt'|'status'|'comments'>}
@@ -418,6 +417,12 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   const existing=o.activities.filter(a=>a.scopeId===r.id&&a.kind==='validation');
   if(chosen.includes('Recombination')&&!existing.some(a=>a.title==='Recombination')&&separateRecombination(job,sampleId).length&&!command.confirmRecombination)throw Error('Recombination is already requested as a separate test on Sample '+sampleId+'. Confirm that a separate Validation Recombination step is intended, or leave it unselected.');
   for(const step of command.steps){const e=step.external;if(e?.by==='Third-party'&&!e.provider?.trim())throw Error('Enter the provider/laboratory for '+step.title+' (third-party).');}
+  const restoration=command.restoration||o.conditions;
+  const addsRestoration=chosen.includes('Restoration')&&!existing.some(a=>a.title==='Restoration');
+  if(addsRestoration&&(![restoration.pressure,restoration.temperature].every(v=>v.trim()&&Number.isFinite(Number(v)))||
+    !['psi','bar','kPa','MPa'].includes(restoration.pressureUnit)||!['°C','°F','K'].includes(restoration.temperatureUnit))){
+   throw Error('Enter numeric reservoir pressure and temperature with units for Restoration.');
+  }
   const added:string[]=[],removed:string[]=[],kept:string[]=[];
   for(const title of validationStepNames.filter(t=>chosen.includes(t))){
    const step=command.steps.find(x=>x.title===title)!;const old=existing.find(a=>a.title===title);
@@ -426,7 +431,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
     if(old.status==='Unassigned'&&!old.files.length){const ext=externalFrom(step.external);if(ext)old.external=ext;else delete old.external;if(command.instructions!==undefined)old.notes=command.instructions.trim();}
     continue;
    }
-   const a:ActivityRecord={kind:'validation',id:r.id+':validation:'+title,scopeId:r.id,linkId:r.linkId||r.id,sampleId,title,stream:'PVT',owner:'',start:'',due:'',conditions:title==='Restoration'&&o.conditions.pressure?`${o.conditions.pressure} ${o.conditions.pressureUnit}; ${o.conditions.temperature} ${o.conditions.temperatureUnit}`:title==='Water Check'?'Check for water on the sample side.':o.conditions.notes||'',notes:(command.instructions||'').trim(),status:'Unassigned',files:[],required:true};
+   const a:ActivityRecord={kind:'validation',id:r.id+':validation:'+title,scopeId:r.id,linkId:r.linkId||r.id,sampleId,title,stream:'PVT',owner:'',start:'',due:'',conditions:title==='Restoration'?`${restoration.pressure.trim()} ${restoration.pressureUnit}; ${restoration.temperature.trim()} ${restoration.temperatureUnit}`:title==='Water Check'?'Check for water on the sample side.':o.conditions.notes||'',notes:(command.instructions||'').trim(),status:'Unassigned',files:[],required:true};
    const ext=externalFrom(step.external);if(ext)a.external=ext;
    if(o.activities.some(x=>x.id===a.id))throw Error('Validation step '+title+' already exists for this request.');
    o.activities.push(a);added.push(title);

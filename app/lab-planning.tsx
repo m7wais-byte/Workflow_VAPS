@@ -35,6 +35,7 @@ export function ValidationPlanning({ job, actor, run, focus }: { job: JobRecord;
 }
 
 function PlanForm({ actor, job, record, steps, run, onDone }: { actor: Actor; job: JobRecord; record: ScopeRecord; steps: ActivityRecord[]; run: Run; onDone: () => void }) {
+  const [restoration,setRestoration]=useState(()=>operationsFor(job).conditions);
   const engineers=assignmentEngineers(actor,'PVT');
   const [assignments,setAssignments]=useState<Record<string,{owner:string;start:string;due:string}>>({});
   const assignment=(title:string)=>assignments[title]||{owner:'',start:localDate(),due:''};
@@ -42,15 +43,26 @@ function PlanForm({ actor, job, record, steps, run, onDone }: { actor: Actor; jo
   const sid = record.sampleIds[0]; const separate = separateRecombination(job, sid);
   const initial = Object.fromEntries(steps.map((a) => [a.title, a.external ? { by: 'Third-party', provider: a.external.provider, notes: a.external.notes, expectedReturn: a.external.expectedReturn } as ExecutionChoice : undefined]));
   const [chosen, setChosen] = useState<string[]>(steps.map((a) => a.title)), [exec, setExec] = useState<Record<string, ExecutionChoice | undefined>>(initial), [instructions, setInstructions] = useState(''), [confirm, setConfirm] = useState(false);
-  useUnsaved(JSON.stringify(chosen) !== JSON.stringify(steps.map((a) => a.title)) || !!instructions || Object.values(assignments).some(a=>!!a.owner||!!a.due));
+  useUnsaved(JSON.stringify(chosen) !== JSON.stringify(steps.map((a) => a.title)) || !!instructions || JSON.stringify(restoration)!==JSON.stringify(operationsFor(job).conditions) || Object.values(assignments).some(a=>!!a.owner||!!a.due));
   const existing = (t: string) => steps.find((a) => a.title === t);
   const recombinationClash = chosen.includes('Recombination') && !existing('Recombination') && separate.length > 0;
-  return <form className="plan-form" onSubmit={(e) => { e.preventDefault(); const commands:Command[]=[{ type: 'validation-plan', scopeId: record.id, steps: chosen.map((title) => ({ title, external: exec[title] })), instructions: instructions || undefined, confirmRecombination: confirm }]; for(const title of chosen){const x=assignments[title];if(x?.owner&&!existing(title))commands.push({type:'schedule',id:record.id+':validation:'+title,owner:x.owner,start:x.start,due:x.due,conditions:title==='Restoration'?`${operationsFor(job).conditions.pressure} ${operationsFor(job).conditions.pressureUnit}; ${operationsFor(job).conditions.temperature} ${operationsFor(job).conditions.temperatureUnit}`:operationsFor(job).conditions.notes,notes:instructions});} if(run(commands))onDone(); }}>
+  return <form className="plan-form" onSubmit={(e) => { e.preventDefault(); const commands:Command[]=[{ type: 'validation-plan', scopeId: record.id, steps: chosen.map((title) => ({ title, external: exec[title] })), restoration, instructions: instructions || undefined, confirmRecombination: confirm }]; for(const title of chosen){const x=assignments[title];if(x?.owner&&!existing(title))commands.push({type:'schedule',id:record.id+':validation:'+title,owner:x.owner,start:x.start,due:x.due,conditions:title==='Restoration'?`${restoration.pressure.trim()} ${restoration.pressureUnit}; ${restoration.temperature.trim()} ${restoration.temperatureUnit}`:operationsFor(job).conditions.notes,notes:instructions});} if(run(commands))onDone(); }}>
     <div className="lab-inline-actions"><button type="button" className="text-button" onClick={() => setChosen([...validationCatalogue])}>Select all</button><button type="button" className="text-button" onClick={() => setChosen(steps.filter(touched).map((a) => a.title))}>Clear</button><small>Select only the steps this sample needs.</small></div>
     <ol className="plan-step-grid">{validationCatalogue.map((step, i) => { const a = existing(step); const locked = !!a && touched(a); const on = chosen.includes(step); const x = exec[step];
       return <li key={step} className={on ? 'is-on' : ''}><label className="ops-check"><input type="checkbox" checked={on} disabled={locked} onChange={(e) => setChosen(e.target.checked ? [...chosen, step] : chosen.filter((s) => s !== step))} /><span className="step-no">{i + 1}</span>{step}{locked && <small><Lock size={11} /> {a!.owner ? 'assigned' : 'started'} · kept</small>}</label>
         {on && !locked && <div className="plan-exec"><select aria-label={'Performed by for ' + step} value={x?.by === 'Third-party' ? 'Third-party' : 'Internal'} onChange={(e) => setExec({ ...exec, [step]: e.target.value === 'Internal' ? undefined : { by: 'Third-party', provider: x?.provider || '', notes: x?.notes || '', expectedReturn: x?.expectedReturn || '' } })}><option value="Internal">Internal</option><option value="Third-party">Third-party laboratory</option></select>
           {x?.by === 'Third-party' && <><input aria-label={'Provider for ' + step} placeholder="Provider / laboratory *" value={x.provider || ''} onChange={(e) => setExec({ ...exec, [step]: { ...x, provider: e.target.value } })} /><input aria-label={'Expected return for ' + step} type="date" value={x.expectedReturn || ''} onChange={(e) => setExec({ ...exec, [step]: { ...x, expectedReturn: e.target.value } })} /></>}</div>}
+        {on && !a && step === 'Restoration' && <div className="settings-form-grid">
+          {(['pressure', 'temperature'] as const).map(key => {
+            const unit = key === 'pressure' ? 'pressureUnit' : 'temperatureUnit';
+            return <label key={key}>Reservoir {key} for Restoration
+              <input required inputMode="decimal" value={restoration[key]} onChange={e => setRestoration({ ...restoration, [key]: e.target.value })} />
+              <select aria-label={key + ' unit'} value={restoration[unit]} onChange={e => setRestoration({ ...restoration, [unit]: e.target.value })}>
+                {(key === 'pressure' ? ['psi', 'bar', 'kPa', 'MPa'] : ['°C', '°F', 'K']).map(u => <option key={u}>{u}</option>)}
+              </select>
+            </label>;
+          })}
+        </div>}
         {on && !a && <div className="settings-form-grid"><label>Engineer for {step}<select aria-label={'Engineer for '+step} value={assignment(step).owner} onChange={e=>changeAssignment(step,{owner:e.target.value})}><option value="">Assign later</option>{engineers.map(id=><option key={id} value={id}>{actor.employees.find(e=>e.id===id)?.name}{id===actor.id?' (you)':''}</option>)}</select></label>{assignment(step).owner&&<><label>Planned start<input required type="date" value={assignment(step).start} onChange={e=>changeAssignment(step,{start:e.target.value})}/></label><label>Due date<input required type="date" min={assignment(step).start} value={assignment(step).due} onChange={e=>changeAssignment(step,{due:e.target.value})}/></label></>}</div>}
         {step === 'Recombination' && separate.length > 0 && <small className="flag-note">Recombination is already requested as a separate test on this sample ({separate.map((s) => s.stream + ' · ' + labStatus(s)).join(', ')}).</small>}
       </li>; })}</ol>
