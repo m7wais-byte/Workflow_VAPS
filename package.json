@@ -10,6 +10,8 @@
     "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
     "build:pages": "vite build --config vite.pages.config.ts",
     "preview:pages": "vite preview --config vite.pages.config.ts --port 4173 --strictPort",
+    "build:scope-demo": "vite build --config vite.scope-demo.config.ts && node scope-demo/single-file.mjs",
+    "preview:scope-demo": "vite preview --config vite.scope-demo.config.ts --port 4174 --strictPort",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "test:pages": "node --test $(ls tests/*.test.mjs | grep -v rendered-html)",
