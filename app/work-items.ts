@@ -103,14 +103,15 @@ export function workItems(jobs: JobRecord[], actor: Actor, today: string) {
     const o = operationsFor(job), st = samplingStatus(job, roles), data = latestData(job), report = latest(o.samplingReports);
     const team = samplingTeam(job), lead = job.assignedEngineerId, sEvents = samplingEvents(job, me, roles.samplingApproval);
     // Sampling
-    if (team.includes(me) && hasAccess(actor, 'sampling') && st.team) {
+    // Assigned work is reachable through the assignment itself, from any department; reviews and approvals keep their permission.
+    if (team.includes(me) && (hasAccess(actor, 'sampling') || hasAccess(actor, 'jobDetails')) && st.team) {
       const accountable = me === lead, returned = st.key === 'returned';
       const action = returned ? (accountable ? 'Correct sampling data and resubmit' : 'Help correct returned sampling data') : st.key === 'preparation' ? (accountable ? 'Complete sampling preparation' : 'Help with sampling preparation') : st.next === 'Review and submit the sampling data' ? (accountable ? 'Review and submit sampling data' : 'Sampling data ready for submission') : (accountable ? 'Complete sampling data' : 'Help complete sampling data');
       if (!accountable && st.next === 'Review and submit the sampling data') wait({ ...base, key: `w-support:${job.id}`, what: 'Sampling data complete', waitingOn: name(lead) + ' (accountable) to submit', open: { tab: 'sampling' } });
       const button = returned ? 'Correct sampling data' : st.key === 'preparation' ? 'Open preparation' : st.next === 'Review and submit the sampling data' && accountable ? 'Review and submit' : 'Open sample sheets';
       if (accountable || st.next !== 'Review and submit the sampling data') add({ ...base, role: accountable ? 'Accountable sampling employee' : 'Supporting sampling employee', button, key: `sampling:${job.id}`, kind: returned ? 'returned' : sEvents.some((k) => k.startsWith('assign:')) ? 'assignment' : 'task', action: action + (accountable ? '' : ` (supporting · ${name(lead)} submits)`), status: st.label, due: job.dueDate || undefined, from: returned ? data?.reviewedBy : o.dispatchedBy, fromLabel: returned ? 'Returned by' : 'Assigned by', comment: returned ? [data?.general, ...(data?.comments || []).map((c) => `${c.label}: ${c.text}`)].filter(Boolean).join(' · ') : undefined, events: sEvents, open: { editor: samplingStage(job, roles) } });
     }
-    if (st.owner === me && hasAccess(actor, 'sampling')) {
+    if (st.owner === me && (hasAccess(actor, 'sampling') || (me === lead && hasAccess(actor, 'jobDetails')))) {
       if (st.key === 'data-review') add({ ...base, button: 'Review sampling data', role: 'Sampling approval', key: `data-review:${job.id}`, kind: 'review', action: 'Review sampling data', status: st.label, due: job.dueDate || undefined, from: data?.submittedBy, fromLabel: 'Submitted by', events: sEvents, open: { tab: 'sampling-report' } });
       if (st.key === 'report-generation') add({ ...base, button: report?.status === 'Draft' ? 'Submit report' : 'Prepare report', role: 'Accountable sampling employee', key: `report-prep:${job.id}`, kind: 'task', action: report?.status === 'Draft' ? 'Submit sampling report for approval' : 'Prepare sampling report', status: st.label, due: job.dueDate || undefined, from: data?.reviewedBy, fromLabel: 'Data approved by', events: [], open: { tab: 'sampling-report' } });
       if (st.key === 'report-review') add({ ...base, button: report?.status === 'Checking' ? 'Check report' : 'Review report', role: 'Sampling approval', key: `report-review:${job.id}`, kind: 'review', action: report?.status === 'Checking' ? 'Check sampling report' : 'Review sampling report', status: st.label, due: job.dueDate || undefined, from: report?.preparedBy, fromLabel: 'Prepared by', events: sEvents, open: { tab: 'sampling-report' } });
@@ -161,13 +162,13 @@ export function workItems(jobs: JobRecord[], actor: Actor, today: string) {
       const t = { ...base, sample: a.sampleId, container: sample ? containerLabel(sample) : undefined, test: a.title, stream: a.stream, status: labStatus(a), due: a.due || undefined, events: labEvents(a, me, streamLeadId, roles.qcReviewer), open: { tab: 'laboratory?activity=' + encodeURIComponent(a.id) } };
       const history = a.history || [], lastReturn = [...history].reverse().find((h) => h.action === 'lead-returned'), lastQc = [...history].reverse().find((h) => h.action === 'qc-returned'), assigned = [...history].reverse().find((h) => h.to === a.owner);
       const ext = a.external;
-      if (ext && a.owner === me && hasAccess(actor, 'analysis') && (a.status === 'Scheduled' || a.status === 'In Progress')) {
+      if (ext && a.owner === me && hasAccess(actor, 'jobDetails') && (a.status === 'Scheduled' || a.status === 'In Progress')) {
         // Third-party work: the coordinator dispatches, waits on the provider, then submits the returned results for review.
         const label = `External · ${ext.provider}`;
         if (!ext.sentAt) add({ ...t, role: `${a.stream} external coordinator`, button: 'Record dispatch', key: `test:${a.id}:${job.id}`, kind: t.events.some((k) => k.includes(':assign:')) && a.status === 'Scheduled' ? 'assignment' : 'task', action: `Dispatch to ${ext.provider} (third-party)`, status: `${label} · Awaiting dispatch`, due: ext.expectedReturn || a.due || undefined, from: assigned?.by, fromLabel: 'Assigned by', comment: ext.notes || undefined });
         else if (!ext.receivedAt) wait({ ...base, key: `w-ext:${a.id}:${job.id}`, sample: a.sampleId, test: a.title, label: `Waiting on ${ext.provider} (third party)`, what: `${a.title} · Sample ${a.sampleId} · sent ${ext.sentOn || ext.sentAt.slice(0, 10)} · expected back ${ext.expectedReturn || 'not set'}${ext.expectedReturn && ext.expectedReturn < today ? ' (overdue)' : ''}`, waitingOn: `${ext.provider} (third party)`, since: ext.sentAt, open: t.open });
         else add({ ...t, role: `${a.stream} external coordinator`, button: 'Submit results', key: `test:${a.id}:${job.id}`, kind: 'task', action: `Submit ${ext.provider} results for internal review`, status: `${label} · Results received`, due: a.due || undefined, from: ext.receivedBy, fromLabel: 'Results recorded by' });
-      } else if (a.owner === me && hasAccess(actor, 'analysis')) {
+      } else if (a.owner === me && hasAccess(actor, 'jobDetails')) {
         if (a.status === 'Changes Requested') add({ ...t, role: ext ? `${a.stream} external coordinator` : `${a.stream} test`, button: ext ? 'Follow up return' : 'Correct workbook', key: `test:${a.id}:${job.id}`, kind: 'returned', action: ext ? `Follow up with ${ext.provider} and record corrected results` : 'Correct and resubmit workbook', from: lastReturn?.by, fromLabel: 'Returned by', comment: [lastReturn?.target, lastReturn?.comments].filter(Boolean).join(' — ') });
         // A test planned to start later waits in Coming up; it can still be opened, and nothing blocks starting it early.
         else if (a.status === 'Scheduled' && a.start && a.start > today) soon({ key: `soon-test:${a.id}:${job.id}`, area: a.stream, role: `${a.stream} test`, what: `${a.title} · Sample ${a.sampleId}`, after: `Planned start ${a.start}`, sample: a.sampleId, test: a.title, due: a.due || undefined, dueKind: 'Test due', open: t.open });
@@ -241,7 +242,7 @@ export function workItems(jobs: JobRecord[], actor: Actor, today: string) {
       if (a.status === 'Completed') continue;
       const h = [...(a.history || [])].reverse().find((x) => x.action === 'assigned' || x.action === 'reassigned');
       if (!h) continue;
-      if (h.to === me && a.owner === me && hasAccess(actor, 'analysis') && (a.status === 'Scheduled' || (h.action === 'reassigned' && a.status === 'In Progress'))) {
+      if (h.to === me && a.owner === me && hasAccess(actor, 'jobDetails') && (a.status === 'Scheduled' || (h.action === 'reassigned' && a.status === 'In Progress'))) {
         const k = `${a.stream}:${h.by}`, g = assignGroups.get(k) || { list: [], at: h.at, by: h.by, reassigned: false };
         g.list.push(a); if (h.at > g.at) g.at = h.at; g.reassigned ||= h.action === 'reassigned'; assignGroups.set(k, g);
       } else if (h.from === me && a.owner !== me && a.status === 'Scheduled') {

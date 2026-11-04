@@ -6,7 +6,10 @@ import { MyWork, LabSummary, type MyWorkFilter } from './dashboard';
 import { OperationsWorkspace, WeeklyWork, Clarification, ClarificationReview, LabWorkspace } from './operations-workspace';
 import { SamplingReportDocument, exportSamplingReportPdf, samplingReportInput, type ReportContext } from './sampling-report';
 import { applyOperation, additionalWorkPending, isTrashed, trashJob, restoreJob, operationComplete, latest, operationsFor, streamLead, labStatus, labStatuses, type ActivityRecord, isDraft, canSeeDraft, samplingTeam, samplingStatus, latestData, samplingDataLocked, dataReviewRequired, type Actor, type Operations, type Command } from './operations-model';
-import { readTestRouting, storedTestRouting, testRoutingKey, type TestRouting } from './test-routing';
+import { readSavedRouting, effectiveRouting, storedTestRouting, testRoutingKey, type TestRouting, type SavedRouting } from './test-routing';
+import { readCustomTests, testCatalogueKey, catalogueIds, type CatalogueTest } from './test-catalogue';
+import { TestCatalogueSettings } from './test-settings';
+import { OverlapNotice } from './person-picker';
 import { readLabTeams, storedLabTeams, labTeamsKey, emptyLabTeams, type LabTeams } from './lab-teams';
 import { PvtLab, type LabTestProgress } from "./pvt-lab";
 import { labComplete, reconcileLabScope, type LabPlan } from "./lab-work";
@@ -416,7 +419,9 @@ export default function Home() {
   const [authorizationError, setAuthorizationError] = useState("");
   const [savedResponsibilities, setResponsibilities] = useState<Responsibilities>(() => ({ ...defaultResponsibilities }));
   const [responsibilitiesError, setResponsibilitiesError] = useState("");
-  const [savedTestRouting, setTestRouting] = useState<TestRouting>({});
+  const [savedTestRouting, setTestRouting] = useState<TestRouting>(() => effectiveRouting({}));
+  const [savedRoutingRaw, setSavedRoutingRaw] = useState<SavedRouting>({});
+  const [customTests, setCustomTests] = useState<CatalogueTest[]>([]);
   const [testRoutingError, setTestRoutingError] = useState("");
   const [savedLabTeams, setLabTeams] = useState<LabTeams>(emptyLabTeams);
   const [labTeamsError, setLabTeamsError] = useState("");
@@ -424,12 +429,14 @@ export default function Home() {
   const [demoSetup, setDemoSetupState] = useState<DemoSetup | null>(null);
   const demoActive = !!demoSetup?.enabled;
   const responsibilities: Responsibilities = demoActive ? Object.fromEntries(Object.entries(savedResponsibilities).map(([key, value]) => [key, typeof demoSetup!.roles[key] === "string" ? demoSetup!.roles[key] : value])) as Responsibilities : savedResponsibilities;
-  const testRouting: TestRouting = demoActive ? demoSetup!.routing : savedTestRouting;
+  const testRouting: TestRouting = demoActive ? { ...savedTestRouting, ...demoSetup!.routing } : savedTestRouting;
   const labTeams: LabTeams = demoActive ? demoSetup!.teams : savedLabTeams;
   const hasPermission = (permission: Permission) => !directoryError && !!demoEmployees.find(e=>e.id===currentEmployee?.id && e.active) && !authorizationError && allowed(authorization, currentEmployee?.id, permission);
+  const assignedToSampling = () => { const j = storedJobs.find((item) => item.id === jobId); return !!j && !!currentEmployee && samplingTeam(j).includes(currentEmployee.id); };
   const canView = (view: string) => {
-    if (view === "settings") return ["settings", "company", "employees", "authorization"].some(p=>hasPermission(p as Permission));
-    if (view === "new-job") return createdJobId ? hasPermission("jobDetails") && (stage === "job" || hasPermission("sampling")) : hasPermission("createJob");
+    if (view === "settings") return ["settings", "company", "employees", "authorization", "tests"].some(p=>hasPermission(p as Permission));
+    // Sampling team members assigned to this job reach its sampling sheets through the assignment, whatever their department.
+    if (view === "new-job") return createdJobId ? hasPermission("jobDetails") && (stage === "job" || hasPermission("sampling") || assignedToSampling()) : hasPermission("createJob");
     // Company-wide figures need their own permission; job details alone grants personal views only.
     if (view === "overview") return hasPermission("companyOverview") && hasPermission("jobDetails");
     const permission = ({ jobs: "jobDetails", workflow: "jobDetails", planning: "jobDetails", sampling: "sampling", "pvt-lab": "analysis", inventory: "inventory" } as Record<string, Permission>)[view];
@@ -447,14 +454,14 @@ export default function Home() {
       catch { setAuthorizationError("Saved authorization could not be loaded. Access is disabled until the settings are restored."); }
       try { const raw=window.localStorage.getItem(responsibilitiesKey); const roles=readResponsibilities(raw); if(raw===null) window.localStorage.setItem(responsibilitiesKey,JSON.stringify(roles)); setResponsibilities(roles); setResponsibilitiesError(""); }
       catch { setResponsibilities({...unassignedResponsibilities}); setResponsibilitiesError("Saved responsibilities could not be loaded. Every workflow duty is blocked until they are saved again."); }
-      try { setTestRouting(readTestRouting(window.localStorage.getItem(testRoutingKey))); setTestRoutingError(""); }
-      catch { setTestRouting({}); setTestRoutingError("Saved test routing could not be loaded. Laboratory scope release is blocked until it is restored."); }
+      try { const custom = readCustomTests(window.localStorage.getItem(testCatalogueKey)); const raw = readSavedRouting(window.localStorage.getItem(testRoutingKey), catalogueIds(custom)); setCustomTests(custom); setSavedRoutingRaw(raw); setTestRouting(effectiveRouting(raw)); setTestRoutingError(""); }
+      catch { setTestRouting({}); setTestRoutingError("Saved test catalogue or routing could not be loaded. Laboratory scope release is blocked until it is restored."); }
       setDemoSetupState(readDemoSetup());
       try { setLabTeams(readLabTeams(window.localStorage.getItem(labTeamsKey), loadDirectory().employees.map(person => person.id))); setLabTeamsError(""); }
       catch { setLabTeams(emptyLabTeams()); setLabTeamsError("Saved laboratory teams could not be loaded. Test assignment is blocked until they are saved again."); }
     };
     load();
-    const onStorage = (event: StorageEvent) => { if (event.key === authorizationKey || event.key === responsibilitiesKey || event.key === testRoutingKey || event.key === labTeamsKey || event.key === "vaps-demo-setup-v1" || event.key === null) load(); };
+    const onStorage = (event: StorageEvent) => { if (event.key === authorizationKey || event.key === responsibilitiesKey || event.key === testRoutingKey || event.key === testCatalogueKey || event.key === labTeamsKey || event.key === "vaps-demo-setup-v1" || event.key === null) load(); };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
@@ -626,7 +633,7 @@ export default function Home() {
   const currentJob = jobs.find((item) => item.id === jobId);
   /** The configured sampling approver for actions taken now. Recorded approvals keep their own approver. */
   const samplingApprover = roleHolder(responsibilities, "samplingApproval", demoEmployees);
-  const opsActor: Actor | null = currentEmployee ? { id: currentEmployee.id, employees: demoEmployees, policy: authorization, roles: responsibilities, routing: testRoutingError ? null : testRouting, teams: labTeamsError ? null : labTeams } : null;
+  const opsActor: Actor | null = currentEmployee ? { id: currentEmployee.id, employees: demoEmployees, policy: authorization, roles: responsibilities, routing: testRoutingError ? null : testRouting, teams: labTeamsError ? null : labTeams, jobs, departments: directory.departments } : null;
   // Drafts are shown only to job creators, their author and the administrator, in every list and direct link.
   const visibleJobs = opsActor ? jobs.filter((item) => canSeeDraft(item, opsActor)) : [];
   const progressById = new Map<string, JobProgress>(jobs.map((item) => [item.id, jobProgress(item)]));
@@ -852,7 +859,7 @@ export default function Home() {
   function updateCurrentJob(nextStage: string, nextAction: string, stageUpdates: Record<string, WorkflowStatus> = {}, action?: string, recordUpdates: Partial<JobRecord> = {}, send = false): boolean {
     if (!currentEmployee) return false;
     if ((!currentJob || isDraft(currentJob)) && !hasPermission("createJob")) { setNotice("You are not authorized to create jobs."); return false; }
-    if (currentJob && (!hasPermission("jobDetails") || (stage !== "job" && !hasPermission("sampling")))) { setNotice("You do not have access to update this work area."); return false; }
+    if (currentJob && (!hasPermission("jobDetails") || (stage !== "job" && !hasPermission("sampling") && !assignedToSampling()))) { setNotice("You do not have access to update this work area."); return false; }
     if(currentJob && !coordinator(currentEmployee.id) && !samplingTeam(currentJob).includes(currentEmployee.id) && !canWork(currentJob,"sampling",currentEmployee.id)){setNotice("Only the accepted sampling owner or a job coordinator can update this job workspace.");return false; }
     if(currentJob && stage !== "job" && samplingDataLocked(currentJob)){setNotice(latestData(currentJob)?.status==="Submitted"?"The sampling data is submitted for review and is read-only until it is returned.":"The sampling data is approved and read-only. To correct it, reopen it with a reason in Sampling review & report.");return false; }
     if(currentJob?.operations?.samplingReports.some(r=>["Checking","Awaiting Approval","Approved"].includes(r.status)) && !["Draft","Changes Requested"].includes(currentJob.operations.samplingReports.at(-1)!.status)){setNotice("Submitted sampling data is locked. Request a report revision before editing.");return false; }
@@ -1234,7 +1241,7 @@ export default function Home() {
     setReturnTo("sampling");
     markSamplingSeen(item);
     const status = samplingStatus(item, responsibilities);
-    if (status.tab === "sampling" && hasPermission("sampling") && samplingTeam(item).includes(currentEmployee?.id || "")) { resumeJob(item); setStage(samplingStageFor(item)); return; }
+    if (status.tab === "sampling" && (hasPermission("sampling") || hasPermission("jobDetails")) && samplingTeam(item).includes(currentEmployee?.id || "")) { resumeJob(item); setStage(samplingStageFor(item)); return; }
     openOperation(item, status.tab === "sampling" ? "sampling" : status.tab);
   }
   /** Saves the current entries, then submits them for data review against freshly read settings. */
@@ -1509,7 +1516,6 @@ export default function Home() {
     for (const id of [job.assignedEngineerId, ...job.samplingTeamIds].filter(Boolean)) {
       const person = demoEmployees.find(e => e.id === id);
       if (!person?.active) errors.push(`${person?.name || id} is not an active employee.`);
-      else if (!allowed(authorization, id, 'sampling')) errors.push(`${person.name} needs sampling permission before assignment.`);
     }
     if (!demoEmployees.some(e => e.id === job.assignedDriverId && e.active)) errors.push('Assign an active driver.');
     return errors;
@@ -1758,7 +1764,7 @@ export default function Home() {
       </div>; })()}<main className={workspaceView === "dashboard" ? "inbox-main" : ""}>
         <header className="topbar">
           <button className="menu-button" type="button" aria-label="Open menu">☰</button>
-          <div className="breadcrumb"><span>{workspaceView === "inventory" ? "Inventory" : workspaceView === "settings" ? "Settings" : workspaceView === "profile" ? "Employee" : "Workspace"}</span><b>/</b><strong>{workspaceView === "workflow" ? (workflowJob?.jobNumber || "Job workflow") : workspaceView === "inventory" ? "Bottle inventory" : workspaceView === "settings" ? ({company:"Company",clients:"Clients",employees:"Employees",authorization:"Authorization",departments:"Departments & Positions"}[settingsPage] || "Overview") : workspaceView === "profile" ? "My Profile" : workspaceView === "dashboard" ? "My work" : workspaceView === "planning" ? "Weekly plan" : workspaceView === "overview" ? "Overview & activity" : workspaceView === "jobs" ? "Jobs" : workspaceView === "sampling" ? (samplingTab === "reports" ? "Sampling · Sampling Reports" : "Sampling") : workspaceView === "pvt-lab" ? "Laboratory" : displayJobId}</strong></div>
+          <div className="breadcrumb"><span>{workspaceView === "inventory" ? "Inventory" : workspaceView === "settings" ? "Settings" : workspaceView === "profile" ? "Employee" : "Workspace"}</span><b>/</b><strong>{workspaceView === "workflow" ? (workflowJob?.jobNumber || "Job workflow") : workspaceView === "inventory" ? "Bottle inventory" : workspaceView === "settings" ? ({company:"Company",clients:"Clients",employees:"Employees",authorization:"Authorization",tests:"Tests",departments:"Departments & Positions"}[settingsPage] || "Overview") : workspaceView === "profile" ? "My Profile" : workspaceView === "dashboard" ? "My work" : workspaceView === "planning" ? "Weekly plan" : workspaceView === "overview" ? "Overview & activity" : workspaceView === "jobs" ? "Jobs" : workspaceView === "sampling" ? (samplingTab === "reports" ? "Sampling · Sampling Reports" : "Sampling") : workspaceView === "pvt-lab" ? "Laboratory" : displayJobId}</strong></div>
           <div className="top-actions">
             <button className="settings-shortcut" type="button" onClick={() => { setWorkspaceView("settings"); }}><Settings size={18} aria-hidden="true" />Settings</button>
             {workspaceView === "dashboard" ? <span className="top-date">{dashboardDate}</span> : <span className="local-pill"><span className="status-dot" /> Local demo</span>}
@@ -1881,14 +1887,22 @@ export default function Home() {
               {settingsPage==='employees' && hasPermission('employees') && <EmployeeSettings directory={directory} onSave={saveDirectory} jobs={storedJobs} onReview={item=>{setWorkflowJobId(item.id);setWorkspaceView('workflow');}} />}
               {settingsPage==='departments' && hasPermission('employees') && <OptionSettings directory={directory} onSave={saveDirectory} />}
               {settingsPage==='company' && hasPermission('company') && <CompanySettings company={company} onSave={next=>{if(!hasPermission('company')) throw Error('You cannot manage company details.'); localStorage.setItem('vaps-company-v1',JSON.stringify(next));setCompany(next);}} />}
-              {settingsPage === "authorization" && hasPermission("authorization") && <AuthorizationSettings key={JSON.stringify([authorization,savedResponsibilities,savedTestRouting,savedLabTeams])} teams={savedLabTeams} teamsError={labTeamsError} onSaveTeams={next => {
+              {settingsPage === "tests" && hasPermission("tests") && <TestCatalogueSettings key={JSON.stringify([customTests, savedRoutingRaw])} custom={customTests} saved={savedRoutingRaw} error={testRoutingError} demoActive={demoActive} onSave={(custom, routing) => {
+                if (!hasPermission("tests") || testRoutingError) return false;
+                try {
+                  const validCustom = readCustomTests(JSON.stringify({ tests: custom.map(({ id, name, group, section }) => ({ id, name, group, section })) }));
+                  const validRouting = readSavedRouting(JSON.stringify(routing), catalogueIds(validCustom));
+                  window.localStorage.setItem(testCatalogueKey, JSON.stringify({ tests: validCustom.map(({ id, name, group, section }) => ({ id, name, group, section })) }));
+                  window.localStorage.setItem(testRoutingKey, JSON.stringify(validRouting));
+                  setCustomTests(validCustom); setSavedRoutingRaw(validRouting); setTestRouting(effectiveRouting(validRouting));
+                  const added = validCustom.filter(t => !customTests.some(c => c.id === t.id)).map(t => t.name);
+                  recordActivity("Updated test catalogue" + (added.length ? ": added " + added.join(", ") : ""), "Settings"); setNotice("Test catalogue saved."); return true;
+                } catch { setNotice("Test catalogue could not be saved. Please try again."); return false; }
+              }} />}
+              {settingsPage === "authorization" && hasPermission("authorization") && <AuthorizationSettings key={JSON.stringify([authorization,savedResponsibilities,savedLabTeams])} teams={savedLabTeams} teamsError={labTeamsError} onSaveTeams={next => {
                 if (!hasPermission("authorization") || labTeamsError) return false;
                 try { const validated = readLabTeams(JSON.stringify(next), demoEmployees.map(person => person.id)); window.localStorage.setItem(labTeamsKey, JSON.stringify(validated)); setLabTeams(validated); recordActivity("Updated laboratory teams", "Settings"); setNotice("Laboratory teams saved."); return true; }
                 catch { setNotice("Laboratory teams could not be saved. Please try again."); return false; }
-              }} routing={savedTestRouting} routingError={testRoutingError} onSaveRouting={next => {
-                if (!hasPermission("authorization") || testRoutingError) return false;
-                try { const validated = readTestRouting(JSON.stringify(next)); window.localStorage.setItem(testRoutingKey, JSON.stringify(validated)); setTestRouting(validated); recordActivity("Updated laboratory test routing", "Settings"); setNotice("Test routing saved."); return true; }
-                catch { setNotice("Test routing could not be saved. Please try again."); return false; }
               }} policy={authorization} roles={savedResponsibilities} rolesError={responsibilitiesError} employees={demoEmployees} departments={directory.departments} error={authorizationError} onSaveRoles={next => {
                 if (!hasPermission("authorization")) return false;
                 try { const validated = readResponsibilities(JSON.stringify(next)); window.localStorage.setItem(responsibilitiesKey, JSON.stringify(validated)); setResponsibilities(validated); setResponsibilitiesError(""); recordActivity("Updated responsibilities: " + (Object.keys(validated) as (keyof Responsibilities)[]).filter(key => validated[key] !== responsibilities[key]).map(key => responsibilityLabels[key] + " → " + (demoEmployees.find(e => e.id === validated[key])?.name || "Not assigned")).join("; "), "Settings"); setNotice("Responsibilities saved."); return true; }
@@ -1913,7 +1927,7 @@ export default function Home() {
             <>
           <section className="page-intro">
             <div>
-              <span className="eyebrow">PVT OPERATIONS · NEW JOB</span>
+              <span className="eyebrow">{stage === "job" && !createdJobId ? "PVT OPERATIONS · NEW JOB" : stage === "job" ? "JOB SETUP · " + displayJobId : stage === "report" ? "SAMPLING REPORT · " + displayJobId : "SAMPLING · " + displayJobId}</span>
               <h1>{stageTitle}</h1>
               <p>{stageCopy}</p>
             </div>
@@ -1936,6 +1950,7 @@ export default function Home() {
             <div><small>ASSIGNED ENGINEER</small><strong>{employeeName(currentJob?.assignedEngineerId || currentJob?.responsibleId || job.assignedEngineerId)}</strong></div>
             <div><small>ASSIGNED DRIVER</small><strong>{employeeName(currentJob?.assignedDriverId || job.assignedDriverId)}</strong></div>
             <div><small>CURRENT STAGE</small><strong>Sampling Preparation</strong></div>
+            <div><small>JOB DUE</small><strong>{job.dueDate || "Not recorded"}</strong></div>
             <div><small>STATUS</small><strong>In Progress</strong></div>
           </section>}
 
@@ -1951,6 +1966,7 @@ export default function Home() {
               <div><small>SAMPLING SOURCE / METHOD</small><strong>{samplingTypeLabel}</strong></div>
               {requiresEquipmentPreparation(samplingType) && <div><small>SAMPLE COUNT</small><strong>{samples.length}</strong></div>}
               <div><small>CURRENT STAGE</small><strong>Sampling Data</strong></div>
+              <div><small>JOB DUE</small><strong>{job.dueDate || "Not recorded"}</strong></div>
             </section>
             <details className="job-context-details"><summary>More job context <span>⌄</span></summary><div><span><small>Preparation completed</small><strong>{formatDateTime(preparationCompletedAt)}</strong></span><span><small>Job owner</small><strong>{employeeName(currentJob?.ownerId)}</strong></span><span><small>Last updated</small><strong>{formatDateTime(currentJob?.lastUpdatedAt)}</strong></span></div></details>
           </>}
@@ -1989,7 +2005,8 @@ export default function Home() {
             const editingDraft = !currentJob || isDraft(currentJob);
             const positionName = (e: Employee) => directory.positions.find((p) => p.id === e.positionId)?.name || e.role;
             const personLabel = (e: Employee) => `${e.name} — ${positionName(e)}`;
-            const samplingCandidates = demoEmployees.filter((e) => e.active && allowed(authorization, e.id, "sampling"));
+            // Every active employee, from any department, can be assigned; the sampling department is listed first.
+            const samplingCandidates = demoEmployees.filter((e) => e.active);
             const samplingDepartment = (e: Employee) => e.departmentId === "sampling" || e.role === "sampling";
             const driverCandidates = demoEmployees.filter((e) => e.active);
             const isDriver = (e: Employee) => e.departmentId === "transport" || e.role === "transport";
@@ -2042,9 +2059,9 @@ export default function Home() {
               <section className="panel ops-panel">
                 <div className="panel-heading"><span className="section-number">04</span><div><h2>Sampling assignment</h2><p>Only the people named here receive the job. Nobody is assigned automatically.</p></div><span className="required-chip">REQUIRED TO SEND</span></div>
                 <div className="form-grid">
-                  <label><span>Accountable sampling employee *</span><select value={job.assignedEngineerId} onChange={e=>{const id=e.target.value;setJob(current=>({...current,assignedEngineerId:id,samplingTeamIds:current.samplingTeamIds.filter(x=>x!==id)}));setDispatchReview(false);setJobErrors([]);}}><option value="">Select employee</option><optgroup label="Sampling team">{samplingCandidates.filter(samplingDepartment).map(e=><option key={e.id} value={e.id}>{personLabel(e)}</option>)}</optgroup><optgroup label="Other employees with sampling access">{samplingCandidates.filter(e=>!samplingDepartment(e)).map(e=><option key={e.id} value={e.id}>{personLabel(e)}</option>)}</optgroup></select><small>Owns the sampling work and its report.</small></label>
-                  <label><span>Driver *</span><select value={job.assignedDriverId} onChange={e=>{updateJob("assignedDriverId",e.target.value);setDispatchReview(false);}}><option value="">Select driver</option><optgroup label="Drivers">{driverCandidates.filter(isDriver).map(e=><option key={e.id} value={e.id}>{personLabel(e)}</option>)}</optgroup><optgroup label="Other active employees">{driverCandidates.filter(e=>!isDriver(e)).map(e=><option key={e.id} value={e.id}>{personLabel(e)}</option>)}</optgroup></select><small>Transports the samples after sampling-report approval.</small></label>
-                  <fieldset className="full-field team-members"><legend>Supporting sampling employees (optional)</legend>{samplingCandidates.filter(e=>samplingDepartment(e)&&e.id!==job.assignedEngineerId).map(memberBox)}{samplingCandidates.some(e=>!samplingDepartment(e)&&e.id!==job.assignedEngineerId)&&<details><summary>Other employees with sampling access</summary>{samplingCandidates.filter(e=>!samplingDepartment(e)&&e.id!==job.assignedEngineerId).map(memberBox)}</details>}<small>Supporting employees see the job, its instructions and the sampling data. The accountable employee remains the single owner.</small></fieldset>
+                  <label><span>Accountable sampling employee *</span><select value={job.assignedEngineerId} onChange={e=>{const id=e.target.value;setJob(current=>({...current,assignedEngineerId:id,samplingTeamIds:current.samplingTeamIds.filter(x=>x!==id)}));setDispatchReview(false);setJobErrors([]);}}><option value="">Select employee</option><optgroup label="Sampling team">{samplingCandidates.filter(samplingDepartment).map(e=><option key={e.id} value={e.id}>{personLabel(e)}{e.id===currentEmployee?.id?" (you)":""}</option>)}</optgroup><optgroup label="All other employees">{samplingCandidates.filter(e=>!samplingDepartment(e)).map(e=><option key={e.id} value={e.id}>{personLabel(e)}{e.id===currentEmployee?.id?" (you)":""}</option>)}</optgroup></select><small>Owns the sampling work and its report.</small><OverlapNotice jobs={jobs} employees={demoEmployees} employeeId={job.assignedEngineerId} start={job.dateReceived} end={job.dueDate} exclude={["sampling:"+(currentJob?.id||""),"driver:"+(currentJob?.id||"")]} jobDates /></label>
+                  <label><span>Driver *</span><select value={job.assignedDriverId} onChange={e=>{updateJob("assignedDriverId",e.target.value);setDispatchReview(false);}}><option value="">Select driver</option><optgroup label="Drivers">{driverCandidates.filter(isDriver).map(e=><option key={e.id} value={e.id}>{personLabel(e)}</option>)}</optgroup><optgroup label="All other employees">{driverCandidates.filter(e=>!isDriver(e)).map(e=><option key={e.id} value={e.id}>{personLabel(e)}{e.id===currentEmployee?.id?" (you)":""}</option>)}</optgroup></select><small>Transports the samples after sampling-report approval.</small><OverlapNotice jobs={jobs} employees={demoEmployees} employeeId={job.assignedDriverId} start={job.dateReceived} end={job.dueDate} exclude={["sampling:"+(currentJob?.id||""),"driver:"+(currentJob?.id||"")]} jobDates /></label>
+                  <fieldset className="full-field team-members"><legend>Supporting sampling employees (optional)</legend>{samplingCandidates.filter(e=>samplingDepartment(e)&&e.id!==job.assignedEngineerId).map(memberBox)}{samplingCandidates.some(e=>!samplingDepartment(e)&&e.id!==job.assignedEngineerId)&&<details><summary>All other employees</summary>{samplingCandidates.filter(e=>!samplingDepartment(e)&&e.id!==job.assignedEngineerId).map(memberBox)}</details>}<small>Supporting employees see the job, its instructions and the sampling data. The accountable employee remains the single owner.</small>{job.samplingTeamIds.filter(id=>id!==job.assignedEngineerId).map(id=><OverlapNotice key={id} jobs={jobs} employees={demoEmployees} employeeId={id} start={job.dateReceived} end={job.dueDate} exclude={["sampling:"+(currentJob?.id||""),"driver:"+(currentJob?.id||"")]} jobDates />)}</fieldset>
                 </div>
                 <p className="assignment-summary"><strong>Receives this job:</strong> {team.length ? team.map((id, index) => employeeName(id) + (index === 0 ? " (accountable)" : "")).join(", ") : "Nobody assigned yet"}{job.assignedDriverId ? ` · Driver: ${employeeName(job.assignedDriverId)}` : ""}</p>
               </section>

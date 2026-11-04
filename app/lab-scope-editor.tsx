@@ -6,8 +6,10 @@ import type { Employee } from './employee-directory';
 import { useUnsaved } from './settings-pages';
 import { isValidationTest } from './lab-work';
 import { containerLabel, containerNoun } from './sample-container';
-import { operationsFor, latest, actorRoles, holder, hasAccess, samplingApproved, labScopeProblems, entryValidation, scopeReview, unplannedValidation, validationScopes, type Actor, type Command, type LabScopeVersion, type SampleScope, type Stream, type CustomTest, type ExecutionChoice, type Destination } from './operations-model';
-import { testCards, allowedTeams, defaultTeam, shortTest, methodOf, fluidTypes, type FluidType, type TeamChoice } from './scope-catalogue';
+import { PersonOptions, OverlapNotice } from './person-picker';
+import { localDate } from './local-date';
+import { operationsFor, latest, actorRoles, holder, hasAccess, samplingApproved, labScopeProblems, teamChoicesNeeded, entryValidation, scopeReview, unplannedValidation, validationScopes, type Actor, type Command, type LabScopeVersion, type SampleScope, type Stream, type CustomTest, type ExecutionChoice, type Destination } from './operations-model';
+import { testCards, allowedTeams, defaultTeam, shortTest, methodOf, fluidTypes, type FluidType, type TeamChoice, type TestCard } from './scope-catalogue';
 
 type ScopeEntry = Omit<SampleScope, 'containerType' | 'containerLabel'>;
 type Run = (c: Command) => boolean;
@@ -16,6 +18,8 @@ const streamsOf = (d: Destination): Stream[] => d === 'Both' ? ['PVT', 'Chemical
 const teamOf = (e: ScopeEntry, id: string): TeamChoice | undefined => { const p = e.pvtTests.includes(id), c = e.chemicalTests.includes(id); return p && c ? 'Both' : p ? 'PVT' : c ? 'Chemical' : undefined; };
 const selectedIds = (e: ScopeEntry) => [...new Set([...e.pvtTests, ...e.chemicalTests])].filter((id) => !isValidationTest(id));
 const external = (x?: ExecutionChoice) => x?.by === 'Third-party';
+/** An Unassigned test on a sample sent to both teams waits for the scope owner's explicit team choice. */
+const needsTeam = (e: ScopeEntry, id: string, routing: Actor['routing']) => !!routing && !routing[id] && e.destination === 'Both' && !(e.teamChosen || []).includes(id);
 let customSeq = 0;
 const newCustomId = () => 'ct-' + Date.now().toString(36) + '-' + (++customSeq);
 
@@ -29,7 +33,8 @@ function toEntry(sampleId: string, v?: LabScopeVersion, released?: LabScopeVersi
   return { ...rest, pvtTests: keep(e.pvtTests, 'pvtTests'), chemicalTests: keep(e.chemicalTests, 'chemicalTests'), validation: entryValidation(e), customTests: (e.customTests || []).map((c) => ({ ...c })), execution: { ...(e.execution || {}) } };
 }
 /** What is still missing in one sample, for the collapsed summary. */
-function missing(e: ScopeEntry): string[] {
+function missing(e: ScopeEntry, routing?: Actor['routing'], released?: LabScopeVersion | SampleScope): string[] {
+  const rel = released && 'samples' in released ? released.samples.find((x) => x.sampleId === e.sampleId && !x.excluded) : released;
   if (e.excluded) return e.exclusionReason.trim() ? [] : ['exclusion reason'];
   const out: string[] = [];
   if (!e.fluidType) out.push('fluid type');
@@ -38,6 +43,8 @@ function missing(e: ScopeEntry): string[] {
   if ((e.customTests || []).some((c) => !c.name.trim())) out.push('custom test name');
   if ([...Object.entries(e.execution || {}).filter(([id]) => selectedIds(e).includes(id)).map(([, x]) => x), ...(e.customTests || []).map((c) => c.execution)].some((x) => external(x) && !x?.provider?.trim())) out.push('third-party provider');
   if (scopeReview(e).length) out.push('review ' + scopeReview(e).length + ' selection(s)');
+  const teams = teamChoicesNeeded(e, routing, rel && !rel.excluded ? rel : undefined);
+  if (teams.length) out.push('team for ' + teams.map(shortTest).join(', '));
   return out;
 }
 
@@ -51,12 +58,13 @@ export function LabScope({ job, actor, run }: { job: JobRecord; actor: Actor; ru
   const initial = { samples: entries(last), conditions: last?.conditions || o.conditions, reason: last?.status === 'Draft' ? last.reason : '' };
   const [editing, setEditing] = useState(last?.status === 'Draft');
   const [samples, setSamples] = useState(initial.samples), [conditions, setConditions] = useState(initial.conditions), [reason, setReason] = useState(initial.reason), [review, setReview] = useState(false);
-  const firstOpen = initial.samples.find((e) => missing(e).length)?.sampleId || initial.samples[0]?.sampleId;
+  const firstOpen = initial.samples.find((e) => missing(e, actor.routing, released).length)?.sampleId || initial.samples[0]?.sampleId;
   const [open, setOpen] = useState<string[]>(firstOpen ? [firstOpen] : []);
   useUnsaved(editing && JSON.stringify({ samples, conditions, reason }) !== JSON.stringify(initial));
-  const problems = labScopeProblems(job, samples, conditions, routing, roles, released, actor);
+  // Unassigned tests on a sample sent to both teams need the scope owner's explicit team choice before release.
+  const problems = [...samples.flatMap((e) => teamChoicesNeeded(e, routing, released?.samples.find((x) => x.sampleId === e.sampleId && !x.excluded)).map((id) => `Sample ${e.sampleId}: choose the team for “${shortTest(id)}”. It has no default team in Settings → Tests.`)), ...labScopeProblems(job, samples, conditions, routing, roles, released, actor)];
   const update = (id: string, change: Partial<ScopeEntry>) => { setReview(false); setSamples((list) => list.map((s) => s.sampleId === id ? { ...s, ...change } : s)); };
-  const start = (from?: LabScopeVersion) => { const list = entries(from); setSamples(list); setConditions(from?.conditions || o.conditions); setReason(''); setReview(false); setEditing(true); const f = list.find((e) => missing(e).length)?.sampleId || list[0]?.sampleId; setOpen(f ? [f] : []); };
+  const start = (from?: LabScopeVersion) => { const list = entries(from); setSamples(list); setConditions(from?.conditions || o.conditions); setReason(''); setReview(false); setEditing(true); const f = list.find((e) => missing(e, actor.routing, released).length)?.sampleId || list[0]?.sampleId; setOpen(f ? [f] : []); };
   const providers = [...new Set([...o.activities.map((a) => a.external?.provider || ''), ...samples.flatMap((s) => [...Object.values(s.execution || {}), ...(s.customTests || []).map((c) => c.execution)].map((x) => x?.provider || ''))].map((p) => p.trim()).filter(Boolean))].sort();
   const versionList = versions.length > 0 && <div className="scope-versions"><h3>Scope versions</h3>{[...versions].reverse().map((v) => <ScopeDocument key={v.version + v.status} version={v} employees={actor.employees} />)}</div>;
   if (legacyScoped) return <section className="panel ops-panel"><h2>Laboratory scope</h2><p>This job’s scope was confirmed in the earlier workflow and stays as recorded below. Further work is added as an additional-work request.</p><ValidationRequest job={job} actor={actor} run={run} /></section>;
@@ -74,7 +82,7 @@ export function LabScope({ job, actor, run }: { job: JobRecord; actor: Actor; ru
         <summary>Reservoir conditions and general scope notes{conditions.pressure || conditions.temperature ? ` · ${conditions.pressure || '—'} ${conditions.pressureUnit} · ${conditions.temperature || '—'} ${conditions.temperatureUnit}` : ''}</summary>
         <div className="settings-form-grid">{(['pressure', 'temperature'] as const).map((key) => <label key={key}>Reservoir {key}<span className="unit-input"><input inputMode="decimal" value={conditions[key]} onChange={(e) => { setReview(false); setConditions({ ...conditions, [key]: e.target.value }); }} /><select aria-label={key + ' unit'} value={conditions[key === 'pressure' ? 'pressureUnit' : 'temperatureUnit']} onChange={(e) => setConditions({ ...conditions, [key === 'pressure' ? 'pressureUnit' : 'temperatureUnit']: e.target.value })}>{(key === 'pressure' ? ['psi', 'bar', 'kPa', 'MPa'] : ['°C', '°F', 'K']).map((u) => <option key={u}>{u}</option>)}</select></span><small>Optional here. Required when the PVT lead plans Restoration.</small></label>)}<label>General scope notes<textarea value={conditions.notes} onChange={(e) => { setReview(false); setConditions({ ...conditions, notes: e.target.value }); }} /></label></div>
       </details>
-      <div className="scope-toolbar"><span>{samples.length} sample{samples.length === 1 ? '' : 's'} · {samples.filter((e) => missing(e).length).length} incomplete</span><button type="button" className="text-button" onClick={() => setOpen(samples.map((s) => s.sampleId))}>Expand all</button><button type="button" className="text-button" onClick={() => setOpen([])}>Collapse all</button><BulkOutsource samples={samples} job={job} released={released} onApply={(list) => { setReview(false); setSamples(list); }} /></div>
+      <div className="scope-toolbar"><span>{samples.length} sample{samples.length === 1 ? '' : 's'} · {samples.filter((e) => missing(e, routing, released).length).length} incomplete</span><button type="button" className="text-button" onClick={() => setOpen(samples.map((s) => s.sampleId))}>Expand all</button><button type="button" className="text-button" onClick={() => setOpen([])}>Collapse all</button><BulkOutsource samples={samples} job={job} released={released} onApply={(list) => { setReview(false); setSamples(list); }} /></div>
       {samples.map((entry) => <SampleScopeCard key={entry.sampleId} job={job} actor={actor} entry={entry} released={released?.samples.find((s) => s.sampleId === entry.sampleId)} open={open.includes(entry.sampleId)} onToggle={() => toggleOpen(entry.sampleId)} update={(c) => update(entry.sampleId, c)} />)}
       <datalist id="scope-providers">{providers.map((p) => <option key={p} value={p} />)}</datalist>
       {review && <ScopeReview job={job} samples={samples} problems={problems} roles={roles} name={name} version={last?.status === 'Draft' ? last.version : versions.length + 1} released={released} reason={reason} setReason={setReason} />}
@@ -102,14 +110,23 @@ function SampleScopeCard({ job, actor, entry, released, open, onToggle, update }
   const ids = selectedIds(entry); const custom = entry.customTests || []; const validation = entryValidation(entry);
   const wasReleased = (id: string, stream?: Stream) => !!released && !released.excluded && (stream ? (stream === 'PVT' ? released.pvtTests : released.chemicalTests).includes(id) : [...released.pvtTests, ...released.chemicalTests].includes(id));
   const validationReleased = !!released && !released.excluded && entryValidation(released);
-  const gaps = missing(entry); const review = scopeReview(entry);
+  const gaps = missing(entry, routing, released); const review = scopeReview(entry);
   const cards = testCards(entry.fluidType);
-  const setTeam = (id: string, team?: TeamChoice) => { const p = entry.pvtTests.filter((t) => t !== id), c = entry.chemicalTests.filter((t) => t !== id); update({ pvtTests: team === 'PVT' || team === 'Both' ? [...p, id] : p, chemicalTests: team === 'Chemical' || team === 'Both' ? [...c, id] : c }); };
+  const setTeam = (id: string, team?: TeamChoice, explicit = false) => { const p = entry.pvtTests.filter((t) => t !== id), c = entry.chemicalTests.filter((t) => t !== id); const chosenTeams = (entry.teamChosen || []).filter((t) => t !== id); update({ pvtTests: team === 'PVT' || team === 'Both' ? [...p, id] : p, chemicalTests: team === 'Chemical' || team === 'Both' ? [...c, id] : c, teamChosen: explicit ? [...chosenTeams, id] : chosenTeams }); };
   const select = (id: string, on: boolean) => { if (on) setTeam(id, defaultTeam(id, entry.destination, routing)); else { const execution = { ...(entry.execution || {}) }; delete execution[id]; update({ pvtTests: entry.pvtTests.filter((t) => t !== id), chemicalTests: entry.chemicalTests.filter((t) => t !== id), execution }); } };
   const setExec = (id: string, x?: ExecutionChoice) => { const execution = { ...(entry.execution || {}) }; if (x) execution[id] = x; else delete execution[id]; update({ execution }); };
   const setCustom = (list: CustomTest[]) => update({ customTests: list });
   const pvtList = ids.filter((id) => entry.pvtTests.includes(id)).map(shortTest), chemList = ids.filter((id) => entry.chemicalTests.includes(id)).map(shortTest);
   const nExternal = ids.filter((id) => external(entry.execution?.[id])).length + custom.filter((c) => external(c.execution)).length;
+  const otherIds = new Set(cards.filter((c) => c.section === 'Other tests').flatMap((c) => c.ids));
+  const requiredIds = ids.filter((id) => !otherIds.has(id)), otherSelected = ids.filter((id) => otherIds.has(id));
+  const renderCards = (sections: TestCard['section'][]) => sections.map((section) => { const list = cards.filter((c) => c.section === section); return list.length > 0 && <div key={section} className="test-chip-group"><small>{section === 'Fluid tests' ? (entry.fluidType && entry.fluidType !== 'Other' ? entry.fluidType + ' tests' : 'Fluid tests') : section}</small><div className="test-chips">{list.map((card) => {
+            const chosen = card.ids.filter((id) => ids.includes(id)); const on = chosen.length > 0; const blocked = card.ids.every((id) => !allowedTeams(id, entry.destination, routing).length);
+            const locked = chosen.some((id) => wasReleased(id));
+            if (card.ids.length > 1 && !on) return <span key={card.key} className="test-chip method-chip"><span>{card.label}</span><span className="method-pick">{card.ids.map((id) => <button key={id} type="button" disabled={!allowedTeams(id, entry.destination, routing).length} onClick={() => select(id, true)}>{methodOf(id).replace(' method', '')}</button>)}</span></span>;
+            return <button key={card.key} type="button" aria-pressed={on} className={'test-chip' + (on ? ' active' : '')} disabled={(blocked && !on) || locked} title={blocked ? `Classified as ${routing?.[card.ids[0]]} in Settings — the destination must include it` : locked ? 'Released — cannot be removed in a revision' : undefined} onClick={() => chosen.length ? chosen.forEach((id) => select(id, false)) : select(card.ids[0], true)}>{locked && <Lock size={11} />}{card.label}{chosen.length && card.ids.length > 1 ? <small> · {methodOf(chosen[0]).replace(' method', '')}</small> : null}{blocked && !on ? <small> · {routing?.[card.ids[0]]} only</small> : null}{!on && routing && card.ids.every((id) => !routing[id]) ? <small className="chip-unassigned"> · no default team</small> : null}</button>;
+          })}</div></div>; });
+  const selectedRow = (id: string) => <SelectedTest key={id} id={id} entry={entry} actor={actor} team={teamOf(entry, id)} setTeam={(t) => setTeam(id, t, true)} exec={entry.execution?.[id]} setExec={(x) => setExec(id, x)} releasedStreams={(['PVT', 'Chemical'] as Stream[]).filter((st) => wasReleased(id, st))} needsReview={review.includes(id)} onRemove={() => select(id, false)} />;
   const lead = (st: Stream) => name(roles[st === 'PVT' ? 'pvtTeamLead' : 'chemicalTeamLead']);
   return <section className={'scope-sample' + (gaps.length ? ' needs-decision' : '') + (open ? ' is-open' : '')}>
     <button type="button" className="scope-sample-head" aria-expanded={open} onClick={onToggle}>
@@ -140,16 +157,14 @@ function SampleScopeCard({ job, actor, entry, released, open, onToggle, update }
         </div>
         <div className="scope-step"><span className="step-label">4 · Required tests{pvtList.length + chemList.length > 0 && <small> · {[pvtList.length ? 'PVT: ' + pvtList.join(', ') : '', chemList.length ? 'Chemical: ' + chemList.join(', ') : ''].filter(Boolean).join(' · ')}</small>}</span>
           {!entry.fluidType && !ids.length && <p className="step-hint">Select the fluid type first to see its tests. Each test is listed once.</p>}
-          {(entry.fluidType || ids.length > 0) && (['Fluid tests', 'General analysis', 'Specialised analysis'] as const).map((section) => { const list = cards.filter((c) => c.section === section); return list.length > 0 && <div key={section} className="test-chip-group"><small>{section === 'Fluid tests' ? (entry.fluidType && entry.fluidType !== 'Other' ? entry.fluidType + ' tests' : 'Fluid tests') : section}</small><div className="test-chips">{list.map((card) => {
-            const chosen = card.ids.filter((id) => ids.includes(id)); const on = chosen.length > 0; const blocked = card.ids.every((id) => !allowedTeams(id, entry.destination, routing).length);
-            const locked = chosen.some((id) => wasReleased(id));
-            if (card.ids.length > 1 && !on) return <span key={card.key} className="test-chip method-chip"><span>{card.label}</span><span className="method-pick">{card.ids.map((id) => <button key={id} type="button" disabled={!allowedTeams(id, entry.destination, routing).length} onClick={() => select(id, true)}>{methodOf(id).replace(' method', '')}</button>)}</span></span>;
-            return <button key={card.key} type="button" aria-pressed={on} className={'test-chip' + (on ? ' active' : '')} disabled={(blocked && !on) || locked} title={blocked ? `Classified as ${routing?.[card.ids[0]]} in Settings — the destination must include it` : locked ? 'Released — cannot be removed in a revision' : undefined} onClick={() => chosen.length ? chosen.forEach((id) => select(id, false)) : select(card.ids[0], true)}>{locked && <Lock size={11} />}{card.label}{chosen.length && card.ids.length > 1 ? <small> · {methodOf(chosen[0]).replace(' method', '')}</small> : null}{blocked && !on ? <small> · {routing?.[card.ids[0]]} only</small> : null}</button>;
-          })}</div></div>; })}
-          {ids.length > 0 && <ul className="selected-tests">{ids.map((id) => <SelectedTest key={id} id={id} entry={entry} actor={actor} team={teamOf(entry, id)} setTeam={(t) => setTeam(id, t)} exec={entry.execution?.[id]} setExec={(x) => setExec(id, x)} releasedStreams={(['PVT', 'Chemical'] as Stream[]).filter((st) => wasReleased(id, st))} needsReview={review.includes(id)} onRemove={() => select(id, false)} />)}</ul>}
+          {(entry.fluidType || ids.length > 0) && renderCards(['Fluid tests', 'General analysis', 'Specialised analysis'])}
+          {requiredIds.length > 0 && <ul className="selected-tests">{requiredIds.map(selectedRow)}</ul>}
           {review.length > 0 && <p className="flag-note" role="status">{review.length} saved selection{review.length === 1 ? ' is' : 's are'} not listed for {entry.fluidType}: {review.map((id) => shortTest(id) + (methodOf(id) ? ' (' + methodOf(id) + ')' : '')).join(', ')}. Kept until you remove or confirm them.</p>}
         </div>
-        <div className="scope-step"><span className="step-label">5 · Other tests <small>(job-specific; not added to the catalogue)</small></span>
+        <div className="scope-step"><span className="step-label">5 · Other tests <small>· choose the team for each</small></span>
+          {renderCards(['Other tests'])}
+          {otherSelected.length > 0 && <ul className="selected-tests">{otherSelected.map(selectedRow)}</ul>}
+          <small className="step-hint">Job-specific tests added below stay with this job and are not added to the catalogue.</small>
           {custom.map((c, i) => <CustomTestRow key={c.id} test={c} entry={entry} actor={actor} locked={!!released?.customTests?.some((x) => x.id === c.id)} onChange={(n) => setCustom(custom.map((x, j) => j === i ? n : x))} onRemove={() => setCustom(custom.filter((_, j) => j !== i))} />)}
           <button type="button" className="outline-button add-test" onClick={() => setCustom([...custom, { id: newCustomId(), name: '', notes: '', team: entry.destination }])}><Plus size={14} /> Add test</button>
         </div>
@@ -168,7 +183,7 @@ function SelectedTest({ id, entry, actor, team, setTeam, exec, setExec, released
   return <li className={'selected-test' + (needsReview ? ' needs-review' : '')}>
     <div className="selected-test-head"><strong>{shortTest(id)}</strong>{methodOf(id) && <small>{methodOf(id)}</small>}
       {team && <span className={'team-badge team-' + team.toLowerCase()}>{teamLabel(team)}</span>}
-      {!routed && <small className="muted">Unclassified in Settings · team chosen here</small>}
+      {!routed && (needsTeam(entry, id, actor.routing) ? <strong className="flag-note team-needed">No default team · choose the team below</strong> : <small className="muted">No default team in Settings · team chosen here</small>)}
       {needsReview && <button type="button" className="text-button" onClick={onRemove}>Remove</button>}
       {locked && <small><Lock size={11} /> Released</small>}
     </div>
@@ -182,14 +197,15 @@ function SelectedTest({ id, entry, actor, team, setTeam, exec, setExec, released
 
 /** Performed by Internal / Third-party. Dispatch and returned results are recorded later, in the laboratory view. */
 function ExecutionFields({ value, onChange, streams, actor, locked, label }: { value?: ExecutionChoice; onChange: (x?: ExecutionChoice) => void; streams: Stream[]; actor: Actor; locked?: boolean; label: string }) {
-  const ext = external(value); const name = (id: string) => actor.employees.find((e) => e.id === id)?.name || id;
-  const team = [...new Set(streams.flatMap((st) => actor.teams?.[st] || []))].filter((id) => actor.employees.some((e) => e.id === id && e.active) && (id === 'MA001' || actor.policy.analysis.includes(id)));
+  const ext = external(value);
+  const team = [...new Set(streams.flatMap((st) => actor.teams?.[st] || []))];
   return <div className="execution-fields">
     <div className="inline-field"><span>Performed by</span><Segmented label={'Performed by for ' + label} value={ext ? 'Third-party laboratory' : 'Internal'} options={['Internal', 'Third-party laboratory']} disabled={() => !!locked} onChange={(v) => onChange(v === 'Internal' ? undefined : { by: 'Third-party', provider: value?.provider || '', notes: value?.notes || '', expectedReturn: value?.expectedReturn || '', coordinator: value?.coordinator || '' })} /></div>
     {ext && <div className="third-party-fields">
       <label>Provider / laboratory *<input list="scope-providers" value={value?.provider || ''} disabled={locked} onChange={(e) => onChange({ ...value!, provider: e.target.value })} placeholder="Enter or pick a laboratory" /></label>
-      <label>Internal coordinator<select value={value?.coordinator || ''} disabled={locked} onChange={(e) => onChange({ ...value!, coordinator: e.target.value })}><option value="">Not assigned yet · team lead assigns after release</option>{team.map((id) => <option key={id} value={id}>{name(id)}</option>)}</select></label>
+      <label>Internal coordinator<select value={value?.coordinator || ''} disabled={locked} onChange={(e) => onChange({ ...value!, coordinator: e.target.value })}><option value="">Not assigned yet · team lead assigns after release</option><PersonOptions employees={actor.employees} departments={actor.departments} me={actor.id} current={value?.coordinator} first={team} firstLabel={(streams.join(' / ') || 'Responsible') + ' team'} /></select></label>
       <label>Expected return<input type="date" value={value?.expectedReturn || ''} disabled={locked} onChange={(e) => onChange({ ...value!, expectedReturn: e.target.value })} /></label>
+      {!!value?.coordinator && !locked && <div className="wide"><OverlapNotice jobs={actor.jobs} employees={actor.employees} employeeId={value.coordinator} start={localDate()} end={value.expectedReturn || ''} /></div>}
       <label className="wide">Instructions / notes<input value={value?.notes || ''} disabled={locked} onChange={(e) => onChange({ ...value!, notes: e.target.value })} /></label>
       <small className="step-hint">Recorded and tracked only: nothing is sent to the provider. The coordinator records dispatch and the returned report in Laboratory; the {streams.join(' / ') || 'responsible'} team lead reviews the results.</small>
     </div>}

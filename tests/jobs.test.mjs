@@ -29,7 +29,8 @@ test('job creation is limited to createJob holders and needs instructions and va
  assert.throws(()=>step(draft({samplingInstructions:'  '}),{type:'dispatch',engineer:'MOHSIN',driver:'ALI'},'SALIM'),/Sampling instructions are required/);
  assert.throws(()=>step(draft(),{type:'dispatch',engineer:'',driver:'ALI'},'SALIM'),/accountable sampling employee/);
  assert.throws(()=>step(draft(),{type:'dispatch',engineer:'MOHSIN',driver:''},'SALIM'),/driver/);
- assert.throws(()=>step(draft(),{type:'dispatch',engineer:'MOHSIN',driver:'ALI',team:['HUMAID']},'SALIM'),/needs sampling access/,'a driver-only profile cannot be a sampler');
+ assert.doesNotThrow(()=>step(draft(),{type:'dispatch',engineer:'MOHSIN',driver:'ALI',team:['HUMAID']},'SALIM'),'any active employee, from any department, can support sampling');
+ assert.throws(()=>step(draft(),{type:'dispatch',engineer:'MOHSIN',driver:'ALI',team:['HUMAID']},'SALIM',{employees:employees.map(e=>e.id==='HUMAID'?{...e,active:false}:e)}),/active employee/,'inactive employees cannot be assigned');
  const inactive=employees.map(e=>e.id==='HUSSEINI'?{...e,active:false}:e);
  assert.throws(()=>step(draft(),{type:'dispatch',engineer:'MOHSIN',driver:'ALI',team:['HUSSEINI']},'SALIM',{employees:inactive}),/active employee/);
  const job=sent();
@@ -138,7 +139,13 @@ test('QC stays a required gate before final reporting for per-sample scopes',()=
 });
 
 test('test routing settings are validated and never assumed',()=>{
- assert.deepEqual(readTestRouting(null),{},'every test starts unclassified');
+ const defaults=readTestRouting(null);
+ assert.equal(defaults['Black Oil — DL'],'PVT','existing PVT tests stay PVT');
+ assert.equal(defaults['Specialised Analysis — SARA'],'Chemical','SARA defaults to Chemical');
+ for(const id of ['Specialised Analysis — Sulphur Content','Specialised Analysis — Sulphur Asphaltene','Others — Water Analysis'])assert.equal(defaults[id],'Chemical',id);
+ assert.equal(defaults['Specialised Analysis — EOR'],undefined,'EOR has no default team');
+ assert.equal(readTestRouting(JSON.stringify({'Specialised Analysis — SARA':'Unassigned'}))['Specialised Analysis — SARA'],undefined,'an explicit Unassigned is kept');
+ assert.equal(readTestRouting(JSON.stringify({'Black Oil — DL':'Both'}))['Black Oil — DL'],'Both','saved routing wins over defaults');
  assert.ok(unclassifiedTests({}).length>10);
  assert.deepEqual(testsFor('Chemical',routing),['Others — Water Analysis','Specialised Analysis — SARA']);
  for(const raw of ['bad','[]',JSON.stringify({'Not a test':'PVT'}),JSON.stringify({'Black Oil — DL':'Lab'})])assert.throws(()=>readTestRouting(raw));

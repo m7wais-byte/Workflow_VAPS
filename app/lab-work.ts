@@ -26,7 +26,7 @@ export const scopeTestGroups = [
   { name: "Black Oil", tests: ["Validation", "Recombination", "DL", "Sep Test", "Viscosity"] },
   { name: "Gas Condensates (GC)", tests: ["Validation", "Recombination", "Cryo", "CCE", "CVD", "Sep Test"] },
   { name: "Others", tests: ["Water Analysis", "Compositional Analysis"] },
-  { name: "Specialised Analysis", tests: ["SARA", "Pour Point", "Wax Content", "Asphaltene Content", "WAT", "EOR"] },
+  { name: "Specialised Analysis", tests: ["SARA", "Pour Point", "Wax Content", "Asphaltene Content", "WAT", "Sulphur Content", "Sulphur Asphaltene", "EOR"] },
 ];
 export const scopeTestOptions = scopeTestGroups.flatMap((group) => group.tests.map((test) => `${group.name} — ${test}`));
 

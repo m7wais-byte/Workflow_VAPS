@@ -1,7 +1,7 @@
 'use client';
 import { assetUrl } from './deployment';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Building2, Users, ShieldCheck, ContactRound, Network, ChevronRight } from 'lucide-react';
+import { Building2, Users, ShieldCheck, ContactRound, Network, ChevronRight, FlaskConical } from 'lucide-react';
 import type { Directory, Employee } from './employee-directory';
 import type { Permission } from './authorization';
 import type { JobRecord } from './page';
@@ -16,6 +16,7 @@ const categories = [
  {slug:'clients',title:'Clients',description:'Manage your client directory, job-number codes and active status.',icon:ContactRound,permission:'settings'},
  {slug:'employees',title:'Employees',description:'Maintain employee details, positions, departments and active status.',icon:Users,permission:'employees'},
  {slug:'authorization',title:'Authorization',description:'Control access to workflows and settings for each employee.',icon:ShieldCheck,permission:'authorization'},
+ {slug:'tests',title:'Tests',description:'Maintain the laboratory test catalogue and the default team for each test.',icon:FlaskConical,permission:'tests'},
  {slug:'departments',title:'Departments & Positions',description:'Maintain the department and position options used in employee records.',icon:Network,permission:'employees'},
 ] as const;
 export function SettingsShell({page,can,children}:{page:string;can:(p:Permission)=>boolean;children:ReactNode}) {

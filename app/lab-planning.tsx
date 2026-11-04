@@ -6,7 +6,8 @@ import { useUnsaved } from './settings-pages';
 import { localDate } from './local-date';
 import { containerLabel } from './sample-container';
 import { storeWorkbook } from './workbook-storage';
-import { operationsFor, holder, hasAccess, validationCatalogue, validationScopes, separateRecombination, externalStage, labStatus, streamLead, assignmentEngineers, type Actor, type Command, type ActivityRecord, type ScopeRecord, type ExecutionChoice } from './operations-model';
+import { PersonOptions, OverlapNotice } from './person-picker';
+import { operationsFor, holder, hasAccess, validationCatalogue, validationScopes, separateRecombination, externalStage, labStatus, streamLead, type Actor, type Command, type ActivityRecord, type ScopeRecord, type ExecutionChoice } from './operations-model';
 
 type Run = (c: Command | Command[]) => boolean;
 const touched = (a: ActivityRecord) => a.status !== 'Unassigned' || !!a.owner || a.files.length > 0 || (a.history || []).length > 0;
@@ -36,7 +37,6 @@ export function ValidationPlanning({ job, actor, run, focus }: { job: JobRecord;
 
 function PlanForm({ actor, job, record, steps, run, onDone }: { actor: Actor; job: JobRecord; record: ScopeRecord; steps: ActivityRecord[]; run: Run; onDone: () => void }) {
   const [restoration,setRestoration]=useState(()=>operationsFor(job).conditions);
-  const engineers=assignmentEngineers(actor,'PVT');
   const [assignments,setAssignments]=useState<Record<string,{owner:string;start:string;due:string}>>({});
   const assignment=(title:string)=>assignments[title]||{owner:'',start:localDate(),due:''};
   const changeAssignment=(title:string,change:Partial<{owner:string;start:string;due:string}>)=>setAssignments(list=>({...list,[title]:{...assignment(title),...change}}));
@@ -63,7 +63,8 @@ function PlanForm({ actor, job, record, steps, run, onDone }: { actor: Actor; jo
             </label>;
           })}
         </div>}
-        {on && !a && <div className="settings-form-grid"><label>Engineer for {step}<select aria-label={'Engineer for '+step} value={assignment(step).owner} onChange={e=>changeAssignment(step,{owner:e.target.value})}><option value="">Assign later</option>{engineers.map(id=><option key={id} value={id}>{actor.employees.find(e=>e.id===id)?.name}{id===actor.id?' (you)':''}</option>)}</select></label>{assignment(step).owner&&<><label>Planned start<input required type="date" value={assignment(step).start} onChange={e=>changeAssignment(step,{start:e.target.value})}/></label><label>Due date<input required type="date" min={assignment(step).start} value={assignment(step).due} onChange={e=>changeAssignment(step,{due:e.target.value})}/></label></>}</div>}
+        {on && !a && <div className="settings-form-grid"><label>Engineer for {step}<select aria-label={'Engineer for '+step} value={assignment(step).owner} onChange={e=>changeAssignment(step,{owner:e.target.value})}><option value="">Assign later</option><PersonOptions employees={actor.employees} departments={actor.departments} me={actor.id} first={[...(actor.teams?.PVT||[]),holder(actor,'pvtTeamLead')]} firstLabel="PVT team"/></select></label>{assignment(step).owner&&<><label>Planned start<input required type="date" value={assignment(step).start} onChange={e=>changeAssignment(step,{start:e.target.value})}/></label><label>Due date<input required type="date" min={assignment(step).start} value={assignment(step).due} onChange={e=>changeAssignment(step,{due:e.target.value})}/></label></>}</div>}
+        {on && !a && assignment(step).owner && <OverlapNotice jobs={actor.jobs} employees={actor.employees} employeeId={assignment(step).owner} start={assignment(step).start} end={assignment(step).due} />}
         {step === 'Recombination' && separate.length > 0 && <small className="flag-note">Recombination is already requested as a separate test on this sample ({separate.map((s) => s.stream + ' · ' + labStatus(s)).join(', ')}).</small>}
       </li>; })}</ol>
     {recombinationClash && <label className="ops-check confirm-dup"><input type="checkbox" checked={confirm} onChange={(e) => setConfirm(e.target.checked)} />Also add Recombination as a Validation step (deliberately separate from the requested Recombination test)</label>}
@@ -76,7 +77,7 @@ function PlanForm({ actor, job, record, steps, run, onDone }: { actor: Actor; jo
 /** Third-party execution: who coordinates, dispatch, returned results and submission into the normal internal review. */
 export function ExternalWorkPanel({ job, activity: a, actor, run }: { job: JobRecord; activity: ActivityRecord; actor: Actor; run: Run }) {
   const ext = a.external!; const name = (id?: string) => actor.employees.find((e) => e.id === id)?.name || 'Not assigned';
-  const lead = holder(actor, streamLead(a.stream)); const isOwner = actor.id === a.owner && hasAccess(actor, 'analysis'); const isLead = !!lead && actor.id === lead && hasAccess(actor, 'analysis');
+  const lead = holder(actor, streamLead(a.stream)); const isOwner = actor.id === a.owner && hasAccess(actor, 'jobDetails'); const isLead = !!lead && actor.id === lead && hasAccess(actor, 'analysis');
   const [sentOn, setSentOn] = useState(localDate()), [expected, setExpected] = useState(ext.expectedReturn || ''), [notes, setNotes] = useState(''), [receivedOn, setReceivedOn] = useState(localDate()), [busy, setBusy] = useState(false), [error, setError] = useState('');
   const canRecord = (isOwner || isLead) && !!a.owner;
   const late = !!ext.expectedReturn && !ext.receivedAt && ext.expectedReturn < localDate();

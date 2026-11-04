@@ -3,7 +3,8 @@ import type { JobRecord } from './page';
 import { defaultResponsibilities, explicitPermissions, roleHolder, storedResponsibilities, responsibilityLabels, type Authorization, type Permission, type Responsibilities, type Responsibility } from './authorization';
 import type { Employee } from './employee-directory';
 import { containerId, containerLabel, isGlass, type ContainerType } from './sample-container';
-import { scopeTestOptions, isValidationTest, validationStepNames } from './lab-work';
+import { isValidationTest, validationStepNames } from './lab-work';
+import { catalogueIds } from './test-catalogue';
 import type { TestRouting } from './test-routing';
 import { preparationDone } from './sampling-validation';
 import type { LabTeams } from './lab-teams';
@@ -30,7 +31,10 @@ export type Destination = Stream | 'Both';
 export type SampleScope = { sampleId:string; containerType:ContainerType; containerLabel:string; destination:Destination; pvtTests:string[]; chemicalTests:string[]; notes:string; excluded:boolean; exclusionReason:string;
  /** Not set on older records: never guessed, requested when the scope is next edited. */fluidType?:FluidType; fluidDescription?:string; fluidNotes?:string;
  /** Validation required for this sample. Older records express it as a catalogue "— Validation" test instead. */validation?:boolean;
- customTests?:CustomTest[]; /** Per catalogue test; a missing entry means performed internally. */execution?:Record<string,ExecutionChoice> };
+ customTests?:CustomTest[]; /** Per catalogue test; a missing entry means performed internally. */execution?:Record<string,ExecutionChoice>;
+ /** Tests without a default team whose team the scope owner chose explicitly (draft aid; the team itself is the test lists). */teamChosen?:string[] };
+/** Tests with no default team (Unassigned in Settings) on a sample sent to both teams, still waiting for the scope owner's team choice. Released tests keep their team. */
+export const teamChoicesNeeded=(s:Pick<SampleScope,'pvtTests'|'chemicalTests'|'destination'|'excluded'|'teamChosen'>,routing:TestRouting|null|undefined,previous?:Pick<SampleScope,'pvtTests'|'chemicalTests'>)=>s.excluded||s.destination!=='Both'||!routing?[]:[...new Set([...s.pvtTests,...s.chemicalTests])].filter(id=>!isValidationTest(id)&&!routing[id]&&!(s.teamChosen||[]).includes(id)&&!(previous&&[...previous.pvtTests,...previous.chemicalTests].includes(id)));
 /** Per-sample laboratory scope selected after sampling-report approval. Released versions are never edited. */
 export type LabScopeVersion = { version:number; status:'Draft'|'Released'; samples:SampleScope[]; conditions:Operations['conditions']; /** Test routing in force when this version was saved or released. */routing:TestRouting; reason:string; preparedBy:string; savedAt:string; releasedBy?:string; releasedAt?:string; job:{jobNumber:string;clientName:string;fieldArea:string;well:string;samplingSource:string} };
 /** A reviewer comment pointing at the job, a section, or a sample (target ids from reviewTargets). */
@@ -92,13 +96,21 @@ export function labStatus(a:ActivityRecord):LabStatus{
  if(a.status==='Workbook Submitted'||a.status==='QC Returned')return 'Under team-lead review';
  if(a.status==='Changes Requested')return 'Returned';if(!a.owner)return 'Not assigned';return 'In progress';
 }
-/** The assignee is no longer in the stream's configured team. Shown as a flag; the assignment is never changed automatically. */
-export const teamMismatch=(a:ActivityRecord,teams?:LabTeams|null,roles?:Responsibilities)=>!!a.owner&&a.status!=='Completed'&&!!teams&&!teams[a.stream].includes(a.owner)&&roles?.[streamLead(a.stream)]!==a.owner;
-/** Configured lead may work alongside their own team; laboratory access is still required. */
-export function assignmentEngineers(actor:Actor,stream:Stream):string[]{
- if(!actor.teams)return [];
- return [...new Set([...(actor.teams[stream]||[]),holder(actor,streamLead(stream))].filter((id):id is string=>!!id))].filter(id=>actor.employees.some(e=>e.id===id&&e.active)&&(id==='MA001'||actor.policy.analysis.includes(id)));
+/** The assignee's employee record is missing or inactive. Shown as a flag; the assignment is never changed automatically. Team membership does not limit assignment. */
+export const teamMismatch=(a:ActivityRecord,_teams?:LabTeams|null,_roles?:Responsibilities,employees?:Employee[])=>!!a.owner&&a.status!=='Completed'&&!!employees&&!employees.some(e=>e.id===a.owner&&e.active);
+/**
+ * Everyone a lead or coordinator can assign: the full active employee directory, from every department, including the
+ * lead themselves. The stream's team members and its lead come first. Assigning never grants a permission; the
+ * assignment itself lets the employee act on that one task.
+ */
+export function assignmentEngineers(actor:Actor,stream?:Stream):string[]{
+ const first=stream?[...(actor.teams?.[stream]||[]),holder(actor,streamLead(stream))]:[];
+ return [...new Set([...first,...actor.employees.map(e=>e.id)].filter(Boolean))].filter(id=>actor.employees.some(e=>e.id===id&&e.active));
 }
+/** Passes with the area permission, or with job access when the employee is assigned to this exact work. */
+function requireAssigned(actor:Actor,permission:Permission,assigned:boolean){if(!hasAccess(actor,permission)&&!(assigned&&hasAccess(actor,'jobDetails')))throw Error('This action is not assigned to your active profile or permission.');}
+/** Work on this job that is assigned to the employee personally (sampling team, driver, laboratory owner). */
+export function assignedWork(job:JobRecord,id:string){const o=operationsFor(job);return {sampling:samplingTeam(job).includes(id),driver:job.assignedDriverId===id,lab:o.activities.some(a=>a.owner===id)};}
 export function samplingApproved(job:JobRecord):boolean { const reports=operationsFor(job).samplingReports;return reports.length?latest(reports)?.status==='Approved':job.report?.reportStatus==='Completed'&&!!job.report.approvedAt&&!!job.report.approvedBy; }
 /** Sampling was approved in the older workflow, before dispatch records existed. No dispatch is fabricated. */
 export function legacyDispatch(job:JobRecord):boolean { const o=operationsFor(job);return !o.dispatchedAt&&!o.samplingReports.length&&samplingApproved(job); }
@@ -126,7 +138,7 @@ export function externalStage(a:ActivityRecord):string{
 }
 export const externalLabel=(a:Pick<ActivityRecord,'external'>)=>a.external?'External · '+(a.external.provider||'provider not recorded'):'';
 const externalFrom=(e?:ExecutionChoice):ExternalWork|undefined=>e?.by==='Third-party'?{provider:(e.provider||'').trim(),notes:(e.notes||'').trim(),expectedReturn:e.expectedReturn||''}:undefined;
-export type Actor = { id:string; employees:Employee[]; policy:Authorization; roles?:Responsibilities; /** Current test routing; null when the saved settings cannot be read. */routing?:TestRouting|null; /** Laboratory team lists; null when the saved settings cannot be read. */teams?:LabTeams|null };
+export type Actor = { id:string; employees:Employee[]; policy:Authorization; roles?:Responsibilities; /** Current test routing; null when the saved settings cannot be read. */routing?:TestRouting|null; /** Laboratory team lists; null when the saved settings cannot be read. */teams?:LabTeams|null; /** Every job, for advisory schedule-overlap checks in pickers. */jobs?:JobRecord[]; /** Department names for grouping pickers. */departments?:{id:string;name:string}[] };
 /** The valid holder of a duty for this actor's settings ('' when unassigned or invalid). */
 export const holder=(actor:Actor,key:Responsibility)=>roleHolder(actor.roles||defaultResponsibilities,key,actor.employees);
 export function hasAccess(actor:Actor,permission:Permission) {return actor.employees.some(e=>e.id===actor.id&&e.active)&&((actor.id==='MA001'&&!explicitPermissions.includes(permission))||actor.policy[permission].includes(actor.id));}
@@ -145,7 +157,6 @@ export function restoreJob(job:JobRecord,actor:Actor,now=new Date().toISOString(
  if(!job.trash)throw Error('This job is not in Trash.');
  const restored:JobRecord={...job,trashLog:[...(job.trashLog||[]),{action:'restored',by:actor.id,at:now}]};delete restored.trash;return restored;
 }
-const canSample=(actor:Actor,id:string)=>id==='MA001'||actor.policy.sampling.includes(id);
 function active(actor:Actor,id:string){if(!actor.employees.some(e=>e.id===id&&e.active))throw Error('Select an active employee.');}
 /** Permission and duty must both pass. An unassigned duty blocks the action instead of opening it to everyone. */
 function requireRole(actor:Actor,permission:Permission,...keys:Responsibility[]){requireAccess(actor,permission);const ids=keys.map(key=>holder(actor,key));if(ids.every(id=>!id))throw Error(responsibilityLabels[keys[0]]+' is not configured. Ask an administrator to assign it in Settings → Authorization.');if(!ids.includes(actor.id))throw Error('This action is not assigned to your active profile or permission.');}
@@ -162,13 +173,13 @@ const releasedIn=(v:LabScopeVersion|undefined,sampleId:string,stream:Stream,test
 export function labScopeProblems(job:JobRecord,samples:Omit<SampleScope,'containerType'|'containerLabel'>[],conditions:Operations['conditions'],routing:TestRouting|null|undefined,roles:Responsibilities,previous?:LabScopeVersion,actor?:Actor):string[]{
  const problems:string[]=[];
  if(!routing)return ['Laboratory test routing settings cannot be read. Ask an administrator to restore them in Settings → Authorization.'];
- const ids=(job.samples||[]).map(s=>s.id);
+ const ids=(job.samples||[]).map(s=>s.id);const catalogue=catalogueIds();
  if(samples.length!==ids.length||ids.some(id=>samples.filter(s=>s.sampleId===id).length!==1))problems.push('Every job sample needs one scope entry.');
- const execProblems=(label:string,what:string,e:ExecutionChoice|undefined,streams:Stream[])=>{
+ const execProblems=(label:string,what:string,e:ExecutionChoice|undefined)=>{
   if(e?.by!=='Third-party')return;
   if(!e.provider?.trim())problems.push(label+': “'+what+'” is performed by a third-party laboratory; enter the provider/laboratory name.');
   if(e.expectedReturn&&!/^\d{4}-\d{2}-\d{2}$/.test(e.expectedReturn))problems.push(label+': “'+what+'” needs a valid expected return date.');
-  if(e.coordinator&&actor){const c=e.coordinator;const ok=actor.employees.some(x=>x.id===c&&x.active)&&(c==='MA001'||actor.policy.analysis.includes(c))&&streams.some(st=>actor.teams?.[st]?.includes(c));if(!ok)problems.push(label+': the internal coordinator for “'+what+'” must be an active '+streams.join(' or ')+' team member with laboratory access.');}
+  if(e.coordinator&&actor){const c=e.coordinator;if(!actor.employees.some(x=>x.id===c&&x.active))problems.push(label+': the internal coordinator for “'+what+'” must be an active employee.');}
  };
  for(const s of samples){
   const label='Sample '+s.sampleId;const tests=[...s.pvtTests,...s.chemicalTests];const custom=s.customTests||[];const validation=entryValidation(s);
@@ -180,15 +191,15 @@ export function labScopeProblems(job:JobRecord,samples:Omit<SampleScope,'contain
   for(const stream of ['PVT','Chemical'] as const){const list=testsIn(s,stream);
    if(list.length&&!streamsOf(s.destination).includes(stream))problems.push(label+': '+stream+' tests need the destination '+stream+' or PVT and Chemical.');
    if(new Set(list).size!==list.length)problems.push(label+': a test is listed twice in '+stream+'.');
-   for(const test of list){if(!scopeTestOptions.includes(test))problems.push(label+': “'+test+'” is not in the test catalog.');else if(routing[test]&&routing[test]!=='Both'&&routing[test]!==stream&&!releasedIn(previous,s.sampleId,stream,test))problems.push(label+': “'+test+'” is routed to '+routing[test]+' in Settings, not '+stream+'.');}
+   for(const test of list){if(!catalogue.includes(test))problems.push(label+': “'+test+'” is not in the test catalog.');else if(routing[test]&&routing[test]!=='Both'&&routing[test]!==stream&&!releasedIn(previous,s.sampleId,stream,test))problems.push(label+': “'+test+'” is routed to '+routing[test]+' in Settings, not '+stream+'.');}
   }
-  for(const test of [...new Set(tests)])execProblems(label,shortName(test),s.execution?.[test],(['PVT','Chemical'] as const).filter(st=>testsIn(s,st).includes(test)));
+  for(const test of [...new Set(tests)])execProblems(label,shortName(test),s.execution?.[test]);
   const customIds=new Set<string>();
   for(const c of custom){
    if(!c.id||customIds.has(c.id))problems.push(label+': each custom test needs its own ID.');customIds.add(c.id);
    if(!c.name.trim())problems.push(label+': enter a name for each custom test, or remove it.');
    else if(streamsOf(c.team).some(st=>!streamsOf(s.destination).includes(st)))problems.push(label+': custom test “'+c.name.trim()+'” goes to '+(c.team==='Both'?'PVT and Chemical':c.team)+'; the sample destination must include it.');
-   execProblems(label,c.name.trim()||'custom test',c.execution,streamsOf(c.team));
+   execProblems(label,c.name.trim()||'custom test',c.execution);
   }
  }
  const used=new Set(samples.filter(s=>!s.excluded).flatMap(s=>[...(['PVT','Chemical'] as const).filter(stream=>testsIn(s,stream).length),...(s.customTests||[]).flatMap(c=>streamsOf(c.team)),...(entryValidation(s)?['PVT' as const]:[])]));
@@ -252,7 +263,8 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   if(!job.samplingInstructions?.trim())throw Error('Sampling instructions are required before sending to Sampling.');
   if(!command.engineer)throw Error('Assign the accountable sampling employee.');if(!command.driver)throw Error('Assign a driver.');
   const team=[...new Set([command.engineer,...(command.team||[])].filter(Boolean))];
-  for(const id of team){active(actor,id);if(!canSample(actor,id))throw Error((actor.employees.find(e=>e.id===id)?.name||id)+' needs sampling access before assignment.');}
+  // Any active employee may be assigned, from any department; the assignment lets them act on this job's sampling work.
+  for(const id of team)active(actor,id);
   active(actor,command.driver);
   next.samplingTeamIds=team.slice(1);if(isDraft(job))next.status='Job Created';
   // Laboratory tests requested at creation stay reference information; the laboratory scope is selected after sampling approval.
@@ -298,7 +310,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   break;
  }
  case 'data-submit':{
-  requireAccess(actor,'sampling');if(!job.assignedEngineerId||actor.id!==job.assignedEngineerId)throw Error('Only the accountable sampling employee ('+(actor.employees.find(e=>e.id===job.assignedEngineerId)?.name||'not assigned')+') can submit the sampling data.');
+  requireAssigned(actor,'sampling',actor.id===job.assignedEngineerId);if(!job.assignedEngineerId||actor.id!==job.assignedEngineerId)throw Error('Only the accountable sampling employee ('+(actor.employees.find(e=>e.id===job.assignedEngineerId)?.name||'not assigned')+') can submit the sampling data.');
   if(!o.dispatchedAt&&!legacyDispatch(job))throw Error('Send the job to Sampling first.');
   if(!dataReviewRequired(job))throw Error('This job’s sampling report started before data review. Continue it in the sampling report.');
   const last=o.samplingData?.at(-1);if(last&&!['Returned','Reopened'].includes(last.status))throw Error(last.status==='Submitted'?'The sampling data is already waiting for review.':'The sampling data is approved. Reopen it with a reason before changing it.');
@@ -321,7 +333,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   break;
  }
  case 'data-reopen':{
-  requireAccess(actor,'sampling');requireText(command.reason,'Reason for correcting approved data');
+  requireAssigned(actor,'sampling',actor.id===job.assignedEngineerId);requireText(command.reason,'Reason for correcting approved data');
   const d=o.samplingData?.at(-1);if(!d||d.status!=='Approved')throw Error('Only approved sampling data can be reopened.');
   if(![job.assignedEngineerId,holder(actor,'samplingApproval')].filter(Boolean).includes(actor.id))throw Error('Only the accountable sampling employee or the sampling approver can reopen approved data.');
   if(o.handover||o.scopeConfirmedAt)throw Error('Needs clarification: approved sampling data cannot be reopened after sample handover or laboratory scope release.');
@@ -345,7 +357,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
    const source=previous?'Additional work':'Original request';
    const day=now.slice(0,10);
    /** A coordinator chosen in the scope is assigned on release, only for the stream whose team they belong to. */
-   const coordinate=(a:ActivityRecord,e?:ExecutionChoice)=>{const c=e?.by==='Third-party'?e.coordinator:'';if(!c||!actor.teams?.[a.stream]?.includes(c))return;a.owner=c;a.start=day;a.due=e?.expectedReturn||'';a.status='Scheduled';a.history=[{at:now,by:actor.id,action:'assigned',to:c,comments:'Internal coordinator for third-party work ('+(e?.provider||'').trim()+')'}];};
+   const coordinate=(a:ActivityRecord,e?:ExecutionChoice)=>{const c=e?.by==='Third-party'?e.coordinator:'';if(!c||!actor.employees.some(x=>x.id===c&&x.active))return;a.owner=c;a.start=day;a.due=e?.expectedReturn||'';a.status='Scheduled';a.history=[{at:now,by:actor.id,action:'assigned',to:c,comments:'Internal coordinator for third-party work ('+(e?.provider||'').trim()+')'}];};
    const conditionText=(title:string,notes:string)=>title==='Restoration'?`${command.conditions.pressure} ${command.conditions.pressureUnit}; ${command.conditions.temperature} ${command.conditions.temperatureUnit}`:title==='Water Check'?'Check for water on the sample side.':[command.conditions.notes,notes].filter(Boolean).join(' · ');
    for(const s of samples){
     if(s.excluded)continue;
@@ -423,6 +435,10 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
     !['psi','bar','kPa','MPa'].includes(restoration.pressureUnit)||!['°C','°F','K'].includes(restoration.temperatureUnit))){
    throw Error('Enter numeric reservoir pressure and temperature with units for Restoration.');
   }
+  // Values entered for Restoration become the job's reservoir conditions (shown in every engineer's Job Details).
+  let conditionsNote='';
+  if(addsRestoration&&command.restoration){const r0=o.conditions,next={...r0,pressure:restoration.pressure.trim(),pressureUnit:restoration.pressureUnit,temperature:restoration.temperature.trim(),temperatureUnit:restoration.temperatureUnit};
+   if(JSON.stringify(next)!==JSON.stringify(r0)){conditionsNote=' · reservoir conditions '+(r0.pressure||r0.temperature?'updated':'recorded')+': '+next.pressure+' '+next.pressureUnit+', '+next.temperature+' '+next.temperatureUnit;o.conditions=next;}}
   const added:string[]=[],removed:string[]=[],kept:string[]=[];
   for(const title of validationStepNames.filter(t=>chosen.includes(t))){
    const step=command.steps.find(x=>x.title===title)!;const old=existing.find(a=>a.title===title);
@@ -441,12 +457,12 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
    if(a.status==='Unassigned'&&!a.owner&&!a.files.length&&!(a.history||[]).length){o.activities.splice(o.activities.indexOf(o.activities.find(x=>x.id===a.id)!),1);removed.push(a.title);}else kept.push(a.title);
   }
   r.plannedBy=actor.id;r.plannedAt=now;
-  reason='Validation steps planned · Sample '+sampleId+(added.length?' · added '+added.join(', '):'')+(removed.length?' · removed '+removed.join(', '):'')+(kept.length?' · kept (already started) '+kept.join(', '):'');
+  reason='Validation steps planned · Sample '+sampleId+(added.length?' · added '+added.join(', '):'')+(removed.length?' · removed '+removed.join(', '):'')+(kept.length?' · kept (already started) '+kept.join(', '):'')+conditionsNote;
   break;
  }
  case 'external-dispatch':case 'external-results':case 'external-submit':{
   const a=currentActivity();const ext=a.external;if(!ext)throw Error('This activity is performed internally.');
-  requireAccess(actor,'analysis');
+  requireAssigned(actor,'analysis',!!a.owner&&actor.id===a.owner);
   const lead=holder(actor,streamLead(a.stream));
   if(actor.id!==a.owner&&!(command.type!=='external-submit'&&actor.id===lead))throw Error('Only the internal coordinator ('+(actor.employees.find(e=>e.id===a.owner)?.name||'not assigned')+') records this third-party work.');
   if(!a.owner)throw Error('Assign an internal coordinator first.');
@@ -486,10 +502,8 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   break;
  }
  case 'schedule':{
+  // The responsible team lead assigns; any active employee (any department, the lead included) can be chosen.
   const a=currentActivity();requireRole(actor,'analysis',streamLead(a.stream));active(actor,command.owner);
-  if(!actor.policy.analysis.includes(command.owner)&&command.owner!=='MA001')throw Error('The employee needs laboratory access before assignment.');
-  if(!actor.teams)throw Error('Laboratory team settings cannot be read. Ask an administrator to restore them in Settings → Authorization.');
-  if(command.owner!==a.owner&&!assignmentEngineers(actor,a.stream).includes(command.owner))throw Error((actor.employees.find(e=>e.id===command.owner)?.name||command.owner)+' is not in the '+a.stream+' team. Ask an administrator to add them in Settings → Authorization.');
   if(!/^\d{4}-\d{2}-\d{2}$/.test(command.start)||!/^\d{4}-\d{2}-\d{2}$/.test(command.due)||command.due<command.start)throw Error('Enter a planned start and a due date on or after it.');
   if(a.status==='Completed')throw Error('Completed work is retained; request additional work instead.');
   if(command.owner!==a.owner&&['Workbook Submitted','Awaiting QC','QC Returned'].includes(a.status))throw Error('This test is under review. Finish the review before reassigning it.');
@@ -498,7 +512,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   Object.assign(a,{owner:command.owner,start:command.start,due:command.due,conditions:command.conditions,notes:command.notes,status:a.status==='Unassigned'?'Scheduled':a.status});break;
  }
  case 'progress':{
-  const a=currentActivity();requireAccess(actor,'analysis',a.owner||'unassigned');
+  const a=currentActivity();requireAssigned(actor,'analysis',!!a.owner&&actor.id===a.owner);if(actor.id!==a.owner)throw Error('This action is not assigned to your active profile or permission.');
   if(command.status==='Completed')throw Error('A test is completed by QC approval after team-lead review. Submit the workbook to your team lead.');
   if(command.status!=='In Progress')throw Error('Use workbook submission or correction actions for this state.');
   if(a.status==='Completed')throw Error('Completed work is immutable; request additional work.');
@@ -506,7 +520,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   a.status=command.status;a.progressNotes=command.notes;break;
  }
  case 'workbook':{
-  const a=currentActivity();requireAccess(actor,'analysis',a.owner||'unassigned');if(a.status==='Completed')throw Error('Request a correction before replacing completed work.');
+  const a=currentActivity();requireAssigned(actor,'analysis',!!a.owner&&actor.id===a.owner);if(actor.id!==a.owner)throw Error('This action is not assigned to your active profile or permission.');if(a.status==='Completed')throw Error('Request a correction before replacing completed work.');
   if(a.external)throw Error('This test is performed by a third-party laboratory. Record the returned results, then submit them for review.');
   if(['Workbook Submitted','Awaiting QC','QC Returned'].includes(a.status))throw Error('The current workbook is under review. Wait for the team lead’s decision.');
   if(!command.file.id||command.file.size<=0)throw Error('Upload a workbook first.');
@@ -537,7 +551,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   break;
  }
  case 'report-draft':{
-  if(command.kind==='final')requireRole(actor,'analysis','reporting');else requireAccess(actor,'sampling');
+  if(command.kind==='final')requireRole(actor,'analysis','reporting');else requireAssigned(actor,'sampling',actor.id===job.assignedEngineerId||actor.id===latest(o.samplingReports)?.preparedBy);
   const list=command.kind==='sampling'?o.samplingReports:o.finalReports;const old=latest(list);
   const reviewed=command.kind==='sampling'&&dataReviewRequired(job);
   if(reviewed){if(latestData(job)?.status!=='Approved')throw Error('The sampling report is generated after the sampling data is approved.');if(actor.id!==job.assignedEngineerId)throw Error('Only the accountable sampling employee prepares the sampling report.');}
@@ -548,8 +562,10 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   if(old?.status==='Draft')list[list.length-1]=version;else list.push(version);break;
  }
  case 'report-action':{
-  requireAccess(actor,command.kind==='sampling'?'sampling':'analysis');
-  const list=command.kind==='sampling'?o.samplingReports:o.finalReports;const r=latest(list);if(!r)throw Error('Save a report draft first.');
+  const list=command.kind==='sampling'?o.samplingReports:o.finalReports;const r=latest(list);
+  // Approving and returning keep their permission; the preparer and named checker act through their assignment.
+  requireAssigned(actor,command.kind==='sampling'?'sampling':'analysis',command.kind==='sampling'&&!['approve','return'].includes(command.action)&&!!r&&[r.preparedBy,r.checker].includes(actor.id));
+  if(!r)throw Error('Save a report draft first.');
   if(command.action==='checking'){
    if(command.kind!=='sampling'||actor.id!==r.preparedBy||r.status!=='Draft')throw Error('Only the preparer can submit a draft for checking.');
    if(dataReviewRequired(job))throw Error('Reports from approved sampling data go directly to the sampling approver. Use Submit for approval.');
@@ -585,7 +601,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
  }
  case 'handover-send':{
   // The assigned driver acts through the job assignment (job details access); the engineer needs sampling access.
-  if(!job.assignedDriverId||actor.id!==job.assignedDriverId){requireAccess(actor,'sampling');if(actor.id!==job.assignedEngineerId)throw Error('Only the assigned engineer or driver can send the samples.');}
+  if(!job.assignedDriverId||actor.id!==job.assignedDriverId){requireAssigned(actor,'sampling',actor.id===job.assignedEngineerId);if(actor.id!==job.assignedEngineerId)throw Error('Only the assigned engineer or driver can send the samples.');}
   if(!samplingApproved(next))throw Error('Obtain sampling-report approval before transferring bottles.');
   if(o.handover)throw Error('Handover already recorded. Use receipt notes for discrepancies.');
   if(command.sampleIds.length!==job.samples?.length)throw Error('Select all job samples for this handover. Partial-shipment handling needs confirmation.');

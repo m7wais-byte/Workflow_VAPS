@@ -12,11 +12,16 @@ export const permissionLabels = {
   company: 'Manage company',
   employees: 'Manage employees & options',
   authorization: 'Manage authorization',
+  tests: 'Manage test catalogue',
+  viewWorkbook: 'View workbook',
+  downloadWorkbook: 'Download workbook',
 };
 export type Permission = keyof typeof permissionLabels;
 export type Authorization = Record<Permission, string[]>;
 /** Follow the saved setting for every employee: the administrator's automatic access does not cover them. */
-export const explicitPermissions: Permission[] = ['createJob', 'deleteJobs'];
+export const explicitPermissions: Permission[] = ['createJob', 'deleteJobs', 'viewWorkbook', 'downloadWorkbook'];
+/** Uploaded workbooks are opened and downloaded only by these employees by default (Ahmed Al Shereiqi, PVT Team Lead). */
+export const workbookAccessDefault = ['SHEREIQI'];
 /**
  * There is no shared Driver permission profile; permissions are per employee. Drivers added later
  * receive only job details, and driver actions are authorized by the job's driver assignment.
@@ -27,7 +32,7 @@ export const driverOnlyIds = ['HUMAID'];
 export const companyOverviewDefault = [administratorId, 'SALIM', 'WILFRED'];
 export function defaultAuthorization(ids: string[]): Authorization {
   const broad = ids.filter(id => !driverOnlyIds.includes(id));
-  return { createJob: ['SALIM'], jobDetails: [...ids], sampling: [...broad], analysis: [...broad], inventory: [...broad], companyOverview: companyOverviewDefault.filter(id => ids.includes(id)), deleteJobs: [administratorId], settings: [administratorId], company: [administratorId], employees: [administratorId], authorization: [administratorId] };
+  return { createJob: ['SALIM'], jobDetails: [...ids], sampling: [...broad], analysis: [...broad], inventory: [...broad], companyOverview: companyOverviewDefault.filter(id => ids.includes(id)), deleteJobs: [administratorId], settings: [administratorId], company: [administratorId], employees: [administratorId], authorization: [administratorId], tests: [administratorId], viewWorkbook: workbookAccessDefault.filter(id => ids.includes(id)), downloadWorkbook: workbookAccessDefault.filter(id => ids.includes(id)) };
 }
 export function readAuthorization(raw: string | null, ids: string[]): Authorization {
   if (raw === null) return defaultAuthorization(ids);
@@ -37,6 +42,8 @@ export function readAuthorization(raw: string | null, ids: string[]): Authorizat
   // Added later: defaults apply only when the setting was never saved. A saved empty selection stays empty.
   if (value.companyOverview === undefined) value.companyOverview = companyOverviewDefault.filter(id => ids.includes(id));
   if (value.deleteJobs === undefined) value.deleteJobs = [administratorId];
+  if (value.tests === undefined) value.tests = [administratorId];
+  for (const key of ['viewWorkbook', 'downloadWorkbook']) if (value[key] === undefined) value[key] = workbookAccessDefault.filter(id => ids.includes(id));
   for (const key of Object.keys(permissionLabels) as Permission[]) {
     if (!Array.isArray(value[key]) || value[key].some((id: unknown) => typeof id !== 'string' || !ids.includes(id))) throw Error('Invalid authorization settings');
   }
