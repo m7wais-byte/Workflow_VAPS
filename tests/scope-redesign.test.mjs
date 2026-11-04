@@ -142,7 +142,8 @@ test('several or all tests outsourced; a third-party test needs a provider and a
  const ext={by:'Third-party',provider:'Intertek',notes:'',expectedReturn:'2026-11-20'};
  const all=[e('1.01',{fluidType:'Black Oil',destination:'Both',pvtTests:['Black Oil — DL'],chemicalTests:['Others — Water Analysis'],execution:{'Black Oil — DL':ext,'Others — Water Analysis':ext}}),e('1.02',{fluidType:'Gas Condensate',pvtTests:['Gas Condensates (GC) — CCE'],execution:{'Gas Condensates (GC) — CCE':ext}}),e('1.03',{excluded:true,exclusionReason:'x'})];
  assert.ok(labScopeProblems(approved(),[{...all[0],execution:{'Black Oil — DL':{...ext,provider:''}}},...all.slice(1)],conditions,routing,roles).some(p=>/enter the provider/.test(p)));
- assert.ok(labScopeProblems(approved(),[{...all[0],execution:{'Black Oil — DL':{...ext,coordinator:'YAQEEN'}}},...all.slice(1)],conditions,routing,roles,undefined,actor('SALIM')).some(p=>/internal coordinator/.test(p)),'a Chemical member cannot coordinate PVT work');
+ assert.ok(!labScopeProblems(approved(),[{...all[0],execution:{'Black Oil — DL':{...ext,coordinator:'YAQEEN'}}},...all.slice(1)],conditions,routing,roles,undefined,actor('SALIM')).some(p=>/internal coordinator/.test(p)),'any active employee can coordinate third-party work');
+ assert.ok(labScopeProblems(approved(),[{...all[0],execution:{'Black Oil — DL':{...ext,coordinator:'NOBODY'}}},...all.slice(1)],conditions,routing,roles,undefined,actor('SALIM')).some(p=>/internal coordinator/.test(p)),'an unknown coordinator is refused');
  let j=release(approved(),all);assert.ok(acts(j).every(a=>a.external?.provider==='Intertek'&&!a.owner));
  assert.ok(view([j],'SHEREIQI').actions.some(i=>i.key.startsWith('coord:')&&i.stream==='PVT'),'the team lead gets a coordinator-assignment task');
  j=assign(j,acts(j).find(a=>a.stream==='Chemical'),'YAQEEN');assert.equal(externalStage(acts(j).find(a=>a.stream==='Chemical')),'Awaiting dispatch');
@@ -230,7 +231,8 @@ test('team leads assign themselves and Validation steps to different engineers w
  assert.equal(acts(j).find(a=>a.stream==='Chemical').owner,'BAHRI');
  assert.ok(view([j],'SHEREIQI').actions.some(a=>a.open.tab.includes('activity=')));
  const chemical=acts(j).find(a=>a.stream==='Chemical');
- assert.throws(()=>step(j,{type:'schedule',id:chemical.id,owner:'SHEREIQI',start:'2026-11-02',due:'2026-11-06',conditions:'',notes:''},'BAHRI'),/not in the Chemical team/);
+ assert.equal(step(j,{type:'schedule',id:chemical.id,owner:'SHEREIQI',start:'2026-11-02',due:'2026-11-06',conditions:'',notes:''},'BAHRI').operations.activities.find(a=>a.id===chemical.id).owner,'SHEREIQI','the Chemical lead can assign a PVT engineer');
+ assert.throws(()=>step(j,{type:'schedule',id:chemical.id,owner:'NASSER',start:'2026-11-02',due:'2026-11-06',conditions:'',notes:''},'SHEREIQI'),/not assigned/,'only the responsible lead assigns');
  assert.deepEqual(teams,{PVT:['NASSER','RANJITH'],Chemical:['YAQEEN']});
 });
 

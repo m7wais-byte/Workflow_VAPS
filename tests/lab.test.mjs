@@ -43,19 +43,22 @@ test('released scope routes PVT, Chemical and Both to separate items; excluded s
  assert.equal(o.labScopes[0].routing['Black Oil — DL'],'PVT','routing snapshot kept');
 });
 
-test('team leads assign only within their own stream and team; membership grants no permission; history is kept',()=>{
+test('team leads assign their own stream to anyone in the directory; assigning grants no permission; history is kept',()=>{
  let j=released();const pvt=act(j,'1.01','PVT'),chem=act(j,'1.02','Chemical');
  assert.throws(()=>assign(j,pvt,'NASSER','BAHRI'),/not assigned/);
  assert.throws(()=>assign(j,chem,'YAQEEN','SHEREIQI'),/not assigned/);
- assert.throws(()=>assign(j,pvt,'YAQEEN','SHEREIQI'),/not in the PVT team/);
- assert.throws(()=>assign(j,pvt,'NASSER','SHEREIQI',{teams:null}),/team settings cannot be read/);
- assert.throws(()=>assign(j,pvt,'HUMAID','SHEREIQI',{teams:{PVT:['HUMAID'],Chemical:[]}}),/laboratory access/,'team membership does not grant lab permission');
+ assert.equal(assign(j,pvt,'YAQEEN','SHEREIQI').operations.activities.find(a=>a.id===pvt.id).owner,'YAQEEN','cross-department assignment is valid');
+ assert.doesNotThrow(()=>assign(j,pvt,'NASSER','SHEREIQI',{teams:null}),'team lists only order the picker');
+ const driverJob=assign(j,pvt,'HUMAID','SHEREIQI');
+ assert.equal(step(driverJob,{type:'progress',id:pvt.id,status:'In Progress',notes:'Started'},'HUMAID').operations.activities.find(a=>a.id===pvt.id).status,'In Progress','the assignee acts on their own task through the assignment');
+ assert.throws(()=>step(driverJob,{type:'lead-review',id:pvt.id,decision:'approve',target:'',comments:''},'HUMAID'),/not assigned/,'assignment never grants review rights');
  assert.throws(()=>assign(j,pvt,'NASSER','WILFRED'),/not assigned/,'the PVT Supervisor cannot assign');
  j=assign(j,pvt,'NASSER','SHEREIQI');j=step(j,{type:'progress',id:pvt.id,status:'In Progress',notes:'Half done'},'NASSER');
  j=assign(j,act(j,'1.01','PVT'),'AHAD','SHEREIQI');
  const a=act(j,'1.01','PVT');assert.equal(a.owner,'AHAD');assert.equal(a.status,'In Progress','progress is not discarded');
  assert.deepEqual(a.history.map(h=>[h.action,h.from||'',h.to]),[['assigned','','NASSER'],['reassigned','NASSER','AHAD']]);
- assert.equal(teamMismatch(a,{PVT:['NASSER'],Chemical:[]}),true,'an assignment outside the configured team is flagged, not changed');
+ assert.equal(teamMismatch(a,{PVT:['NASSER'],Chemical:[]},undefined,employees),false,'an assignment outside the configured team is valid');
+ assert.equal(teamMismatch(a,null,undefined,employees.map(e=>e.id==='AHAD'?{...e,active:false}:e)),true,'an inactive assignee is flagged, not changed');
 });
 
 test('employee submits; self-completion is refused; lead returns with specific comments; versions are kept',()=>{
