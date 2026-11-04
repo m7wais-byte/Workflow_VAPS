@@ -2627,3 +2627,60 @@ main,.workspace-content,.settings-workspace .panel {min-width:0;}
 .final-sampling-report.sr-preview{max-width:none;width:100%}
 .sr-preview-actions{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:12px 0 0}
 .sr-preview-actions small{color:#5b6b73}
+
+/* ── Task screens: one header, job details, instructions, supporting details collapsed (Nov 2026) ── */
+.task-header{display:grid;grid-template-columns:minmax(0,1fr) minmax(240px,320px);gap:18px;align-items:start;margin-bottom:16px}
+.task-header h2{margin:2px 0 10px;font-size:22px;line-height:1.25;overflow-wrap:anywhere}
+.task-meta{display:flex;flex-wrap:wrap;gap:8px 22px;margin:0}
+.task-meta>div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.task-meta dt{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.task-meta dd{margin:0;font-weight:600;display:inline-flex;align-items:center;gap:4px;overflow-wrap:anywhere}
+.task-meta dd.is-overdue{color:#b42318}
+.task-next{background:var(--mint);border:1px solid #bfe3db;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:8px}
+.task-next small{font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--teal-dark)}
+.task-next strong{font-size:15px;line-height:1.4}
+.task-next .primary-button{align-self:flex-start}
+.ops-activity.is-focused{border:0;padding:0;background:none;box-shadow:none}
+.ops-job-compact{margin:4px 0 12px;color:var(--muted);font-size:14px}.ops-job-compact strong{color:var(--ink)}
+.job-details-card{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:0 0 16px;background:#fbfcfc}
+.job-details-card h3,.task-instructions h3{margin:0 0 10px;font-size:14px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.job-details-card dl{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px 18px;margin:0}
+.job-details-card dl>div{min-width:0}.job-details-card .wide{grid-column:1/-1}
+.job-details-card dt{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px}
+.job-details-card dd{margin:2px 0 0;font-weight:600;overflow-wrap:anywhere}
+.job-details-card .is-key dd{font-size:17px;color:var(--navy)}
+.job-details-card dd.not-provided{color:var(--muted);font-weight:500;font-style:italic;font-size:14px}
+.task-instructions{margin-bottom:12px}
+.task-supporting{margin-top:16px;border-top:1px solid var(--line);padding-top:10px}
+.task-supporting>summary{cursor:pointer;font-weight:700;color:var(--navy)}
+.task-action-anchor{scroll-margin-top:90px}
+/* Overlap advisory */
+.overlap-note{margin:8px 0 10px;padding:9px 12px;border-radius:9px;font-size:13px;line-height:1.45;display:block}
+.overlap-note svg{vertical-align:-3px;margin-right:4px}
+.overlap-clear{background:#eef8f5;color:#0b5f57;border:1px solid #cfe9e2}
+.overlap-unknown{background:#f4f6f7;color:var(--muted);border:1px dashed var(--line)}
+.overlap-warning{background:#fff7e8;color:#6b4100;border:1px solid #f1d39b}
+.overlap-warning strong{display:block;margin-bottom:4px;color:#7a4800}
+.overlap-warning ul{margin:4px 0 6px;padding-left:18px}.overlap-warning li{margin:2px 0}
+.overlap-warning b{white-space:nowrap}.overlap-job{font-weight:700;color:var(--navy)}
+.overlap-warning small{color:#7a5a20}
+/* Workbook access */
+.workbook-actions{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
+.workbook-actions .text-button{display:inline-flex;align-items:center;gap:4px}
+.workbook-uploaded{display:inline-flex;align-items:center;gap:5px;color:var(--ink)}
+/* Settings → Tests */
+.catalogue-counts{display:flex;flex-wrap:wrap;gap:6px}
+.catalogue-add{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:14px 0 18px;background:#fbfcfc}
+.catalogue-add h3{margin:0 0 8px;font-size:15px}
+.catalogue-section h3{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;font-size:16px;margin:18px 0 8px}
+.catalogue-section h3 small{font-weight:500;color:var(--muted);font-size:13px}
+.test-catalogue tr.is-unassigned th{color:#7a4800}
+.chip-unassigned{color:#a35d00;font-weight:700}
+.team-needed{display:inline-block}
+@media (max-width:760px){
+ .task-header{grid-template-columns:1fr}
+ .task-header h2{font-size:19px}
+ .task-next .primary-button{align-self:stretch;justify-content:center}
+ .job-details-card dl{grid-template-columns:1fr 1fr}
+}
+.workbook-actions strong{display:inline-flex;align-items:center;gap:4px}

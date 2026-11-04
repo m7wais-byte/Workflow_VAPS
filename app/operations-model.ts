@@ -175,7 +175,7 @@ export function labScopeProblems(job:JobRecord,samples:Omit<SampleScope,'contain
  if(!routing)return ['Laboratory test routing settings cannot be read. Ask an administrator to restore them in Settings → Authorization.'];
  const ids=(job.samples||[]).map(s=>s.id);const catalogue=catalogueIds();
  if(samples.length!==ids.length||ids.some(id=>samples.filter(s=>s.sampleId===id).length!==1))problems.push('Every job sample needs one scope entry.');
- const execProblems=(label:string,what:string,e:ExecutionChoice|undefined,streams:Stream[])=>{
+ const execProblems=(label:string,what:string,e:ExecutionChoice|undefined)=>{
   if(e?.by!=='Third-party')return;
   if(!e.provider?.trim())problems.push(label+': “'+what+'” is performed by a third-party laboratory; enter the provider/laboratory name.');
   if(e.expectedReturn&&!/^\d{4}-\d{2}-\d{2}$/.test(e.expectedReturn))problems.push(label+': “'+what+'” needs a valid expected return date.');
@@ -193,13 +193,13 @@ export function labScopeProblems(job:JobRecord,samples:Omit<SampleScope,'contain
    if(new Set(list).size!==list.length)problems.push(label+': a test is listed twice in '+stream+'.');
    for(const test of list){if(!catalogue.includes(test))problems.push(label+': “'+test+'” is not in the test catalog.');else if(routing[test]&&routing[test]!=='Both'&&routing[test]!==stream&&!releasedIn(previous,s.sampleId,stream,test))problems.push(label+': “'+test+'” is routed to '+routing[test]+' in Settings, not '+stream+'.');}
   }
-  for(const test of [...new Set(tests)])execProblems(label,shortName(test),s.execution?.[test],(['PVT','Chemical'] as const).filter(st=>testsIn(s,st).includes(test)));
+  for(const test of [...new Set(tests)])execProblems(label,shortName(test),s.execution?.[test]);
   const customIds=new Set<string>();
   for(const c of custom){
    if(!c.id||customIds.has(c.id))problems.push(label+': each custom test needs its own ID.');customIds.add(c.id);
    if(!c.name.trim())problems.push(label+': enter a name for each custom test, or remove it.');
    else if(streamsOf(c.team).some(st=>!streamsOf(s.destination).includes(st)))problems.push(label+': custom test “'+c.name.trim()+'” goes to '+(c.team==='Both'?'PVT and Chemical':c.team)+'; the sample destination must include it.');
-   execProblems(label,c.name.trim()||'custom test',c.execution,streamsOf(c.team));
+   execProblems(label,c.name.trim()||'custom test',c.execution);
   }
  }
  const used=new Set(samples.filter(s=>!s.excluded).flatMap(s=>[...(['PVT','Chemical'] as const).filter(stream=>testsIn(s,stream).length),...(s.customTests||[]).flatMap(c=>streamsOf(c.team)),...(entryValidation(s)?['PVT' as const]:[])]));
@@ -435,6 +435,10 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
     !['psi','bar','kPa','MPa'].includes(restoration.pressureUnit)||!['°C','°F','K'].includes(restoration.temperatureUnit))){
    throw Error('Enter numeric reservoir pressure and temperature with units for Restoration.');
   }
+  // Values entered for Restoration become the job's reservoir conditions (shown in every engineer's Job Details).
+  let conditionsNote='';
+  if(addsRestoration&&command.restoration){const r0=o.conditions,next={...r0,pressure:restoration.pressure.trim(),pressureUnit:restoration.pressureUnit,temperature:restoration.temperature.trim(),temperatureUnit:restoration.temperatureUnit};
+   if(JSON.stringify(next)!==JSON.stringify(r0)){conditionsNote=' · reservoir conditions '+(r0.pressure||r0.temperature?'updated':'recorded')+': '+next.pressure+' '+next.pressureUnit+', '+next.temperature+' '+next.temperatureUnit;o.conditions=next;}}
   const added:string[]=[],removed:string[]=[],kept:string[]=[];
   for(const title of validationStepNames.filter(t=>chosen.includes(t))){
    const step=command.steps.find(x=>x.title===title)!;const old=existing.find(a=>a.title===title);
@@ -453,7 +457,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
    if(a.status==='Unassigned'&&!a.owner&&!a.files.length&&!(a.history||[]).length){o.activities.splice(o.activities.indexOf(o.activities.find(x=>x.id===a.id)!),1);removed.push(a.title);}else kept.push(a.title);
   }
   r.plannedBy=actor.id;r.plannedAt=now;
-  reason='Validation steps planned · Sample '+sampleId+(added.length?' · added '+added.join(', '):'')+(removed.length?' · removed '+removed.join(', '):'')+(kept.length?' · kept (already started) '+kept.join(', '):'');
+  reason='Validation steps planned · Sample '+sampleId+(added.length?' · added '+added.join(', '):'')+(removed.length?' · removed '+removed.join(', '):'')+(kept.length?' · kept (already started) '+kept.join(', '):'')+conditionsNote;
   break;
  }
  case 'external-dispatch':case 'external-results':case 'external-submit':{

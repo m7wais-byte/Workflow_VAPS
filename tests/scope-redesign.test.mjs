@@ -245,5 +245,6 @@ test('Validation release allows missing reservoir conditions and only Restoratio
  assert.ok(acts(step(j,{...plan,steps:[{title:'Flash'}]},'SHEREIQI')).some(a=>a.title==='Flash'));
  const planned=step(j,{...plan,restoration:conditions},'SHEREIQI');
  assert.equal(acts(planned).find(a=>a.title==='Restoration').conditions,'2100 psi; 88 °C');
- assert.equal(operationsFor(planned).conditions.pressure,'');
+ assert.equal(operationsFor(planned).conditions.pressure,'2100','values entered for Restoration become the job conditions shown in Job Details');
+ assert.equal(operationsFor(planned).labScopes.at(-1).conditions.pressure,'','the released scope version is not rewritten');
 });

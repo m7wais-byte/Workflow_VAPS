@@ -197,7 +197,7 @@ function SelectedTest({ id, entry, actor, team, setTeam, exec, setExec, released
 
 /** Performed by Internal / Third-party. Dispatch and returned results are recorded later, in the laboratory view. */
 function ExecutionFields({ value, onChange, streams, actor, locked, label }: { value?: ExecutionChoice; onChange: (x?: ExecutionChoice) => void; streams: Stream[]; actor: Actor; locked?: boolean; label: string }) {
-  const ext = external(value); const name = (id: string) => actor.employees.find((e) => e.id === id)?.name || id;
+  const ext = external(value);
   const team = [...new Set(streams.flatMap((st) => actor.teams?.[st] || []))];
   return <div className="execution-fields">
     <div className="inline-field"><span>Performed by</span><Segmented label={'Performed by for ' + label} value={ext ? 'Third-party laboratory' : 'Internal'} options={['Internal', 'Third-party laboratory']} disabled={() => !!locked} onChange={(v) => onChange(v === 'Internal' ? undefined : { by: 'Third-party', provider: value?.provider || '', notes: value?.notes || '', expectedReturn: value?.expectedReturn || '', coordinator: value?.coordinator || '' })} /></div>
