@@ -18,7 +18,7 @@ const sectionNote: Record<CatalogueSection, string> = {
  * Settings → Tests: the full catalogue that feeds every sample's Scope of Work, with each test's default team.
  * Saving writes an explicit decision for every test, so Unassigned is kept as chosen. Released scopes keep their routing.
  */
-export function TestCatalogueSettings({ custom, saved, error, onSave }: { custom: CatalogueTest[]; saved: SavedRouting; error: string; onSave: (custom: CatalogueTest[], routing: SavedRouting) => boolean }) {
+export function TestCatalogueSettings({ custom, saved, error, onSave, demoActive = false }: { custom: CatalogueTest[]; saved: SavedRouting; error: string; demoActive?: boolean; onSave: (custom: CatalogueTest[], routing: SavedRouting) => boolean }) {
   const initial = () => { const routing = effectiveRouting(saved); return Object.fromEntries(catalogueTests(custom).map((t) => [t.id, routingChoice(routing, t.id)])) as SavedRouting; };
   const [routing, setRouting] = useState<SavedRouting>(initial), [tests, setTests] = useState(custom), [message, setMessage] = useState(''), [formError, setFormError] = useState('');
   const [name, setName] = useState(''), [section, setSection] = useState<CatalogueSection>('Specialised analysis'), [fluid, setFluid] = useState<FluidGroup | ''>(''), [team, setTeam] = useState<RoutingChoice>('Chemical');
@@ -35,6 +35,7 @@ export function TestCatalogueSettings({ custom, saved, error, onSave }: { custom
   return <section className="panel settings-panel test-catalogue">
     <div className="panel-heading"><div><span className="eyebrow">LABORATORY SCOPE</span><h2>Test catalogue</h2><p>Every test listed here appears in each sample’s Scope of Work. The default team is preselected when the scope owner selects the test; Unassigned tests are routed per sample by the scope owner. Changes apply to future selections. Released jobs keep the routing they were released with.</p></div></div>
     {error && <p role="alert">{error}</p>}
+    {demoActive && <p className="flag-note" role="note">Demo setup is on: its labelled routing for the demo fluid, Water Analysis and Compositional Analysis tests applies on top of these settings until the demo is switched off.</p>}
     <p className="catalogue-counts" role="status">{counts.map(([c, n]) => <span key={c} className={'scope-chip' + (c === 'Unassigned' && n ? ' chip-missing' : '')}>{choiceLabel[c]}: {n}</span>)}</p>
     <form className="catalogue-add" onSubmit={(e) => { e.preventDefault(); add(); }}>
       <h3>Add a test</h3>

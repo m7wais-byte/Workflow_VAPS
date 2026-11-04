@@ -36,6 +36,6 @@ export function OverlapNotice({ jobs, employees, employeeId, start, end, exclude
   return <div className="overlap-note overlap-warning" role="status" aria-live="polite">
     <strong><AlertTriangle size={15} aria-hidden="true" /> {who} already has {list.length} scheduled task{list.length === 1 ? '' : 's'} overlapping {formatRange(start, end)}{jobDates ? ' (job dates)' : ''}</strong>
     <ul>{list.map((o) => <li key={o.key}><span className="overlap-job">{o.jobNumber}</span> {o.task} · scheduled {formatRange(o.start, o.end)}{o.jobDates ? ' (job dates)' : ''} · <b>overlap {formatRange(o.from, o.to)}</b></li>)}</ul>
-    <small>Advisory only. You can still confirm the assignment if {who} can handle both.</small>
+    <small>Advisory only. You can still confirm the assignment if {who} can handle {list.length === 1 ? 'both tasks' : 'the combined work'}.</small>
   </div>;
 }

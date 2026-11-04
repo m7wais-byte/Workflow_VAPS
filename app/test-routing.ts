@@ -33,8 +33,7 @@ export function readTestRouting(raw: string | null, ids?: string[]): TestRouting
 export function storedTestRouting(): TestRouting | null {
   if (typeof window === 'undefined' || !window.localStorage) return effectiveRouting({});
   const demo = activeDemoSetup();
-  if (demo) return { ...effectiveRouting({}), ...demo.routing };
-  try { return readTestRouting(window.localStorage.getItem(testRoutingKey)); } catch { return null; }
+  try { const saved = readTestRouting(window.localStorage.getItem(testRoutingKey)); return demo ? { ...saved, ...demo.routing } : saved; } catch { return null; }
 }
 export const routingChoice = (routing: TestRouting, id: string): RoutingChoice => routing[id] || 'Unassigned';
 export const testsFor = (stream: 'PVT' | 'Chemical', routing: TestRouting) => catalogueIds().filter(test => routing[test] === stream || routing[test] === 'Both');

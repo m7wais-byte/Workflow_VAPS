@@ -165,7 +165,7 @@ export function PvtLab({ initialJobId = "", jobs, employeeName, team, onOpenJob,
   }
 
   return <div className="pvt-lab">
-    <section className="page-intro"><div><span className="eyebrow">LABORATORY WORKSPACE</span><h1>PVT Lab</h1><p>Every job with laboratory work in its scope appears here as soon as it is created. Open a job to plan validation steps, assign tests and track progress.</p></div></section>
+    <section className="page-intro"><div><span className="eyebrow">LABORATORY WORKSPACE</span><h1>Laboratory</h1><p>Every job with laboratory work in its scope appears here as soon as it is created. Open a job to plan validation steps, assign tests and track progress.</p></div></section>
     <div className="lab-summary"><span><strong>{count("awaiting-plan")}</strong> awaiting lab plan</span><span><strong>{count("awaiting-assignment") + count("assigned")}</strong> planned · not started</span><span><strong>{count("in-progress") + count("on-hold")}</strong> in progress</span><span><strong>{count("completed")}</strong> completed</span></div>
     <section className="panel">
       <div className="lab-tools"><label><span>Find a lab job</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Job number, client, well, or test" /></label><label><span>Show</span><select value={filter} onChange={(event) => setFilter(event.target.value)}><option value="active">Open lab work</option><option value="plan">Awaiting lab plan</option><option value="completed">Completed lab work</option><option value="all">All lab jobs</option></select></label></div>

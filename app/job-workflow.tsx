@@ -77,7 +77,7 @@ export function WorkflowSummary({ summary }: { summary: JobSummary }) {
   </div>;
 }
 
-export const stageActionLabel: Record<StageId, string> = { setup: "Open job setup", sampling: "Open in Sampling", delivery: "Open team handoffs", lab: "Open in PVT Lab", "sampling-report":"Open sampling report", planning:"Open laboratory scope", reporting:"Open final reporting" };
+export const stageActionLabel: Record<StageId, string> = { setup: "Open job setup", sampling: "Open in Sampling", delivery: "Open team handoffs", lab: "Open in Laboratory", "sampling-report":"Open sampling report", planning:"Open laboratory scope", reporting:"Open final reporting" };
 
 /** Internal tracker stages with responsible people resolved to names. */
 export function trackerStages(job: JobRecord, employeeName: (id?: string) => string): TrackerStage[] {

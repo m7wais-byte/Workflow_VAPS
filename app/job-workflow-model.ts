@@ -106,7 +106,7 @@ export function jobStages(job: JobRecord): JobStage[] {
     const waiting = complete ? undefined : !job.labPlan ? "Awaiting lab plan" : progress.state === "on-hold" ? "On hold" : !delivered ? "Awaiting samples" : progress.state === "awaiting-assignment" ? "Awaiting assignment" : undefined;
     const remaining = progress.total - progress.done;
     stages.push({
-      id: "lab", label: "PVT Lab", state: complete ? "done" : labTasks.some(task => task.state !== "pending") ? "active" : "pending", waiting,
+      id: "lab", label: "Laboratory", state: complete ? "done" : labTasks.some(task => task.state !== "pending") ? "active" : "pending", waiting,
       owner: team.analysis?.owner || job.labPlan?.savedBy, ownerFallback: "PVT lab team",
       nextAction: complete ? "No action required"
         : !job.labPlan ? (validationRequested(job) ? "Select validation steps and assign lab work" : "Assign the requested lab tests")

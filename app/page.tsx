@@ -429,7 +429,7 @@ export default function Home() {
   const [demoSetup, setDemoSetupState] = useState<DemoSetup | null>(null);
   const demoActive = !!demoSetup?.enabled;
   const responsibilities: Responsibilities = demoActive ? Object.fromEntries(Object.entries(savedResponsibilities).map(([key, value]) => [key, typeof demoSetup!.roles[key] === "string" ? demoSetup!.roles[key] : value])) as Responsibilities : savedResponsibilities;
-  const testRouting: TestRouting = demoActive ? { ...effectiveRouting({}), ...demoSetup!.routing } : savedTestRouting;
+  const testRouting: TestRouting = demoActive ? { ...savedTestRouting, ...demoSetup!.routing } : savedTestRouting;
   const labTeams: LabTeams = demoActive ? demoSetup!.teams : savedLabTeams;
   const hasPermission = (permission: Permission) => !directoryError && !!demoEmployees.find(e=>e.id===currentEmployee?.id && e.active) && !authorizationError && allowed(authorization, currentEmployee?.id, permission);
   const assignedToSampling = () => { const j = storedJobs.find((item) => item.id === jobId); return !!j && !!currentEmployee && samplingTeam(j).includes(currentEmployee.id); };
@@ -1887,7 +1887,7 @@ export default function Home() {
               {settingsPage==='employees' && hasPermission('employees') && <EmployeeSettings directory={directory} onSave={saveDirectory} jobs={storedJobs} onReview={item=>{setWorkflowJobId(item.id);setWorkspaceView('workflow');}} />}
               {settingsPage==='departments' && hasPermission('employees') && <OptionSettings directory={directory} onSave={saveDirectory} />}
               {settingsPage==='company' && hasPermission('company') && <CompanySettings company={company} onSave={next=>{if(!hasPermission('company')) throw Error('You cannot manage company details.'); localStorage.setItem('vaps-company-v1',JSON.stringify(next));setCompany(next);}} />}
-              {settingsPage === "tests" && hasPermission("tests") && <TestCatalogueSettings key={JSON.stringify([customTests, savedRoutingRaw])} custom={customTests} saved={savedRoutingRaw} error={testRoutingError} onSave={(custom, routing) => {
+              {settingsPage === "tests" && hasPermission("tests") && <TestCatalogueSettings key={JSON.stringify([customTests, savedRoutingRaw])} custom={customTests} saved={savedRoutingRaw} error={testRoutingError} demoActive={demoActive} onSave={(custom, routing) => {
                 if (!hasPermission("tests") || testRoutingError) return false;
                 try {
                   const validCustom = readCustomTests(JSON.stringify({ tests: custom.map(({ id, name, group, section }) => ({ id, name, group, section })) }));
@@ -1927,7 +1927,7 @@ export default function Home() {
             <>
           <section className="page-intro">
             <div>
-              <span className="eyebrow">PVT OPERATIONS · NEW JOB</span>
+              <span className="eyebrow">{stage === "job" && !createdJobId ? "PVT OPERATIONS · NEW JOB" : stage === "job" ? "JOB SETUP · " + displayJobId : stage === "report" ? "SAMPLING REPORT · " + displayJobId : "SAMPLING · " + displayJobId}</span>
               <h1>{stageTitle}</h1>
               <p>{stageCopy}</p>
             </div>
@@ -1950,6 +1950,7 @@ export default function Home() {
             <div><small>ASSIGNED ENGINEER</small><strong>{employeeName(currentJob?.assignedEngineerId || currentJob?.responsibleId || job.assignedEngineerId)}</strong></div>
             <div><small>ASSIGNED DRIVER</small><strong>{employeeName(currentJob?.assignedDriverId || job.assignedDriverId)}</strong></div>
             <div><small>CURRENT STAGE</small><strong>Sampling Preparation</strong></div>
+            <div><small>JOB DUE</small><strong>{job.dueDate || "Not recorded"}</strong></div>
             <div><small>STATUS</small><strong>In Progress</strong></div>
           </section>}
 
@@ -1965,6 +1966,7 @@ export default function Home() {
               <div><small>SAMPLING SOURCE / METHOD</small><strong>{samplingTypeLabel}</strong></div>
               {requiresEquipmentPreparation(samplingType) && <div><small>SAMPLE COUNT</small><strong>{samples.length}</strong></div>}
               <div><small>CURRENT STAGE</small><strong>Sampling Data</strong></div>
+              <div><small>JOB DUE</small><strong>{job.dueDate || "Not recorded"}</strong></div>
             </section>
             <details className="job-context-details"><summary>More job context <span>⌄</span></summary><div><span><small>Preparation completed</small><strong>{formatDateTime(preparationCompletedAt)}</strong></span><span><small>Job owner</small><strong>{employeeName(currentJob?.ownerId)}</strong></span><span><small>Last updated</small><strong>{formatDateTime(currentJob?.lastUpdatedAt)}</strong></span></div></details>
           </>}
