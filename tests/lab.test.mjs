@@ -6,7 +6,7 @@ const store=new Map();globalThis.window={localStorage:{getItem:k=>store.get(k)??
 const {applyOperation,pendingActions,finalReady,qcPending,labStatus,teamMismatch,operationsFor,operationComplete,samplingApproved}=await bundle('app/operations-model.ts');
 const {defaultAuthorization,defaultResponsibilities,readResponsibilities}=await bundle('app/authorization.ts');
 const {initialDirectory}=await bundle('app/employee-directory.ts');
-const {readLabTeams,emptyLabTeams}=await bundle('app/lab-teams.ts');
+const {readLabTeams}=await bundle('app/lab-teams.ts');
 
 const employees=initialDirectory().employees,policy=defaultAuthorization(employees.map(e=>e.id));
 const routing={'Black Oil — DL':'PVT','Others — Water Analysis':'Chemical','Specialised Analysis — SARA':'Both'};
@@ -118,9 +118,12 @@ test('final reporting waits for every QC approval; Ahmed prepares and Wilfred ap
  assert.equal(operationComplete(j),true);assert.equal(operationsFor(j).finalReports.at(-1).approvedBy,'WILFRED');assert.equal(samplingApproved(j),true);
 });
 
-test('settings: receipt starts unassigned, teams start empty and are validated; completed history stays complete',()=>{
+test('settings: receipt starts unassigned, team defaults and saved settings are validated; completed history stays complete',()=>{
  assert.equal(defaultResponsibilities.labReceipt,'');assert.equal(readResponsibilities(JSON.stringify({scopeSelector:'SALIM'})).labReceipt,'');
- assert.deepEqual(readLabTeams(null,['NASSER']),emptyLabTeams());
+ const roster = {PVT:['SHEREIQI','NASSER','RANJITH','YAQEEN'],Chemical:['BAHRI','AHAD']};
+ assert.deepEqual(readLabTeams(null,[...roster.PVT,...roster.Chemical,'MOHSIN','HUSSEINI']),roster);
+ assert.deepEqual(readLabTeams(null,['NASSER']),{PVT:['NASSER'],Chemical:[]});
+ assert.deepEqual(readLabTeams('{}',['NASSER']),{PVT:[],Chemical:[]});
  assert.deepEqual(readLabTeams(JSON.stringify({PVT:['NASSER','NASSER']}),['NASSER']),{PVT:['NASSER'],Chemical:[]});
  for(const raw of ['bad','[]',JSON.stringify({PVT:['GHOST']}),JSON.stringify({Chemical:'YAQEEN'})])assert.throws(()=>readLabTeams(raw,['NASSER','YAQEEN']));
  const legacy={...base(),status:'Completed',operations:{...operationsFor(base()),scopeConfirmedAt:'2026-08-01T00:00:00Z',activities:[{id:'old',scopeId:'original:x',sampleId:'1.01',title:'Old test',stream:'PVT',owner:'NASSER',start:'',due:'',conditions:'',notes:'',status:'Completed',files:[{id:'x',name:'x.xlsx',size:1,type:'',version:1,submittedBy:'NASSER',submittedAt:'2026-08-01T00:00:00Z',status:'Available',comments:''}],required:true}]}};
