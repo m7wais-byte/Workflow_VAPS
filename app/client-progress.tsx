@@ -6,11 +6,22 @@
 import type { JobSummary, TrackNode } from './job-workflow-model';
 import type { FlowState } from './job-flow';
 import { StatusBadge, StateIcon, shortDate } from './flow-ui';
+import { ProgressBadge, ProgressBody } from './job-progress-ui';
+import { localDate } from './local-date';
 
 const fromTrack = (s: TrackNode['state']): FlowState => s === 'done' ? 'completed' : s === 'active' ? 'in-progress' : 'not-started';
 const leaves = (n: TrackNode): TrackNode[] => n.children?.length ? n.children.flatMap(leaves) : [n];
 
-export function ClientProgress({ summary }: { summary: JobSummary }) {
+export function ClientProgress({ summary, today = localDate() }: { summary: JobSummary; today?: string }) {
+  const p = summary.progress;
+  if (p) return <article className="client-progress">
+    <header className="client-head">
+      <div><span className="eyebrow">JOB PROGRESS</span><h1>{p.jobId}</h1><p>{p.client}{p.location ? ' · ' + p.location : ''}</p>{p.sampling && <p className="client-sub">{p.sampling}</p>}</div>
+      <div className="pg-head-badges"><ProgressBadge status={p.closed ? 'completed' : 'in-progress'} label={p.closed ? 'Completed' : 'In progress'} /><span className="pg-count">{p.done} of {p.total} activities completed</span></div>
+    </header>
+    <ProgressBody view={p} today={today} />
+    <p className="client-foot">Progress summary prepared by VAPS. Measurements, results and internal records are not included.</p>
+  </article>;
   const closed = summary.status === 'Completed';
   const overall: FlowState = closed ? 'completed' : summary.status === 'Not started' ? 'not-started' : 'in-progress';
   return <article className="client-progress">

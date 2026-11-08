@@ -9,6 +9,7 @@ import type { TestRouting } from './test-routing';
 import { preparationDone } from './sampling-validation';
 import type { LabTeams } from './lab-teams';
 import { needsReview, type FluidType } from './scope-catalogue';
+import { normalizeEstimate, estimateKeyPattern, type ScheduleEstimate } from './schedule-estimate';
 export type Stream = 'PVT' | 'Chemical';
 /** Team lead who plans, assigns and reviews each laboratory workstream. */
 export const streamLead = (stream:Stream):Responsibility=>stream==='PVT'?'pvtTeamLead':'chemicalTeamLead';
@@ -41,7 +42,8 @@ export type LabScopeVersion = { version:number; status:'Draft'|'Released'; sampl
 export type ReviewComment = { target:string; label:string; text:string };
 /** One submission of sampling data and its review. Data approval is separate from sampling-report approval. */
 export type DataReview = { version:number; status:'Submitted'|'Returned'|'Approved'|'Reopened'; submittedBy:string; submittedAt:string; snapshot:string; note:string; reviewedBy?:string; reviewedAt?:string; general?:string; comments:ReviewComment[]; reopenedBy?:string; reopenedAt?:string; reason?:string };
-export type Operations = { version:1; labScopes?:LabScopeVersion[]; samplingData?:DataReview[]; revision:number; originalRequest:string[]; scope:ScopeRecord[]; activities:ActivityRecord[]; conditions:{pressure:string;pressureUnit:string;temperature:string;temperatureUnit:string;notes:string}; scopeConfirmedAt?:string; dispatchedAt?:string; dispatchedBy?:string; samplingReports:ReportVersion[]; finalReports:ReportVersion[]; handover?:{sampleIds:string[];/** Container identifier per sample (bottle serial or glass-container ID). */bottles:Record<string,string>;containerTypes?:Record<string,ContainerType>;sentBy:string;sentAt:string;receivedBy?:string;receivedAt?:string;notes:string}; additions:{id:string;title:string;reason:string;by:string;at:string;confirmedAt?:string;destination?:Destination}[]; history:{at:string;by:string;action:string;reason:string}[] };
+export type Operations = { version:1; labScopes?:LabScopeVersion[]; samplingData?:DataReview[]; revision:number; originalRequest:string[]; scope:ScopeRecord[]; activities:ActivityRecord[]; conditions:{pressure:string;pressureUnit:string;temperature:string;temperatureUnit:string;notes:string}; scopeConfirmedAt?:string; dispatchedAt?:string; dispatchedBy?:string; samplingReports:ReportVersion[]; finalReports:ReportVersion[]; handover?:{sampleIds:string[];/** Container identifier per sample (bottle serial or glass-container ID). */bottles:Record<string,string>;containerTypes?:Record<string,ContainerType>;sentBy:string;sentAt:string;receivedBy?:string;receivedAt?:string;notes:string}; additions:{id:string;title:string;reason:string;by:string;at:string;confirmedAt?:string;destination?:Destination}[]; history:{at:string;by:string;action:string;reason:string}[];
+ /** Planning estimates for the job progress overview, keyed by progress row (schedule-estimate.ts). Never changes statuses or completion records. */progressPlan?:Record<string,ScheduleEstimate> };
 export const clarificationItems = [
  ['initial-scope','Initial scope owner','Confirm who selects and signs off the initial request before sampling. Existing job-creation permissions remain in use.'],
  ['sampling-review','Sampling preparer and checker','Confirm eligibility and independence rules. A named active preparer and checker are required; the checker forwards the reviewed version to the sampling approver.'],
@@ -161,6 +163,16 @@ function active(actor:Actor,id:string){if(!actor.employees.some(e=>e.id===id&&e.
 /** Permission and duty must both pass. An unassigned duty blocks the action instead of opening it to everyone. */
 function requireRole(actor:Actor,permission:Permission,...keys:Responsibility[]){requireAccess(actor,permission);const ids=keys.map(key=>holder(actor,key));if(ids.every(id=>!id))throw Error(responsibilityLabels[keys[0]]+' is not configured. Ask an administrator to assign it in Settings → Authorization.');if(!ids.includes(actor.id))throw Error('This action is not assigned to your active profile or permission.');}
 /** Every duty resolved to a valid holder for this actor's settings. */
+/** Who may enter or revise schedule estimates for a progress row: coordinator (createJob), scope selector or PVT Supervisor for any row; a team lead for their own stream; report preparation for the final report. */
+export function estimatePlanner(actor:Actor,key:string):boolean{
+ if(!hasAccess(actor,'jobDetails'))return false;
+ const me=actor.id,is=(k:Responsibility)=>!!me&&holder(actor,k)===me;
+ if(hasAccess(actor,'createJob')||is('scopeSelector')||is('pvtSupervisor'))return true;
+ if(key.startsWith('lab:PVT:'))return is('pvtTeamLead')&&hasAccess(actor,'analysis');
+ if(key.startsWith('lab:Chemical:'))return is('chemicalTeamLead')&&hasAccess(actor,'analysis');
+ if(key==='report')return is('reporting')&&hasAccess(actor,'analysis');
+ return false;
+}
 export const actorRoles=(actor:Actor)=>Object.fromEntries(Object.keys(responsibilityLabels).map(key=>[key,holder(actor,key as Responsibility)])) as Responsibilities;
 function requireText(value:string,label:string){if(!value.trim())throw Error(label+' is required.');}
 /** Validation steps for one sample, from its recorded sample nature or the job's sampling type. */
@@ -248,7 +260,9 @@ export type Command =
  | {type:'report-draft';kind:'sampling'|'final';text:string;checker:string;file?:FileVersion;letterhead?:ReportLetterhead}
  | {type:'report-action';kind:'sampling'|'final';action:'checking'|'submit'|'return'|'approve'|'revise';comments:string;letterhead?:ReportLetterhead}
  | {type:'handover-send';sampleIds:string[];notes:string}
- | {type:'handover-receive';notes:string};
+ | {type:'handover-receive';notes:string}
+ /** Planned start / expected duration / expected completion for one progress row. Empty values clear the estimate. */
+ | {type:'estimate';key:string;label?:string;start:string;days:string;finish:string;clientVisible:boolean};
 export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new Date().toISOString()):JobRecord {
  requireAccess(actor,'jobDetails');
  if(job.trash)throw Error('This job is in Trash. Restore it before making changes.');
@@ -598,6 +612,16 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
    if(actor.id!==r.preparedBy||!['Approved','Changes Requested'].includes(r.status))throw Error('Only the preparer can create a revision of an approved or returned report.');
    requireText(command.comments,'Revision reason');list.push({...r,version:list.length+1,status:'Draft',file:command.kind==='final'?undefined:r.file,preparedAt:now,approvedAt:undefined,approvedBy:undefined,checkedAt:undefined,submittedAt:undefined,comments:command.comments,snapshot:snapshot(command.kind),letterhead:command.kind==='sampling'?command.letterhead:undefined});reason=command.comments;
   }break;
+ }
+ case 'estimate':{
+  if(!job.operations&&!isDraft(job))throw Error('Schedule estimates are recorded on jobs in the current workflow. This job was recorded in the earlier workflow.');
+  if(!estimateKeyPattern.test(command.key))throw Error('This activity cannot be scheduled.');
+  if(!estimatePlanner(actor,command.key))throw Error('Schedule estimates are entered by the job coordinator, the scope selector, the PVT Supervisor or the responsible team lead.');
+  const value=normalizeEstimate(command);const plan=o.progressPlan||(o.progressPlan={});const before=plan[command.key];
+  const describe=(e?:{start?:string;days?:number;finish?:string;clientVisible?:boolean})=>e?[e.start||'start TBC',e.days?e.days+' d':'duration TBC',e.finish||'completion TBC',e.clientVisible?'client-visible':'internal'].join(' · '):'no estimate';
+  if(value)plan[command.key]={...value,clientVisible:!!command.clientVisible,by:actor.id,at:now};else delete plan[command.key];
+  reason=(command.label||command.key)+': '+describe(before)+' → '+describe(value?{...value,clientVisible:command.clientVisible}:undefined);
+  break;
  }
  case 'handover-send':{
   // The assigned driver acts through the job assignment (job details access); the engineer needs sampling access.

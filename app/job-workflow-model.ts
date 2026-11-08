@@ -7,13 +7,17 @@ import type { JobRecord } from "./page";
 import { currentProgress, labComplete, labProgress, labRequested, validationRequested, isValidationTest, scopeText } from "./lab-work";
 import { jobFlow, clientState, scopeSummary, clientStatus, type JobFlow } from "./job-flow";
 import { isDraft as draftJob } from "./operations-model";
+import { jobProgressView, clientProgress, type ProgressView } from "./job-progress";
+import { localDate } from "./local-date";
 
 export type TrackState = "pending" | "active" | "done";
 export type TrackNode = { id: string; label: string; state: TrackState; detail?: string; children?: TrackNode[]; /** Completion date (client summary v2). */at?: string };
 export type TrackEvent = { label: string; state: TrackState; at: string };
 export type JobSummary = { jobId: string; client: string; location: string; sampling: string; sampleCount: number; sampleTypes: { label: string; count: number }[]; nodes: TrackNode[]; history: TrackEvent[]; updatedAt: string; scopeMissing: boolean;
   /** Client progress view (version 2): the same status calculation as the internal views, without names or internal review detail. */
-  version?: 2; status?: string; current?: string; next?: string; done?: number; total?: number; scope?: string[]; dates?: { label: string; value: string }[] };
+  version?: 2; status?: string; current?: string; next?: string; done?: number; total?: number; scope?: string[]; dates?: { label: string; value: string }[];
+  /** Overall job progress for the client (job-progress.ts, client audience): client-visible estimates only, no names or internal detail. */
+  progress?: ProgressView };
 export const stateLabel: Record<TrackState, string> = { pending: "Not started", active: "In progress", done: "Done" };
 /** Waiting reasons that may appear in a shared summary (no names, notes or results). */
 export const waitingDetails = ["On hold", "Awaiting lab plan", "Awaiting samples", "Awaiting approval", "Awaiting assignment", "Not recorded"] as const;
@@ -176,7 +180,7 @@ export function jobSummary(job: JobRecord): JobSummary {
   if (job.operations || draftJob(job)) {
     const flow = jobFlow(job), section = (id: string) => flow.sections.find(s => s.id === id);
     const dates = [["Job received", job.dateReceived], ["Sampling completed", section("sampling")?.completedAt], ["Laboratory work completed", section("laboratory")?.completedAt], ["Final report approved", section("report")?.completedAt]].filter((d): d is [string, string] => !!d[1]).map(([label, value]) => ({ label, value }));
-    return { ...base, version: 2, nodes: flowNodes(flow), status: clientStatus(flow), current: flow.current, next: flow.next, done: flow.done, total: flow.total, scope: scopeSummary(job), dates, scopeMissing: !job.operations?.scopeConfirmedAt };
+    return { ...base, version: 2, progress: JSON.parse(JSON.stringify(clientProgress(jobProgressView(job, { flow, today: localDate(), audience: "client" })))) as ProgressView, nodes: flowNodes(flow), status: clientStatus(flow), current: flow.current, next: flow.next, done: flow.done, total: flow.total, scope: scopeSummary(job), dates, scopeMissing: !job.operations?.scopeConfirmedAt };
   }
   return base;
 }
