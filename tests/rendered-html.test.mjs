@@ -22,10 +22,11 @@ test("server-renders the VAPS workspace shell", async () => {
   assert.doesNotMatch(html, /Your site is taking shape|Codex/);
 });
 
-test("navigation keeps Sampling Reports inside Sampling", async () => {
+test("navigation separates Dashboard from My work and keeps Sampling Reports inside Sampling", async () => {
   const { readFile } = await import("node:fs/promises");
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /const navItems = \["My work", "Jobs", "Sampling", "Laboratory", "Inventory", "Settings"\]/);
+  assert.match(page, /const navItems = \["Dashboard", "My work", "Jobs", "Sampling", "Laboratory", "Inventory", "Settings"\]/);
+  assert.match(page, /Dashboard: "dashboard", "My work": "my-work"/);
   assert.match(page, /role="tab"[^>]*>[^]*?Sampling Reports/);
 });
 

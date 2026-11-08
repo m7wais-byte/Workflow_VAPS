@@ -1,13 +1,13 @@
 import { jobSummary } from "./job-workflow-model";
 import type { JobRecord } from "./page";
-import { staticPages } from "./deployment";
+import { staticPages, clientSharingEnabled } from "./deployment";
 export type ShareRecord = { id: string; key: string; revision: number; audience: "link" | "signed-in"; fingerprint?: string; enabled: boolean; /** Withdrawn while the job is in Trash; republished to the same link on restore. */paused?: boolean };
 const storageKey = "vaps-job-summary-links-v1";
 const queues = new Map<string, Promise<unknown>>();
 export function getShare(jobId: string): ShareRecord | undefined { const all = JSON.parse(localStorage.getItem(storageKey) || "{}"); return all[jobId]; }
 function saveShare(jobId: string, record?: ShareRecord) { const all = JSON.parse(localStorage.getItem(storageKey) || "{}"); if (record) all[jobId] = record; else delete all[jobId]; localStorage.setItem(storageKey, JSON.stringify(all)); }
 async function save(job: JobRecord, audience?: ShareRecord["audience"]) {
- if (staticPages) return; // GitHub Pages: no summary API, so nothing is published.
+ if (staticPages || !clientSharingEnabled) return; // GitHub Pages has no summary API; sharing is also off until production auth exists.
  let record = getShare(job.id);
  if (!record && !audience) return;
  if (!record) { record = { id: crypto.randomUUID(), key: crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", ""), revision: 0, audience: audience!, enabled: false }; saveShare(job.id, record); }
@@ -39,7 +39,7 @@ export async function pauseShare(jobId: string) {
 }
 /** Republishes a paused link (same id and key) after restoration. */
 export async function resumeShare(job: JobRecord) {
- if (staticPages) return;
+ if (staticPages || !clientSharingEnabled) return;
  const record = getShare(job.id); if (!record?.paused) return;
  saveShare(job.id, { ...record, paused: false });
  return syncShare(job, record.audience);

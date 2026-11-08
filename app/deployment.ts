@@ -18,4 +18,13 @@ export function assetUrl(src: string | undefined): string {
   return src.startsWith(basePath) ? src : basePath + src.slice(1);
 }
 
+/**
+ * External client sharing stays off until production sign-in, server-side authorization and shared storage exist
+ * (see WORKFLOW-IMPLEMENTATION.md, Remaining production blockers). While off, no client link is created or published;
+ * stopping an existing link still works so it can be withdrawn.
+ */
+export const clientSharingEnabled = false;
+
+export const clientSharingOffMessage = "External client sharing is turned off until production sign-in, server-side authorization and shared storage are in place. Use the client progress view above for review, or Print / Save as PDF.";
+
 export const sharingUnavailableMessage = "Client share links and QR codes need the Sites server and its shared database. This GitHub Pages edition runs only in your browser, so sharing is turned off here. Use the Sites edition to share live job progress.";
