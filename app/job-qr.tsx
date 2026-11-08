@@ -3,11 +3,22 @@ import { useEffect, useState } from "react";
 import qrcode from "qrcode-generator";
 import type { JobRecord } from "./page";
 import { getShare, stopShare, syncShare, type ShareRecord } from "./job-sharing";
-import { staticPages, sharingUnavailableMessage } from "./deployment";
+import { staticPages, sharingUnavailableMessage, clientSharingEnabled, clientSharingOffMessage } from "./deployment";
 /** GitHub Pages has no server or database, so it shows why sharing is off instead of controls that cannot work. */
 export function JobQR({ job, canShare = true }: { job: JobRecord; /** Creating, updating or stopping a client link (job coordinators and company-overview holders). */canShare?: boolean }) {
  if (staticPages) return <section className="panel job-qr job-qr-unavailable" aria-labelledby={"share-off-" + job.id}><div><h2 id={"share-off-" + job.id}>Client link</h2><p role="note">{sharingUnavailableMessage}</p></div></section>;
+ if (!clientSharingEnabled) return <SharingOff job={job} canShare={canShare} />;
  return <LiveJobQR job={job} canShare={canShare} />;
+}
+/** Sharing is off: explain why, and let an authorized person withdraw a link created earlier. */
+function SharingOff({ job, canShare }: { job: JobRecord; canShare: boolean }) {
+ const [existing, setExisting] = useState(false); const [message, setMessage] = useState(""); const [busy, setBusy] = useState(false);
+ // Sharing records live in this browser's storage, so they can only be read after mount.
+ // eslint-disable-next-line react-hooks/set-state-in-effect
+ useEffect(() => { try { setExisting(!!getShare(job.id)?.enabled); } catch { setExisting(false); } }, [job.id]);
+ return <section className="panel job-qr job-qr-unavailable" aria-labelledby={"share-off-" + job.id}><div><h2 id={"share-off-" + job.id}>Client link</h2><p role="note">{clientSharingOffMessage}</p>
+  {existing && <><p role="alert" className="share-warning">A client link created earlier is still published and is no longer updated.</p>{canShare && <button type="button" className="outline-button" disabled={busy} onClick={async () => { setBusy(true); try { await stopShare(job.id); setExisting(false); setMessage("Sharing stopped. The old link no longer opens this job."); } catch { setMessage("Sharing could not be stopped. Please retry."); } finally { setBusy(false); } }}>Stop sharing</button>}</>}
+  {message && <p role="status">{message}</p>}</div></section>;
 }
 function LiveJobQR({ job, canShare }: { job: JobRecord; canShare: boolean }) {
  const [share, setShare] = useState<ShareRecord>(); const [audience, setAudience] = useState<"" | ShareRecord["audience"]>(""); const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [message, setMessage] = useState(""); const [url, setUrl] = useState("");

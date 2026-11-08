@@ -91,6 +91,10 @@ actions tied to the current ChatGPT user. Leave public content anonymous.
 
 A browser-only build is published at https://m7wais-byte.github.io/Workflow_VAPS/ by `.github/workflows/pages.yml` on every push to `main`. Build it locally with `npm run build:pages`. The D1 API and client share links are off in that edition. See [GITHUB-PAGES.md](GITHUB-PAGES.md) for details and for moving browser records between editions.
 
+## Launch status
+
+This is a review build, not a production release. Sign-in is a browser-local demonstration, access checks run in the browser, records live in one browser, and external client sharing is switched off. See “Remaining production blockers” in [WORKFLOW-IMPLEMENTATION.md](WORKFLOW-IMPLEMENTATION.md).
+
 ## Useful Commands
 
 - `npm run dev`: start local development

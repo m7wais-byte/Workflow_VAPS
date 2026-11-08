@@ -83,7 +83,7 @@ test('Delete and restore jobs follows the saved setting for the administrator to
  assert.equal(allowed(removed,'MA001','companyOverview'),true);
 });
 
-test('restoring reactivates a shared link only if it was active before deletion',async()=>{
+test('deleting withdraws an active shared link; restoring does not republish while client sharing is off',async()=>{
  const calls=[];globalThis.fetch=async(url,init)=>{calls.push([init.method,url,JSON.parse(init.body||'null')?.revision]);return new Response(JSON.stringify(init.method==='PUT'?{revision:1}:{stopped:true}),{status:200});};
  const links=k=>JSON.parse(localStorage.getItem('vaps-job-summary-links-v1')||'{}')[k];
  const put=(jobId,record)=>{const all=JSON.parse(localStorage.getItem('vaps-job-summary-links-v1')||'{}');all[jobId]=record;localStorage.setItem('vaps-job-summary-links-v1',JSON.stringify(all));};
@@ -96,13 +96,13 @@ test('restoring reactivates a shared link only if it was active before deletion'
  assert.deepEqual(calls,[['DELETE','/api/job-summary/'+id,undefined]]);
  assert.deepEqual({...links(active.id),fingerprint:links(active.id).fingerprint},{id,key,revision:0,audience:'link',enabled:false,fingerprint:undefined,paused:true});
  assert.equal(links(inactive.id).paused,undefined);assert.equal(links(none.id),undefined);
- // Restore: only the paused link is republished, to the same id and key.
+ // Restore while external client sharing is switched off (deployment.ts): nothing is republished and the link stays
+ // paused with its id and key, so it can be republished to the same address once sharing is enabled again.
  calls.length=0;
  for(const job of [active,inactive,none])await resumeShare(job);
- assert.deepEqual(calls,[['PUT','/api/job-summary/'+id,0]]);
- assert.equal(getShare(active.id).enabled,true);assert.equal(getShare(active.id).id,id);assert.equal(getShare(active.id).key,key);assert.equal(getShare(active.id).paused,false);
+ assert.deepEqual(calls,[]);
+ assert.equal(getShare(active.id).paused,true);assert.equal(getShare(active.id).enabled,false);assert.equal(getShare(active.id).id,id);assert.equal(getShare(active.id).key,key);
  assert.equal(getShare(inactive.id).enabled,false,'a previously inactive link stays inactive');assert.equal(getShare(none.id),undefined,'no link is created');
- // Restoring again does not republish.
  calls.length=0;await resumeShare(active);assert.equal(calls.length,0);
 });
 
