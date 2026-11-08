@@ -5,11 +5,15 @@ import { loadDirectory, initialDirectory } from "./employee-directory";
 const loadEmployeesSafe = () => { try { return typeof window === "undefined" ? initialDirectory().employees : loadDirectory().employees; } catch { return []; } };
 import type { JobRecord } from "./page";
 import { currentProgress, labComplete, labProgress, labRequested, validationRequested, isValidationTest, scopeText } from "./lab-work";
+import { jobFlow, clientState, scopeSummary, clientStatus, type JobFlow } from "./job-flow";
+import { isDraft as draftJob } from "./operations-model";
 
 export type TrackState = "pending" | "active" | "done";
-export type TrackNode = { id: string; label: string; state: TrackState; detail?: string; children?: TrackNode[] };
+export type TrackNode = { id: string; label: string; state: TrackState; detail?: string; children?: TrackNode[]; /** Completion date (client summary v2). */at?: string };
 export type TrackEvent = { label: string; state: TrackState; at: string };
-export type JobSummary = { jobId: string; client: string; location: string; sampling: string; sampleCount: number; sampleTypes: { label: string; count: number }[]; nodes: TrackNode[]; history: TrackEvent[]; updatedAt: string; scopeMissing: boolean };
+export type JobSummary = { jobId: string; client: string; location: string; sampling: string; sampleCount: number; sampleTypes: { label: string; count: number }[]; nodes: TrackNode[]; history: TrackEvent[]; updatedAt: string; scopeMissing: boolean;
+  /** Client progress view (version 2): the same status calculation as the internal views, without names or internal review detail. */
+  version?: 2; status?: string; current?: string; next?: string; done?: number; total?: number; scope?: string[]; dates?: { label: string; value: string }[] };
 export const stateLabel: Record<TrackState, string> = { pending: "Not started", active: "In progress", done: "Done" };
 /** Waiting reasons that may appear in a shared summary (no names, notes or results). */
 export const waitingDetails = ["On hold", "Awaiting lab plan", "Awaiting samples", "Awaiting approval", "Awaiting assignment", "Not recorded"] as const;
@@ -139,7 +143,7 @@ export function jobProgress(job: JobRecord): JobProgress {
 
 /** Privacy-safe tree for history tracking and the shared QR summary (no names, notes or results). */
 export function workflowNodes(job: JobRecord): TrackNode[] {
- if(job.operations)return operationMilestones(job).map(m=>({id:m.id,label:m.label,state:m.done?'done':'pending'}));
+ if(job.operations||draftJob(job))return flowNodes(jobFlow(job));
 
   const safe = (detail?: string) => detail && (waitingDetails as readonly string[]).includes(detail) ? { detail } : {};
   return jobStages(job).map(stage => {
@@ -154,6 +158,12 @@ export function trackChanges(next: JobRecord, previous?: JobRecord): JobRecord {
   const changes = leafNodes(workflowNodes(next)).filter(node => previous ? oldNodes.has(node.id) ? oldNodes.get(node.id) !== node.state : node.state !== "pending" : node.state !== "pending").map(node => ({ label: node.label, state: node.state, at: next.lastUpdatedAt }));
   return { ...next, workflowHistory: [...(next.workflowHistory || previous?.workflowHistory || []), ...changes].slice(-100) };
 }
+const trackState = { completed: "done", "in-progress": "active", "not-started": "pending" } as const;
+/** Client-safe tree from the shared workflow: sections → groups → steps, states only (blocked/returned read as in progress). */
+export function flowNodes(flow: JobFlow): TrackNode[] {
+  return flow.sections.map(s => ({ id: s.id, label: s.label, state: trackState[clientState(s.state)], ...(s.completedAt ? { at: s.completedAt } : {}),
+    children: s.groups.filter(g => g.steps.length).map(g => ({ id: g.id, label: g.label, state: trackState[clientState(g.state)], children: g.steps.map(st => ({ id: st.id, label: st.label, state: trackState[clientState(st.state)], ...(st.state === "completed" && st.at ? { at: st.at } : {}) })) })) }));
+}
 const natureNames: Record<string, string> = { OIL: "Oil", GAS: "Gas", WATER: "Water", CONDENSATE: "Condensate", BHS: "Bottomhole", SPMC: "SPMC field", MPSR: "MPSR transfer", WHS: "Wellhead", SEP: "Separator", STN: "Station", MDT: "MDT transfer" };
 export function jobSummary(job: JobRecord): JobSummary {
   const types = new Map<string, number>();
@@ -162,5 +172,14 @@ export function jobSummary(job: JobRecord): JobSummary {
     const label = nature ? natureNames[nature.toUpperCase()] || "Other sample type" : "Type not recorded";
     types.set(label, (types.get(label) || 0) + 1);
   }
+  const base = legacySummary(job, types);
+  if (job.operations || draftJob(job)) {
+    const flow = jobFlow(job), section = (id: string) => flow.sections.find(s => s.id === id);
+    const dates = [["Job received", job.dateReceived], ["Sampling completed", section("sampling")?.completedAt], ["Laboratory work completed", section("laboratory")?.completedAt], ["Final report approved", section("report")?.completedAt]].filter((d): d is [string, string] => !!d[1]).map(([label, value]) => ({ label, value }));
+    return { ...base, version: 2, nodes: flowNodes(flow), status: clientStatus(flow), current: flow.current, next: flow.next, done: flow.done, total: flow.total, scope: scopeSummary(job), dates, scopeMissing: !job.operations?.scopeConfirmedAt };
+  }
+  return base;
+}
+function legacySummary(job: JobRecord, types: Map<string, number>): JobSummary {
   return { jobId: job.id, client: job.clientName, location: [job.fieldArea, job.wellMode === "multiple" ? job.wells?.filter(Boolean).join(", ") : job.well].filter(Boolean).join(" · ") || "Not recorded", sampling: job.samplingSource || "Not recorded", sampleCount: job.samples?.length || Number(job.requestedSampleCount) || 0, sampleTypes: [...types].map(([label, count]) => ({ label, count })), nodes: workflowNodes(job), history: job.workflowHistory || [], updatedAt: job.lastUpdatedAt, scopeMissing: !(job.requiredTests || []).length };
 }
