@@ -15,6 +15,7 @@ import {
 } from './operations-model';
 import { preparationDone } from './sampling-validation';
 import { jobStages, type TrackState } from './job-workflow-model';
+import { teamName } from './team-name';
 
 /** Green · amber · gray · red. Always shown with a text label and an icon, never by colour alone. */
 export type FlowState = 'completed' | 'in-progress' | 'not-started' | 'blocked';
@@ -282,7 +283,7 @@ export function scopeSummary(job: JobRecord): string[] {
     const val = new Set(list.filter((x) => x.kind === 'validation').map((x) => x.sampleId));
     if (stream === 'PVT') for (const s of unplannedValidation(job)) for (const id of s.sampleIds) val.add(id);
     const parts = [...(val.size ? [`Validation (${val.size} sample${val.size === 1 ? '' : 's'})`] : []), ...[...tests].map(([name, ids]) => `${name}${ids.size > 1 ? ` (${ids.size} samples)` : ''}`)];
-    if (parts.length) lines.push(`${stream}: ${parts.join(', ')}`);
+    if (parts.length) lines.push(`${teamName(stream)}: ${parts.join(', ')}`);
   }
   if (!o.scopeConfirmedAt) lines.push('Laboratory tests: to be confirmed after the sampling report is approved');
   return lines;

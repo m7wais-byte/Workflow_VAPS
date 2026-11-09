@@ -16,11 +16,12 @@ import { storedResponsibilities } from './authorization';
 import { jobFlow, activityStep, type FlowState, type FlowStep, type JobFlow } from './job-flow';
 import { operationsFor, isDraft, legacyDispatch, unplannedValidation, latest, type ActivityRecord, type Stream, type WorkState } from './operations-model';
 import { durationOf, dayConvention, type ScheduleEstimate } from './schedule-estimate';
+import { ukDate } from "./uk-format";
 
 export type ProgressStatus = 'not-started' | 'in-progress' | 'under-review' | 'completed';
 export const progressStatusLabel: Record<ProgressStatus, string> = { 'not-started': 'Not started', 'in-progress': 'In progress', 'under-review': 'Under review', completed: 'Completed' };
 export type ProgressGroup = 'sampling' | 'receipt' | 'PVT' | 'Chemical' | 'report';
-export const progressGroupLabel: Record<ProgressGroup, string> = { sampling: 'Sampling', receipt: 'Sample receipt', PVT: 'PVT', Chemical: 'Chemical', report: 'Final report' };
+export const progressGroupLabel: Record<ProgressGroup, string> = { sampling: 'Sampling', receipt: 'Sample receipt', PVT: 'PVT', Chemical: 'Chemistry', report: 'Final report' };
 export type ProgressStageId = 'created' | 'sampling' | 'receipt' | 'lab' | 'report';
 
 /** Expected dates for one row. Client view: only explicitly client-visible planner estimates. */
@@ -67,7 +68,7 @@ const shortName = (title: string) => title.split(' — ').slice(1).join(' — ')
 const group0 = (title: string) => title.includes(' — ') ? title.split(' — ')[0] : '';
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 const activities = (n: number) => `${n} ${n === 1 ? 'activity' : 'activities'}`;
-const fmt = (v: string) => { const d = new Date(v.length === 10 ? v + 'T00:00:00' : v); return Number.isFinite(d.getTime()) ? d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : v; };
+const fmt = (v: string) => ukDate(v) || v;
 
 type Options = { roles?: Responsibilities; employees?: { id: string; active: boolean }[]; today: string; audience?: 'internal' | 'client'; flow?: JobFlow };
 
@@ -244,7 +245,7 @@ function describeNow(live: ProgressRow[]): string {
     if (!list.length) continue;
     if (g === 'PVT' || g === 'Chemical') {
       const inProg = list.filter((r) => r.status === 'in-progress').length, review = list.length - inProg;
-      parts.push(`${g} testing: ${[inProg ? activities(inProg) + ' in progress' : '', review ? activities(review) + ' under review' : ''].filter(Boolean).join(', ')}`);
+      parts.push(`${progressGroupLabel[g]} testing: ${[inProg ? activities(inProg) + ' in progress' : '', review ? activities(review) + ' under review' : ''].filter(Boolean).join(', ')}`);
     } else for (const r of list) {
       const state = r.status === 'under-review' ? 'under review' : 'in progress';
       parts.push(r.key === 'receipt' ? 'Samples in transit to the laboratory' : r.key === 'sampling' ? `Sampling ${state}` : r.key === 'transfer' ? `Sample transfer ${state}` : r.status === 'under-review' ? `${r.label} under review` : `${r.label} in preparation`);
@@ -273,7 +274,7 @@ export function expectedCompletion(rows: ProgressRow[], stages: ProgressStage[],
   return { date: finish, kind: 'confirmed' };
 }
 
-/** "Sampling is completed. PVT testing is in progress, and Chemical testing is scheduled to begin on 12 Nov 2026. Expected report delivery: 30 Nov 2026." */
+/** "Sampling is completed. PVT testing is in progress, and Chemistry testing is scheduled to begin on 12/11/2026. Expected report delivery: 30/11/2026." */
 export function sentenceFor(stages: ProgressStage[], rows: ProgressRow[], expected: ExpectedCompletion, closed: boolean, draft: boolean): string {
   if (draft) return 'The job is being prepared. The planned work will be shown here once it is confirmed.';
   if (closed) return `All planned work is completed${expected.date ? ' and the final report was issued on ' + fmt(expected.date) : ''}.`;
@@ -295,8 +296,8 @@ export function sentenceFor(stages: ProgressStage[], rows: ProgressRow[], expect
     else {
       const streams = (['PVT', 'Chemical'] as const).map((g) => { const list = rows.filter((r) => r.group === g); return { g, list, status: combineProgress(list.map((r) => r.status)) }; }).filter((x) => x.list.length);
       const sameMoving = streams.length === 2 && streams[0].status === streams[1].status && streams[0].status !== 'not-started';
-      if (sameMoving) out.push(phrase('PVT and Chemical testing', streams[0].status, [], 'are') + '.');
-      else if (streams.length) out.push(streams.map((x) => phrase(`${x.g} testing`, x.status, x.list)).join(', and ') + '.');
+      if (sameMoving) out.push(phrase('PVT and Chemistry testing', streams[0].status, [], 'are') + '.');
+      else if (streams.length) out.push(streams.map((x) => phrase(`${progressGroupLabel[x.g]} testing`, x.status, x.list)).join(', and ') + '.');
       if (lab.note) out.push(lab.note + '.');
     }
   }

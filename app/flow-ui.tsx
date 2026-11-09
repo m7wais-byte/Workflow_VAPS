@@ -3,6 +3,7 @@
 import { useState, type ComponentType } from 'react';
 import { CircleAlert, CircleCheck, CircleDashed, CircleDot, Clock, RotateCcw } from 'lucide-react';
 import { flowStateLabel, type FlowGroup, type FlowSection, type FlowState, type FlowStep, type JobFlow } from './job-flow';
+import { ukDate } from "./uk-format";
 
 const icons: Record<FlowState, ComponentType<{ size?: number; strokeWidth?: number; 'aria-hidden'?: boolean }>> = { completed: CircleCheck, 'in-progress': CircleDot, 'not-started': CircleDashed, blocked: CircleAlert };
 
@@ -52,15 +53,15 @@ function GroupBlock({ group, name }: { group: FlowGroup; name?: (id?: string) =>
   </div>;
 }
 
-export const shortDate = (v: string) => { const d = new Date(v.length === 10 ? v + 'T00:00:00' : v); return Number.isFinite(d.getTime()) ? d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : v; };
+export const shortDate = (v: string) => ukDate(v) || v;
 
-/** Laboratory streams side by side: PVT and Chemical work runs in parallel, not in sequence. */
+/** Laboratory streams side by side: PVT and Chemistry work runs in parallel, not in sequence. */
 function SectionDetail({ section, name }: { section: FlowSection; name?: (id?: string) => string }) {
   const shared = section.groups.filter((g) => !g.stream), streams = (['PVT', 'Chemical'] as const).filter((st) => section.groups.some((g) => g.stream === st));
   return <div className="flow-detail-body">
     {section.notes.map((n) => <p key={n} className="flow-note">{n}</p>)}
     {shared.map((g) => <GroupBlock key={g.id} group={g} name={name} />)}
-    {streams.length > 0 && <div className={`flow-streams streams-${streams.length}`}>{streams.map((st) => <div key={st} className="flow-stream"><h3>{st === 'PVT' ? 'PVT laboratory' : 'Chemical laboratory'}{streams.length > 1 && <small>Runs in parallel</small>}</h3>{section.groups.filter((g) => g.stream === st).map((g) => <GroupBlock key={g.id} group={g} name={name} />)}</div>)}</div>}
+    {streams.length > 0 && <div className={`flow-streams streams-${streams.length}`}>{streams.map((st) => <div key={st} className="flow-stream"><h3>{st === 'PVT' ? 'PVT laboratory' : 'Chemistry laboratory'}{streams.length > 1 && <small>Runs in parallel</small>}</h3>{section.groups.filter((g) => g.stream === st).map((g) => <GroupBlock key={g.id} group={g} name={name} />)}</div>)}</div>}
   </div>;
 }
 

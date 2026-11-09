@@ -10,7 +10,7 @@ import { applyOperation, operationsFor, canSeeDraft, isDraft, hasAccess, actorRo
 import { workItems } from './work-items';
 
 export type AccessReason = 'Administrator' | 'Company overview' | 'Job coordinator' | 'Sampling team' | 'Driver' | 'Laboratory assignment'
-  | 'Sampling approval' | 'Scope selection' | 'PVT Supervisor' | 'PVT Team Lead' | 'Chemical Team Lead' | 'Final report' | 'QC review' | 'Laboratory receipt' | 'Earlier workflow assignment' | 'Work item';
+  | 'Sampling approval' | 'Scope selection' | 'PVT Supervisor' | 'PVT Team Lead' | 'Chemistry Team Lead' | 'Final report' | 'QC review' | 'Laboratory receipt' | 'Earlier workflow assignment' | 'Work item';
 
 /** Every legitimate reason this employee has to open the job; empty means no access. */
 export function jobAccessReasons(job: JobRecord, actor: Actor, workJobIds?: Set<string>): AccessReason[] {
@@ -31,7 +31,7 @@ export function jobAccessReasons(job: JobRecord, actor: Actor, workJobIds?: Set<
     if (roles.scopeSelector === me) out.push('Scope selection');
     if (roles.pvtSupervisor === me && streams.has('PVT')) out.push('PVT Supervisor');
     if (roles.pvtTeamLead === me && streams.has('PVT')) out.push('PVT Team Lead');
-    if (roles.chemicalTeamLead === me && streams.has('Chemical')) out.push('Chemical Team Lead');
+    if (roles.chemicalTeamLead === me && streams.has('Chemical')) out.push('Chemistry Team Lead');
     if ((roles.reporting === me || roles.finalApproval === me) && lab) out.push('Final report');
     if (roles.qcReviewer === me && o.activities.some((a) => a.required)) out.push('QC review');
     if (roles.labReceipt === me && (samplingApproved(job) || !!o.handover)) out.push('Laboratory receipt');

@@ -42,7 +42,7 @@ test('the dashboard follows the whole journey with one next responsible person a
  j=step(j,{type:'report-action',kind:'sampling',action:'approve',comments:''},'SALIM');
  assert.deepEqual(acts(j,'SALIM'),['Define and release laboratory scope']);assert.deepEqual(acts(j,'ALI'),['Hand over samples/containers to the laboratory']);
  j=step(j,{type:'lab-scope',action:'release',reason:'',conditions:{pressure:'',pressureUnit:'psi',temperature:'',temperatureUnit:'°C',notes:''},samples:[{sampleId:'1.01',destination:'PVT',pvtTests:['Black Oil — DL'],chemicalTests:[],notes:'',excluded:false,exclusionReason:'',fluidType:'Black Oil'},{sampleId:'1.02',destination:'Chemical',pvtTests:[],chemicalTests:['Others — Water Analysis'],notes:'',excluded:false,exclusionReason:'',fluidType:'Black Oil'}]},'SALIM');
- assert.deepEqual(acts(j,'SHEREIQI'),['Assign 1 PVT test(s)']);assert.deepEqual(acts(j,'BAHRI'),['Assign 1 Chemical test(s)']);assert.deepEqual(acts(j,'WILFRED'),[],'the supervisor gets no lead actions');
+ assert.deepEqual(acts(j,'SHEREIQI'),['Assign 1 PVT test(s)']);assert.deepEqual(acts(j,'BAHRI'),['Assign 1 Chemistry test(s)']);assert.deepEqual(acts(j,'WILFRED'),[],'the supervisor gets no lead actions');
  assert.ok(items(j,'SHEREIQI',{teams:{PVT:[],Chemical:[]}}).actions.some(i=>i.key.startsWith('assign:')),'lead can assign themselves with no additional members');
  j=step(j,{type:'handover-send',sampleIds:['1.01','1.02'],notes:''},'ALI');
  assert.ok(acts(j,'SHEREIQI').includes('Confirm samples/containers received'));assert.equal(items(j,'ALI').waiting[0].waitingOn,'Ahmed Al Shereiqi');

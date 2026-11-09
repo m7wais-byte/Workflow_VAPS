@@ -6,7 +6,7 @@ import { catalogueSections, catalogueTests, fluidGroups, newCatalogueTest, type 
 import { effectiveRouting, routingChoice, routingChoices, type RoutingChoice, type SavedRouting } from './test-routing';
 import { isValidationTest } from './lab-work';
 
-const choiceLabel: Record<RoutingChoice, string> = { Chemical: 'Chemical', PVT: 'PVT', Both: 'PVT and Chemical', Unassigned: 'Unassigned' };
+const choiceLabel: Record<RoutingChoice, string> = { Chemical: 'Chemistry', PVT: 'PVT', Both: 'PVT and Chemistry', Unassigned: 'Unassigned' };
 const sectionNote: Record<CatalogueSection, string> = {
   'Fluid tests': 'Required tests · shown for the matching fluid type',
   'General analysis': 'Required tests',

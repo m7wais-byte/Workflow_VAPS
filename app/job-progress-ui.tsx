@@ -9,6 +9,7 @@ import { CalendarClock, CircleCheck, CircleDashed, CircleDot, Clock, Eye, Pencil
 import { progressGroupLabel, progressStatusLabel, rowsOf, type ProgressRow, type ProgressStage, type ProgressStatus, type ProgressView } from './job-progress';
 import { dayConventionLabel, type EstimateInput } from './schedule-estimate';
 import { shortDate } from './flow-ui';
+import { DateInput } from "./uk-date";
 
 const icons: Record<ProgressStatus, ComponentType<{ size?: number; strokeWidth?: number; 'aria-hidden'?: boolean }>> = { completed: CircleCheck, 'in-progress': CircleDot, 'under-review': Eye, 'not-started': CircleDashed };
 export function ProgressIcon({ status, size = 15 }: { status: ProgressStatus; size?: number }) { const Icon = icons[status]; return <Icon size={size} strokeWidth={2.2} aria-hidden />; }
@@ -44,9 +45,9 @@ function EstimateEditor({ row, onSave, onClose }: { row: ProgressRow; onSave: (i
   return <form className="pg-editor" onSubmit={(e) => { e.preventDefault(); submit(); }}>
     <p className="pg-editor-help">Enter any two values; the third is calculated. {dayConventionLabel}. Estimates do not change work status or actual completion dates.</p>
     <div className="pg-editor-grid">
-      <label>Planned start<input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></label>
+      <label>Planned start<DateInput value={start} onChange={(e) => setStart(e.target.value)} /></label>
       <label>Expected duration (calendar days)<input inputMode="numeric" pattern="[0-9]*" min={1} value={days} onChange={(e) => setDays(e.target.value)} placeholder="e.g. 5" /></label>
-      <label>Expected completion<input type="date" value={finish} onChange={(e) => setFinish(e.target.value)} /></label>
+      <label>Expected completion<DateInput value={finish} onChange={(e) => setFinish(e.target.value)} /></label>
     </div>
     <label className="pg-check"><input type="checkbox" checked={visible} onChange={(e) => setVisible(e.target.checked)} /> Show this estimate in the client progress view</label>
     {team && <p className="pg-editor-help">Team plan (internal): {team.start ? shortDate(team.start) : '—'} to {team.finish ? shortDate(team.finish) : '—'}. <button type="button" className="text-button" onClick={() => { setStart(team.start || ''); setFinish(team.finish || ''); setDays(''); }}>Use these dates</button></p>}

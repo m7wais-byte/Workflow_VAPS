@@ -68,7 +68,7 @@ export const responsibilityLabels = {
   samplingApproval: 'Sampling approval',
   pvtSupervisor: 'PVT Supervisor',
   pvtTeamLead: 'PVT Team Lead',
-  chemicalTeamLead: 'Chemical Team Lead',
+  chemicalTeamLead: 'Chemistry Team Lead',
   reporting: 'Final report preparation',
   finalApproval: 'Final report approval',
   qcReviewer: 'QC review',

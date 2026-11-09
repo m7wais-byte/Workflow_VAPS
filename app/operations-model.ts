@@ -10,6 +10,7 @@ import { preparationDone } from './sampling-validation';
 import type { LabTeams } from './lab-teams';
 import { needsReview, type FluidType } from './scope-catalogue';
 import { normalizeEstimate, estimateKeyPattern, type ScheduleEstimate } from './schedule-estimate';
+import { teamName } from './team-name';
 export type Stream = 'PVT' | 'Chemical';
 /** Team lead who plans, assigns and reviews each laboratory workstream. */
 export const streamLead = (stream:Stream):Responsibility=>stream==='PVT'?'pvtTeamLead':'chemicalTeamLead';
@@ -17,7 +18,7 @@ export const streamLead = (stream:Stream):Responsibility=>stream==='PVT'?'pvtTea
 export type WorkState = 'Unassigned' | 'Scheduled' | 'In Progress' | 'Workbook Submitted' | 'Changes Requested' | 'Awaiting QC' | 'QC Returned' | 'Completed';
 export type FileVersion = { id:string; name:string; size:number; type:string; version:number; submittedBy:string; submittedAt:string; status:'Available'|'Changes Requested'; comments:string; /** Sheet, section or attachment reference named in a return. */target?:string; leadApprovedBy?:string; leadApprovedAt?:string; qcApprovedBy?:string; qcApprovedAt?:string; qcReturnedBy?:string; qcReturnedAt?:string; qcComments?:string };
 export type ActivityEvent = { at:string; by:string; action:'assigned'|'reassigned'|'submitted'|'lead-approved'|'lead-returned'|'qc-approved'|'qc-returned'|'dispatched'|'results-received'|'planned'; version?:number; target?:string; comments?:string; from?:string; to?:string };
-export type ActivityRecord = { id:string; scopeId:string; /** Shared by the PVT and Chemical items created for one test sent to both sections. */linkId?:string; sampleId:string; title:string; stream:Stream; owner:string; start:string; due:string; conditions:string; notes:string; status:WorkState; files:FileVersion[]; required:boolean; kind?:'validation'|'analysis'; /** Assignment, submission and review decisions, oldest first. */history?:ActivityEvent[]; /** The assigned employee's own progress notes; notes keep the team lead's instructions. */progressNotes?:string; /** A job-specific test entered in the scope (never added to the global catalogue). */custom?:boolean; /** Performed by a third-party laboratory; the owner is the internal coordinator. Absent = performed internally. */external?:ExternalWork };
+export type ActivityRecord = { id:string; scopeId:string; /** Shared by the PVT and Chemistry items created for one test sent to both sections. */linkId?:string; sampleId:string; title:string; stream:Stream; owner:string; start:string; due:string; conditions:string; notes:string; status:WorkState; files:FileVersion[]; required:boolean; kind?:'validation'|'analysis'; /** Assignment, submission and review decisions, oldest first. */history?:ActivityEvent[]; /** The assigned employee's own progress notes; notes keep the team lead's instructions. */progressNotes?:string; /** A job-specific test entered in the scope (never added to the global catalogue). */custom?:boolean; /** Performed by a third-party laboratory; the owner is the internal coordinator. Absent = performed internally. */external?:ExternalWork };
 /** Third-party execution of one activity. Recording only: nothing is sent to the provider. */
 export type ExternalWork = { provider:string; notes:string; expectedReturn:string; sentOn?:string; sentAt?:string; sentBy?:string; dispatchNotes?:string; receivedOn?:string; receivedAt?:string; receivedBy?:string };
 /** Who performs a selected test. Third-party work keeps an internal owner (the coordinator) and the normal team review. */
@@ -53,7 +54,7 @@ export const clarificationItems = [
  ['bv','PV terminology in older records','Validation uses PV. Older records are preserved exactly as saved; confirm before reconciling any historical PV entries.'],
  ['workbook-review','Workbook review ownership','Team leads review workbooks. QC review is a separate responsibility that stays unassigned until configured in Settings; no QC identity is invented.'],
  ['final-review','Final preparation / review overlap','Ahmed prepares and reviews the final report; Wilfred approves. Confirm whether an independent reviewer is additionally required.'],
- ['scope-additions','Scope addition authority','Confirm who may authorize additional work. Requests are recorded and the scope selector explicitly confirms lab scope; planning remains with the PVT and Chemical Team Leads.'],
+ ['scope-additions','Scope addition authority','Confirm who may authorize additional work. Requests are recorded and the scope selector explicitly confirms lab scope; planning remains with the PVT and Chemistry Team Leads.'],
  ['partial-handover','Partial sample shipments','This handover records all job bottles together. Confirm partial-shipment and receipt rules before splitting a transfer.'],
  ['multi-owner','Multiple-person activities','The existing model has one accountable employee per activity. Confirm how shared execution should be represented before adding multiple owners.'],
  ['legacy','Legacy records','Historical assignments, reports and lab work remain unchanged. Unrecorded checking, physical receipt and approval evidence are not inferred.'],
@@ -201,7 +202,7 @@ export function labScopeProblems(job:JobRecord,samples:Omit<SampleScope,'contain
   if(!tests.length&&!custom.length&&!validation)problems.push(label+' has no tests. Select tests, request Validation or add a custom test, or explicitly exclude it with a reason.');
   // Validation is available for every sample: it always adds PVT responsibility (planned by the PVT Team Lead), whatever the sample's team.
   for(const stream of ['PVT','Chemical'] as const){const list=testsIn(s,stream);
-   if(list.length&&!streamsOf(s.destination).includes(stream))problems.push(label+': '+stream+' tests need the destination '+stream+' or PVT and Chemical.');
+   if(list.length&&!streamsOf(s.destination).includes(stream))problems.push(label+': '+teamName(stream)+' tests need the destination '+teamName(stream)+' or PVT and Chemistry.');
    if(new Set(list).size!==list.length)problems.push(label+': a test is listed twice in '+stream+'.');
    for(const test of list){if(!catalogue.includes(test))problems.push(label+': “'+test+'” is not in the test catalog.');else if(routing[test]&&routing[test]!=='Both'&&routing[test]!==stream&&!releasedIn(previous,s.sampleId,stream,test))problems.push(label+': “'+test+'” is routed to '+routing[test]+' in Settings, not '+stream+'.');}
   }
@@ -210,7 +211,7 @@ export function labScopeProblems(job:JobRecord,samples:Omit<SampleScope,'contain
   for(const c of custom){
    if(!c.id||customIds.has(c.id))problems.push(label+': each custom test needs its own ID.');customIds.add(c.id);
    if(!c.name.trim())problems.push(label+': enter a name for each custom test, or remove it.');
-   else if(streamsOf(c.team).some(st=>!streamsOf(s.destination).includes(st)))problems.push(label+': custom test “'+c.name.trim()+'” goes to '+(c.team==='Both'?'PVT and Chemical':c.team)+'; the sample destination must include it.');
+   else if(streamsOf(c.team).some(st=>!streamsOf(s.destination).includes(st)))problems.push(label+': custom test “'+c.name.trim()+'” goes to '+(c.team==='Both'?'PVT and Chemistry':c.team)+'; the sample destination must include it.');
    execProblems(label,c.name.trim()||'custom test',c.execution);
   }
  }
@@ -508,7 +509,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   if(!requests.length)throw Error('Add at least one additional-work request.');
   for(const request of requests){
    requireText(request.title,'Requested work');requireText(request.reason,'Reason');
-   if(request.destination!==undefined&&!['PVT','Chemical','Both'].includes(request.destination))throw Error('Select PVT, Chemical or Both for each request.');
+   if(request.destination!==undefined&&!['PVT','Chemical','Both'].includes(request.destination))throw Error('Select PVT, Chemistry or Both for each request.');
    if(command.requests&&!request.destination)throw Error('Select a responsible team for each request.');
   }
   reason=requests.map(request=>request.reason.trim()).join('; ');

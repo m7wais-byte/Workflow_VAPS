@@ -180,7 +180,7 @@ test('outsourced work without a coordinator: draft allowed, team-lead task and b
  j=release(j,samples);const w=acts(j).find(a=>a.external);
  assert.equal(w.owner,'');assert.equal(externalStage(w),'Awaiting coordinator');
  const lead=view([j],'BAHRI');const task=lead.actions.find(i=>i.key.startsWith('coord:'));
- assert.ok(task,'the Chemical Team Lead gets an assignment task');assert.match(task.action,/Assign an internal coordinator · 1 outsourced Chemical test \(Intertek\)/);
+ assert.ok(task,'the Chemical Team Lead gets an assignment task');assert.match(task.action,/Assign an internal coordinator · 1 outsourced Chemistry test \(Intertek\)/);
  assert.ok(!lead.actions.some(i=>i.key.startsWith('assign:')&&i.stream==='Chemical'),'not hidden inside the generic assignment count');
  assert.throws(()=>step(j,{type:'external-dispatch',id:w.id,sentOn:'2026-11-02',expectedReturn:'',notes:''},'BAHRI'),/Assign an internal coordinator first/);
  assert.ok(view([j],'MA001',{roles:{...roles,chemicalTeamLead:''}}).blocked.some(b=>b.setting==='chemicalTeamLead'),'no lead configured: an administrator blocker');
