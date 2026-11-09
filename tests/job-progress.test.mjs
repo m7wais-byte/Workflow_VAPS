@@ -171,7 +171,7 @@ test('expected completion is provisional when the scope or upstream estimates do
   assert.deepEqual(view(j).expected, { date: '2026-12-01', kind: 'provisional', reason: 'Laboratory scope awaiting confirmation' });
   const k = estimate(byId['OM-X-26-005'], 'report', { finish: '2026-12-01', clientVisible: true });
   assert.equal(view(k).expected.kind, 'provisional'); assert.match(view(k).expected.reason, /without an expected completion/);
-  assert.match(view(k).sentence, /Expected report delivery: 01/12/2026 \(provisional\)/);
+  assert.match(view(k).sentence, /Expected report delivery: 01\/12\/2026 \(provisional\)/);
   assert.deepEqual(expectedCompletion([], [], false), { kind: 'tbc' });
 });
 
