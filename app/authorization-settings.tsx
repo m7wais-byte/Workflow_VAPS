@@ -2,6 +2,7 @@ import { useUnsaved } from './settings-pages';
 import { useEffect, useState } from 'react';
 import type { LabTeams } from './lab-teams';
 import { administratorId, explicitPermissions, permissionLabels, responsibilityLabels, responsibilityPermission, invalidResponsibilities, driverOnlyIds, type Authorization, type Permission, type Responsibilities, type Responsibility } from './authorization';
+import { teamName } from './team-name';
 
 const roleNotes: Partial<Record<Responsibility, string>> = {
   pvtSupervisor: 'Supervisory overview of PVT work. Test assignment and workbook review stay with the PVT Team Lead.',
@@ -41,18 +42,18 @@ function ResponsibilitySettings({ roles, employees, policy, onSave, error }: { r
   </section>;
 }
 
-/** PVT and Chemical team members. Team leads assign only within their own team; membership grants no permission. */
+/** PVT and Chemistry team members. Team leads assign only within their own team; membership grants no permission. */
 function LabTeamSettings({ teams, employees, policy, error, onSave }: { teams: LabTeams; employees: Person[]; policy: Authorization; error: string; onSave: (teams: LabTeams) => boolean }) {
   const [draft, setDraft] = useState(teams);
   const [saved, setSaved] = useState(false);
   const changed = JSON.stringify(draft) !== JSON.stringify(teams);
   useUnsaved(changed);
   return <section className="panel authorization-panel" id="lab-teams">
-    <div className="panel-heading"><div><span className="eyebrow">LABORATORY TEAMS</span><h2>PVT and Chemical teams</h2><p>Team leads assign tests only to active members of their own team who also have “{permissionLabels.analysis}”. Membership does not grant any permission. Existing assignments are kept and flagged if they no longer match.</p></div></div>
+    <div className="panel-heading"><div><span className="eyebrow">LABORATORY TEAMS</span><h2>PVT and Chemistry teams</h2><p>Team leads assign tests only to active members of their own team who also have “{permissionLabels.analysis}”. Membership does not grant any permission. Existing assignments are kept and flagged if they no longer match.</p></div></div>
     {error && <p role="alert">{error}</p>}
-    <div className="lab-team-grid">{(['PVT', 'Chemical'] as const).map(stream => <fieldset key={stream} className="lab-team-list" disabled={!!error}><legend>{stream} team · {draft[stream].length} member{draft[stream].length === 1 ? '' : 's'}</legend>
+    <div className="lab-team-grid">{(['PVT', 'Chemical'] as const).map(stream => <fieldset key={stream} className="lab-team-list" disabled={!!error}><legend>{teamName(stream)} team · {draft[stream].length} member{draft[stream].length === 1 ? '' : 's'}</legend>
       {employees.filter(e => e.active || draft[stream].includes(e.id)).map(e => { const noAccess = e.id !== administratorId && !policy.analysis.includes(e.id); return <label key={e.id} className="ops-check"><input type="checkbox" checked={draft[stream].includes(e.id)} onChange={event => { setSaved(false); const on = event.target.checked; setDraft(old => ({ ...old, [stream]: on ? [...old[stream], e.id] : old[stream].filter(id => id !== e.id) })); }} /><span>{e.name}{!e.active ? ' (Inactive)' : ''}{draft[stream].includes(e.id) && (noAccess || !e.active) && <strong className="flag-note"> · {e.active ? 'needs laboratory access to be assigned' : 'inactive · cannot be assigned'}</strong>}</span></label>; })}
-      {!draft[stream].length && <p className="flag-note">No members yet. {stream} tests cannot be assigned until members are added.</p>}
+      {!draft[stream].length && <p className="flag-note">No members yet. {teamName(stream)} tests cannot be assigned until members are added.</p>}
     </fieldset>)}</div>
     <footer><button className="text-button" type="button" disabled={!changed} onClick={() => { setDraft(teams); setSaved(false); }}>Cancel changes</button><button type="button" className="primary-button" disabled={!changed || !!error} onClick={() => { if (onSave(draft)) setSaved(true); }}>Save Laboratory Teams</button><span role="status">{saved && !changed ? 'Laboratory teams saved.' : changed ? 'Unsaved changes' : ''}</span></footer>
   </section>;

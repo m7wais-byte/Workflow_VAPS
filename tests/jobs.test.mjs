@@ -87,7 +87,7 @@ test('PVT-only, Chemical-only and combined samples route to the configured team 
  assert.equal(queue('WILFRED').includes('PVT planning'),false,'the PVT Supervisor does not receive test assignment');
  const moved={...defaultResponsibilities,pvtTeamLead:'NASSER'};
  assert.ok(pendingActions(job,actor('NASSER',{roles:moved})).some(a=>a.label==='PVT planning'),'routing follows the configured duty');
- assert.throws(()=>release(approved(),mixed(),'SALIM',{roles:{...defaultResponsibilities,chemicalTeamLead:''}}),/Chemical Team Lead is not configured/);
+ assert.throws(()=>release(approved(),mixed(),'SALIM',{roles:{...defaultResponsibilities,chemicalTeamLead:''}}),/Chemistry Team Lead is not configured/);
  const pvtOnly=release(approved(),[entry('1.01','PVT',['Black Oil — DL']),entry('1.02','PVT',['Black Oil — DL']),entry('1.03','PVT',['Black Oil — DL'])],'SALIM',{roles:{...defaultResponsibilities,chemicalTeamLead:''}});
  assert.ok(pvtOnly.operations.activities.every(a=>a.stream==='PVT'),'a PVT-only scope does not need the Chemical lead');
 });
@@ -95,7 +95,7 @@ test('PVT-only, Chemical-only and combined samples route to the configured team 
 test('release refuses wrong routing, undecided samples and unsupported destinations',()=>{
  const job=approved();
  assert.throws(()=>release(job,[entry('1.01','Chemical',[],['Black Oil — DL']),...mixed().slice(1)]),/routed to PVT in Settings/);
- assert.throws(()=>release(job,[entry('1.01','PVT',[],['Others — Water Analysis']),...mixed().slice(1)]),/need the destination Chemical or PVT and Chemical/);
+ assert.throws(()=>release(job,[entry('1.01','PVT',[],['Others — Water Analysis']),...mixed().slice(1)]),/need the destination Chemistry or PVT and Chemistry/);
  assert.throws(()=>release(job,[entry('1.01','PVT'),...mixed().slice(1)]),/has no tests/);
  assert.throws(()=>release(job,[entry('1.01','PVT',[],[],{excluded:true}),...mixed().slice(1)]),/reason for excluding/);
  assert.throws(()=>release(job,mixed().slice(1)),/one scope entry/);

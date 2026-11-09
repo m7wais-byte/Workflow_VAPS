@@ -5,6 +5,7 @@ import type { JobRecord } from "./page";
 import { CircleCheck, CircleDashed, CircleDot, CirclePause, ClipboardList, FlaskConical, Hourglass, TestTubes, Truck, UserRound } from "lucide-react";
 import { jobProgress, jobSummary, leafNodes, stateLabel, type JobSummary, type StageId, type TrackNode, type TrackState } from "./job-workflow-model";
 import { labProgress } from "./lab-work";
+import { ukDateTime } from "./uk-date";
 
 export type TrackerTask = { id: string; label: string; state: TrackState; status: string; ownerName?: string; group?: string; waiting?: string };
 export type TrackerStage = { id: string; label: string; state: TrackState; waiting?: string; current: boolean; ownerName?: string; nextAction?: string; done?: number; total?: number; tasks: TrackerTask[] };
@@ -72,8 +73,8 @@ export function WorkflowSummary({ summary }: { summary: JobSummary }) {
     <dl className="track-facts"><div><dt>Field / well</dt><dd>{summary.location}</dd></div><div><dt>Sampling method</dt><dd>{summary.sampling}</dd></div><div><dt>Samples</dt><dd>{summary.sampleCount}</dd></div><div><dt>Sample types</dt><dd>{summary.sampleTypes.map(item => item.count + " × " + item.label).join(" · ") || "Types not recorded"}</dd></div></dl>
     <section className="panel flow-panel"><StageTracker stages={stages} selected={selected} onSelect={setSelected} /></section>
     {stage && <StageDetail stage={stage} />}
-    <section className="panel track-history"><h2>Progress history</h2>{summary.history.length ? <ol>{[...summary.history].reverse().map((event, index) => <li key={index}><span className={"track-dot " + event.state} /><div><strong>{event.label}</strong><span>{stateLabel[event.state]}</span></div><time>{new Date(event.at).toLocaleString()}</time></li>)}</ol> : <p>Status history will appear as the team updates this job.</p>}</section>
-    <p className="track-updated">Last updated {new Date(summary.updatedAt).toLocaleString()}</p>
+    <section className="panel track-history"><h2>Progress history</h2>{summary.history.length ? <ol>{[...summary.history].reverse().map((event, index) => <li key={index}><span className={"track-dot " + event.state} /><div><strong>{event.label}</strong><span>{stateLabel[event.state]}</span></div><time>{ukDateTime(event.at)}</time></li>)}</ol> : <p>Status history will appear as the team updates this job.</p>}</section>
+    <p className="track-updated">Last updated {ukDateTime(summary.updatedAt)}</p>
   </div>;
 }
 
@@ -110,7 +111,7 @@ export function JobWorkflow({ job, employeeName, onBack, onOpenStage, today }: {
         {!current && <div className="flow-now done"><div><small>Job status</small><strong>All required work is complete</strong></div></div>}
       </section>
       {stage && <StageDetail stage={stage} actionLabel={stageActionLabel[stage.id as StageId]} onAction={() => onOpenStage(stage.id as StageId)} />}
-      <details className="panel track-history"><summary>Progress history · {job.workflowHistory?.length || 0}</summary>{job.workflowHistory?.length ? <ol>{[...job.workflowHistory].reverse().map((event, index) => <li key={index}><span className={"track-dot " + event.state} /><div><strong>{event.label}</strong><span>{stateLabel[event.state]}</span></div><time>{new Date(event.at).toLocaleString()}</time></li>)}</ol> : <p>Status history will appear as the team updates this job.</p>}</details>
+      <details className="panel track-history"><summary>Progress history · {job.workflowHistory?.length || 0}</summary>{job.workflowHistory?.length ? <ol>{[...job.workflowHistory].reverse().map((event, index) => <li key={index}><span className={"track-dot " + event.state} /><div><strong>{event.label}</strong><span>{stateLabel[event.state]}</span></div><time>{ukDateTime(event.at)}</time></li>)}</ol> : <p>Status history will appear as the team updates this job.</p>}</details>
     </>}
     <JobQR job={job} />
   </div>;

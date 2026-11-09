@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { JobRecord } from "./page";
 import { containerId, isGlass } from "./sample-container";
 import { CircleCheck, CircleDashed, CircleDot, CirclePause, Hourglass, Pencil, UserRound } from "lucide-react";
+import { ukDateTime } from "./uk-date";
 import {
   currentProgress, isValidationTest, itemLabel, labItems, labProgress, planKeys, requestedDetailedTests, scopeTestOptions, scopeText,
   validationKey, validationRequested, validationStepNames, type LabItem, type LabPlan, type LabState, type LabTestProgress,
@@ -42,7 +43,7 @@ function WorkRow({ job, item, index, employeeName, editable, blockedReason, onSa
       <fieldset disabled={!editable}>
         <label><span>Status</span><select value={status} onChange={(event) => { setStatus(event.target.value as LabTestProgress["status"]); setConfirmation(""); }}>{statuses.map((value) => <option key={value}>{value}</option>)}</select></label>
         <label><span>Lab notes</span><textarea value={notes} onChange={(event) => { setNotes(event.target.value); setConfirmation(""); }} rows={2} placeholder="Progress, results reference, missing information or handover notes" /></label>
-        <footer><button className="primary-button" type="submit" disabled={!changed}>Save progress</button><span role="status">{confirmation}</span>{saved.updatedAt && <small>Updated by {employeeName(saved.updatedBy)} · {new Date(saved.updatedAt).toLocaleString()}</small>}</footer>
+        <footer><button className="primary-button" type="submit" disabled={!changed}>Save progress</button><span role="status">{confirmation}</span>{saved.updatedAt && <small>Updated by {employeeName(saved.updatedBy)} · {ukDateTime(saved.updatedAt)}</small>}</footer>
       </fieldset>
     </form>}
   </li>;
@@ -143,7 +144,7 @@ export function PvtLab({ initialJobId = "", jobs, employeeName, team, onOpenJob,
       {showEditor ? <PlanEditor key={selected.id + (selected.labPlan?.savedAt || "")} job={selected} team={team} onCancel={selected.labPlan ? () => setEditing(false) : undefined} onSave={(plan) => { onSavePlan(selected.id, plan); setEditing(false); }} />
       : !selected.labPlan ? <section className="panel lab-awaiting"><Hourglass size={22} aria-hidden="true" /><div><h2>Awaiting lab plan</h2><p>The requested work is shown above. The PVT lab lead selects the validation steps, confirms detailed tests and assigns responsible people. Nothing is counted as started until then.</p>{legacyValidation.length > 0 && <p className="lab-hint">Validation progress recorded before step planning: {legacyValidation.map((p) => p.status).join(", ")}.</p>}</div></section>
       : <>
-        <div className="lab-plan-bar"><p>Plan saved by {employeeName(selected.labPlan.savedBy)}{selected.labPlan.savedAt ? " · " + new Date(selected.labPlan.savedAt).toLocaleString() : ""}{!delivered && " · Progress can be recorded once samples are delivered."}</p>{plannable && <button type="button" className="outline-button" onClick={() => setEditing(true)}><Pencil size={14} aria-hidden="true" /> Edit plan & assignments</button>}</div>
+        <div className="lab-plan-bar"><p>Plan saved by {employeeName(selected.labPlan.savedBy)}{selected.labPlan.savedAt ? " · " + ukDateTime(selected.labPlan.savedAt) : ""}{!delivered && " · Progress can be recorded once samples are delivered."}</p>{plannable && <button type="button" className="outline-button" onClick={() => setEditing(true)}><Pencil size={14} aria-hidden="true" /> Edit plan & assignments</button>}</div>
         {validationRequested(selected) && <section className="panel lab-work-section">
           <div className="lab-section-heading"><div><span className="eyebrow">VALIDATION</span><h2>Validation checklist</h2><p>{validation.length ? `${validation.length} of ${validationStepNames.length} steps selected for this job.` : "No validation steps selected yet."}</p></div><div className="lab-progress-figure"><strong>{validation.filter((item) => item.progress.status === "Completed").length} / {validation.length}</strong><span className="flow-bar"><i style={{ width: `${validation.length ? Math.round(100 * validation.filter((item) => item.progress.status === "Completed").length / validation.length) : 0}%` }} /></span></div></div>
           {legacyValidation.length > 0 && <p className="lab-hint">Earlier job-level validation status ({legacyValidation.map((p) => p.status).join(", ")}) is kept on record; step progress below is tracked separately.</p>}

@@ -26,7 +26,7 @@ test('assigned employees open only jobs where they hold work', () => {
 });
 
 test('duties give access to the jobs they supervise, review or approve', () => {
-  assert.ok(jobAccessReasons(byId['OM-X-26-005'], actor('BAHRI')).includes('Chemical Team Lead'));
+  assert.ok(jobAccessReasons(byId['OM-X-26-005'], actor('BAHRI')).includes('Chemistry Team Lead'));
   assert.equal(open('BAHRI', 'OM-X-26-006'), false, 'no Chemical work on a PVT-only job');
   assert.ok(jobAccessReasons(byId['OM-X-26-003'], actor('AHAD')).includes('QC review'));
   assert.equal(open('AHAD', 'OM-X-26-001'), false, 'no laboratory work yet');

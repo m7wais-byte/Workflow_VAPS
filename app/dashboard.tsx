@@ -3,13 +3,15 @@ import { useState, type ReactNode } from 'react';
 import { itemSearchText, rowSearchText, type Alert, type BlockedItem, type InboxRow, type Setting, type UpcomingItem, type WaitingItem, type WorkItem } from './work-items';
 import type { JobFlow } from './job-flow';
 import { MiniTracker, StatusBadge } from './flow-ui';
+import { ukDate, ukDateTime } from "./uk-format";
+import { teamName } from './team-name';
 
 export type MyWorkFilter = 'now' | 'upcoming' | 'waiting' | 'jobs';
 const PER_PAGE = 15;
-export const settingLabel: Record<Setting, string> = { teams: 'PVT and Chemical teams', labReceipt: 'Laboratory receipt responsibility', qcReviewer: 'QC review responsibility', samplingApproval: 'Sampling approval responsibility', scopeSelector: 'Scope selection responsibility', routing: 'Laboratory test routing', finalApproval: 'Final report approval responsibility', pvtTeamLead: 'PVT Team Lead responsibility', chemicalTeamLead: 'Chemical Team Lead responsibility' };
+export const settingLabel: Record<Setting, string> = { teams: 'PVT and Chemistry teams', labReceipt: 'Laboratory receipt responsibility', qcReviewer: 'QC review responsibility', samplingApproval: 'Sampling approval responsibility', scopeSelector: 'Scope selection responsibility', routing: 'Laboratory test routing', finalApproval: 'Final report approval responsibility', pvtTeamLead: 'PVT Team Lead responsibility', chemicalTeamLead: 'Chemistry Team Lead responsibility' };
 const settingAnchor: Record<Setting, string> = { teams: 'lab-teams', labReceipt: 'responsibilities', qcReviewer: 'responsibilities', samplingApproval: 'responsibilities', scopeSelector: 'responsibilities', routing: 'test-routing', finalApproval: 'responsibilities', pvtTeamLead: 'responsibilities', chemicalTeamLead: 'responsibilities' };
-const when = (v?: string) => v ? new Date(v.length === 10 ? v + 'T00:00:00' : v).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
-const stamp = (v: string) => new Date(v).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+const when = (v?: string) => ukDate(v);
+const stamp = (v: string) => ukDateTime(v);
 const ident = (test?: string, sample?: string, container?: string) => [sample && `Sample ${sample}${container ? ` · ${container}` : ''}`, test].filter(Boolean).join(' · ');
 const areaClass = (area: string) => 'area-tag area-' + area.toLowerCase().replace(/[^a-z]+/g, '-');
 
@@ -51,7 +53,7 @@ export function MyWork({ now, upcoming, waiting, blocked, blockedActions, alerts
       <header><strong>{alerts.length} new alert{alerts.length === 1 ? '' : 's'}</strong><span>Reading an alert does not complete the work; open it to act.</span></header>
       <ul>{visibleAlerts.map((a) => <li key={a.key} className={'alert-' + a.kind}>
         <div><strong>{a.headline}</strong> · <b className="mono">{a.jobNumber}</b> · {a.samples} · {a.scope}
-          <small>Destination {a.destination} · {a.kind === 'scope' ? 'added' : a.kind === 'moved' ? 'reassigned' : 'assigned'} by {name(a.by)} · {stamp(a.at)} · Planning: {a.planner ? name(a.planner) : 'Unassigned (team lead not configured)'} · Assigned: {a.assignee ? (a.kind === 'scope' ? a.assignee : name(a.assignee)) : 'not yet'}</small></div>
+          {a.kind === 'sampling' ? <small>Sent to Sampling by {name(a.by)} · {stamp(a.at)} · Laboratory scope is chosen after the sampling report is approved.</small> : <small>Destination {teamName(a.destination || '')} · {a.kind === 'scope' ? 'added' : a.kind === 'moved' ? 'reassigned' : 'assigned'} by {name(a.by)} · {stamp(a.at)} · Planning: {a.planner ? name(a.planner) : 'Unassigned (team lead not configured)'} · Assigned: {a.assignee ? (a.kind === 'scope' ? a.assignee : name(a.assignee)) : 'not yet'}</small>}</div>
         <div className="alert-go"><button type="button" className="primary-button" onClick={() => onOpenTab(a.jobId, a.open.tab, a)}>{a.button}</button><button type="button" className="text-button" onClick={() => onReadAlert(a)}>Mark read</button></div>
       </li>)}</ul>
       {alerts.length > 3 && <button type="button" className="text-button" onClick={() => setAllAlerts(!allAlerts)}>{allAlerts ? 'Show fewer' : `Show all ${alerts.length}`}</button>}
@@ -67,7 +69,7 @@ export function MyWork({ now, upcoming, waiting, blocked, blockedActions, alerts
       {filter === 'now' && <><div className="inbox-th" role="row"><span role="columnheader">Job</span><span role="columnheader">Your task</span><span role="columnheader">Deadline</span><span role="columnheader">Action</span></div>
         {slice(lists.now).map((i) => <div key={i.key} className={'inbox-item ' + (i.kind === 'returned' ? 'is-returned' : i.overdue ? 'is-overdue' : '')} role="row"><div className="inbox-row">
           <div className="inbox-job" role="cell"><b>{i.jobNumber}</b><span>{i.client}</span>{flowOf(i.jobId) && <small className="inbox-stage">{flowOf(i.jobId)!.current}</small>}</div>
-          <div className="inbox-act" role="cell"><span className="ready-tag">Ready</span><span className={areaClass(i.area)}>{i.area}</span>{i.kind === 'returned' && <span className="inbox-tag tag-returned">Returned</span>}{isNew(i) && <span className="inbox-tag tag-new">New</span>}<strong>{i.action}</strong>
+          <div className="inbox-act" role="cell"><span className="ready-tag">Ready</span><span className={areaClass(i.area)}>{teamName(i.area)}</span>{i.kind === 'returned' && <span className="inbox-tag tag-returned">Returned</span>}{isNew(i) && <span className="inbox-tag tag-new">New</span>}<strong>{i.action}</strong>
             <span className="inbox-sub">{ident(i.test, i.sample, i.container) || i.status}{i.from ? ` · ${i.fromLabel || 'From'} ${name(i.from)}` : ''}</span>
             {i.comment && <span className={'inbox-note ' + (i.kind === 'returned' ? 'is-correction' : '')}>{i.kind === 'returned' ? 'Correction: ' : 'Note: '}{i.comment}</span>}</div>
           <div role="cell">{due(i.due, i.dueKind, i.overdue, i.jobDue)}</div>

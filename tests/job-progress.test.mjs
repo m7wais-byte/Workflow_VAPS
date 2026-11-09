@@ -98,7 +98,7 @@ test('parallel tests keep their own statuses; Validation is one summary row with
   assert.equal(val.attention, 'Returned for correction', 'internal view flags the return');
   assert.equal(dl.status, 'not-started'); assert.equal(water.status, 'in-progress');
   assert.ok(!v.rows.some(r => /Opening Pressure|Water Check|Agitation|Charging|Flash/.test(r.label)), 'validation steps stay internal');
-  assert.match(v.sentence, /PVT and Chemical testing are in progress/);
+  assert.match(v.sentence, /PVT and Chemistry testing are in progress/);
   // Parallel estimates are not added together: the latest finish governs.
   let j = estimate(byId['OM-X-26-003'], dl.key, { start: '2026-11-10', days: '5', clientVisible: true });
   j = estimate(j, water.key, { start: '2026-11-10', days: '3', clientVisible: true });
@@ -171,7 +171,7 @@ test('expected completion is provisional when the scope or upstream estimates do
   assert.deepEqual(view(j).expected, { date: '2026-12-01', kind: 'provisional', reason: 'Laboratory scope awaiting confirmation' });
   const k = estimate(byId['OM-X-26-005'], 'report', { finish: '2026-12-01', clientVisible: true });
   assert.equal(view(k).expected.kind, 'provisional'); assert.match(view(k).expected.reason, /without an expected completion/);
-  assert.match(view(k).sentence, /Expected report delivery: 01 Dec 2026 \(provisional\)/);
+  assert.match(view(k).sentence, /Expected report delivery: 01\/12\/2026 \(provisional\)/);
   assert.deepEqual(expectedCompletion([], [], false), { kind: 'tbc' });
 });
 
