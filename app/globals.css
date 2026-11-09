@@ -3150,3 +3150,31 @@ button.flow-section-head { width:100%; border:0; border-bottom:4px solid var(--i
 .send-review-next{background:#f3f8f7;border:1px solid #d5e8e4;border-radius:8px;padding:14px 16px;margin-top:10px}
 .send-review-next .send-notify{margin:6px 0 0}
 @media (max-width:760px){.send-review-head{flex-direction:column}.send-review-head .job-id-badge{width:100%;align-items:flex-start;text-align:left}}
+
+/* Fields to fill in: tinted so they stand apart from labels and read-only text.
+   A required field that is still empty shows an amber bar on its left edge until it is filled. */
+:root{--field-bg:#e9f5f2;--field-border:#9ac8c0;--field-focus:#ffffff;--field-empty:#d99a2b}
+main input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not(.uk-date-native),
+main select,main textarea{background:var(--field-bg);border-color:var(--field-border)}
+main input:not([type=checkbox]):not([type=radio]):not([type=file]):focus,main select:focus,main textarea:focus{background:var(--field-focus);border-color:var(--teal);box-shadow:0 0 0 3px rgba(13,123,115,.12)}
+main input:required:placeholder-shown,main textarea:required:placeholder-shown,
+main .job-create-form select:has(option[value=""]:checked){box-shadow:inset 3px 0 0 var(--field-empty)}
+main input:disabled,main select:disabled,main textarea:disabled,main input[readonly],main textarea[readonly]{background:#eef1f2;border-color:#d7dfe1;color:#6b7a81;box-shadow:none}
+/* Search and filter boxes are tools, not data entry: keep them plain. */
+main .cockpit-search input,main input[type=search],main .register-stage-filter select,main .settings-filters select,main .settings-filters input{background:var(--paper);border-color:var(--line);box-shadow:none}
+.uk-date-picker{background:#e3f1ee}
+.form-legend{display:flex;flex-wrap:wrap;gap:8px 18px;margin:0 0 14px;font-size:13px;color:var(--muted)}
+.form-legend span{display:inline-flex;align-items:center;gap:6px}
+.form-legend i{display:inline-block;width:22px;height:14px;border-radius:3px;border:1px solid var(--field-border);background:var(--field-bg)}
+.form-legend i.empty{box-shadow:inset 3px 0 0 var(--field-empty)}
+
+/* Review before sending: every value in its own box */
+.send-review .review-grid{gap:10px 12px}
+.send-review .review-grid>div{border:1px solid var(--line);border-radius:8px;background:#f8fbfb;padding:10px 12px}
+.send-review .review-grid dt{font-weight:700;color:#5f7680}
+.send-review .review-grid dd{font-size:15px;color:var(--navy)}
+.send-review .review-plan{list-style:none;padding:0;margin:8px 0 6px;display:grid;gap:8px}
+.send-review .review-plan li{border:1px solid var(--line);border-left:3px solid var(--teal);border-radius:8px;background:#f8fbfb;padding:10px 12px;font-size:15px}
+.send-review .review-records{margin:6px 0 10px}
+.send-review .review-approval{border:1px solid #e7d2a6;border-left:3px solid var(--amber);border-radius:8px;background:#fdf8ee;padding:10px 12px}
+.send-review .send-notify li+li{margin-top:2px}
