@@ -55,7 +55,7 @@ export const clarificationItems = [
  ['workbook-review','Workbook review ownership','Team leads review workbooks. QC review is a separate responsibility that stays unassigned until configured in Settings; no QC identity is invented.'],
  ['final-review','Final preparation / review overlap','Ahmed prepares and reviews the final report; Wilfred approves. Confirm whether an independent reviewer is additionally required.'],
  ['scope-additions','Scope addition authority','Confirm who may authorize additional work. Requests are recorded and the scope selector explicitly confirms lab scope; planning remains with the PVT and Chemistry Team Leads.'],
- ['partial-handover','Partial sample shipments','This handover records all job bottles together. Confirm partial-shipment and receipt rules before splitting a transfer.'],
+ ['partial-handover','Partial sample shipments','This handover records all job cylinders together. Confirm partial-shipment and receipt rules before splitting a transfer.'],
  ['multi-owner','Multiple-person activities','The existing model has one accountable employee per activity. Confirm how shared execution should be represented before adding multiple owners.'],
  ['legacy','Legacy records','Historical assignments, reports and lab work remain unchanged. Unrecorded checking, physical receipt and approval evidence are not inferred.'],
 ] as const;
@@ -630,7 +630,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   if(!samplingApproved(next))throw Error('Obtain sampling-report approval before transferring bottles.');
   if(o.handover)throw Error('Handover already recorded. Use receipt notes for discrepancies.');
   if(command.sampleIds.length!==job.samples?.length)throw Error('Select all job samples for this handover. Partial-shipment handling needs confirmation.');
-  if(!command.sampleIds.length||command.sampleIds.length!==new Set(command.sampleIds).size||command.sampleIds.some(id=>{const s=job.samples?.find(s=>s.id===id);return !s||!containerId(s);}))throw Error('Select existing samples with a recorded bottle serial or glass-container ID.');
+  if(!command.sampleIds.length||command.sampleIds.length!==new Set(command.sampleIds).size||command.sampleIds.some(id=>{const s=job.samples?.find(s=>s.id===id);return !s||!containerId(s);}))throw Error('Select existing samples with a recorded cylinder serial or glass-container ID.');
   const sent=command.sampleIds.map(id=>job.samples!.find(s=>s.id===id)!);o.handover={sampleIds:command.sampleIds,bottles:Object.fromEntries(sent.map(s=>[s.id,containerId(s)])),containerTypes:Object.fromEntries(sent.map(s=>[s.id,isGlass(s)?'Glass container':'Bottle'])),sentBy:actor.id,sentAt:now,notes:command.notes};break;
  }
  case 'handover-receive':{

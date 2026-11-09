@@ -2,17 +2,17 @@ import { containerComplete, containerLabel, isGlass, type ContainerFields } from
 /** The parts of a sample record the sampling checks read. */
 export type SampleRecord = ContainerFields & { id: string; depth?: string; sampler?: string; samplerSerial?: string; fieldData?: Record<string, string>; dataComplete?: boolean };
 export type SamplingJob = { samplingSource?: string; samples?: SampleRecord[]; stages?: { name: string; status: string }[] };
-export const preparesEquipment = (source = '') => source === 'Cased Hole (Bottomhole / Downhole Sampling)' || source === 'Open Hole (SPMC - Field Sampling)';
+export const preparesEquipment = (source = '') => source === 'Cased Hole (Bottomhole / Downhole Sampling)' || source === 'Open Hole – Field Sampling' || source === 'Open Hole (SPMC - Field Sampling)';
 const shippingFields = ['sampleBottleVolume', 'sampleVolume', 'fluidRemaining', 'finalPressure', 'finalTemperature'];
 const matchedFields = ['initialOpeningPressure', 'initialOpeningTemperature', 'receivingBottleOpeningPressure', 'receivingBottleOpeningTemperature', 'transferPressure', 'transferTemperature', 'transferDuration'];
 const productionFields = ['bhp', 'bht', 'whp', 'wht', 'chokeSize', 'stableSince', 'separatorPressure', 'separatorTemperature', 'oilRate', 'correctedBy', 'gasRate', 'waterRate', 'gasGravity', 'condensateGravity', 'oilLineTemperature', 'gasDifferentialPressure', 'gasPressure', 'gasTemperature', 'fbFactor', 'fpvFactor', 'cgr', 'wor', 'bsw', 'h2s', 'co2'];
-/** Standard sample data sheet checks. Glass containers need only their own ID, never bottle inventory fields. */
+/** Standard sample data sheet checks. Glass containers need only their own ID, never cylinder inventory fields. */
 export function standardSheetErrors(sample: SampleRecord): string[] {
   const f = sample.fieldData || {}, v = (key: string) => (f[key] || '').trim();
   const errors: string[] = [];
   const missing = [!v('samplingDate') && 'Sampling Date', !v('samplingTime') && 'Sampling Time', !v('sampleNature') && 'Sample Nature', !(sample.depth || '').trim() && 'Sampling Point / Depth', !v('flowPeriod') && 'Flow Period', !v('formation') && 'Formation', !v('perforations') && 'Perforations'].filter(Boolean);
   if (missing.length) errors.push(`Identification: complete ${missing.join(', ')}.`);
-  if (!containerComplete(sample)) errors.push(isGlass(sample) ? 'Shipping Conditions: the glass container ID is required.' : 'Shipping Conditions: Bottle Type and Bottle Number are required.');
+  if (!containerComplete(sample)) errors.push(isGlass(sample) ? 'Shipping Conditions: the glass container ID is required.' : 'Shipping Conditions: Cylinder Type and Cylinder Number are required.');
   if (shippingFields.some((key) => !v(key))) errors.push('Shipping Conditions: enter every value or record N/A where it does not apply.');
   if (matchedFields.some((key) => !v(key))) errors.push('Matched / Transfer Conditions: enter every value or record N/A.');
   if (productionFields.some((key) => !v(key))) errors.push('Production Conditions: enter every value or record N/A.');
@@ -27,9 +27,9 @@ export function samplingIssues(job: SamplingJob): SamplingIssue[] {
   if (!job.samples?.length) issues.push({ target: 'job', label: 'Samples', text: 'No sample records exist.' });
   for (const sample of job.samples || []) {
     const label = 'Sample ' + sample.id;
-    if (!containerComplete(sample)) issues.push({ target: `sample:${sample.id}:container`, label: label + ' · container', text: isGlass(sample) ? 'Glass container ID is missing.' : 'Bottle type and number are missing.' });
+    if (!containerComplete(sample)) issues.push({ target: `sample:${sample.id}:container`, label: label + ' · container', text: isGlass(sample) ? 'Glass container ID is missing.' : 'Cylinder type and number are missing.' });
     if (preparesEquipment(job.samplingSource) && (!sample.sampler || !(sample.samplerSerial || '').trim())) issues.push({ target: `sample:${sample.id}`, label, text: 'Prepared sampler reference is missing.' });
-    for (const error of standardSheetErrors(sample).filter((e) => !e.startsWith('Shipping Conditions: the glass') && !e.startsWith('Shipping Conditions: Bottle Type'))) issues.push({ target: `sample:${sample.id}:data`, label: label + ' · data sheet', text: error });
+    for (const error of standardSheetErrors(sample).filter((e) => !e.startsWith('Shipping Conditions: the glass') && !e.startsWith('Shipping Conditions: Cylinder Type'))) issues.push({ target: `sample:${sample.id}:data`, label: label + ' · data sheet', text: error });
     if (!sample.dataComplete) issues.push({ target: `sample:${sample.id}:data`, label: label + ' · data sheet', text: 'Not marked complete.' });
   }
   return issues;
@@ -43,13 +43,16 @@ const countWords = ['None', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven
 const count = (n: number) => countWords[n] || String(n);
 /** Activity wording for each recorded sampling type; nothing beyond the type itself is implied. */
 const activities: Record<string, string> = {
-  'Open Hole (MPSR - Lab Transfer)': 'open hole sample transfer from MPSR (laboratory transfer)',
-  'Open Hole (MDT Transfer)': 'open hole sample transfer from MDT',
-  'Open Hole (SPMC - Field Sampling)': 'open hole field sampling (SPMC)',
+  'Open Hole – Lab Transfer': 'open hole sample transfer (laboratory transfer)',
+  'Open Hole – Field Sampling': 'open hole field sampling',
+  // Names saved before the general names were introduced.
+  'Open Hole (MPSR - Lab Transfer)': 'open hole sample transfer (laboratory transfer)',
+  'Open Hole (MDT Transfer)': 'open hole sample transfer (laboratory transfer)',
+  'Open Hole (SPMC - Field Sampling)': 'open hole field sampling',
   'Cased Hole (Bottomhole / Downhole Sampling)': 'cased hole bottomhole sampling',
   'Wellhead Sampling': 'wellhead sampling', 'Separator Sampling': 'separator sampling', 'Station Sampling': 'station sampling',
 };
-/** "Four PDS", "Two PDS and One glass container" — grouped by the recorded type, in first-seen order. */
+/** "Four Type A", "Two Type A and One glass container" — grouped by the recorded type, in first-seen order. */
 function grouped(names: string[]): string {
   const counts = new Map<string, number>();
   for (const name of names) counts.set(name, (counts.get(name) || 0) + 1);

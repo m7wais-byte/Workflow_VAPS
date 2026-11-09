@@ -168,7 +168,7 @@ export function flowNodes(flow: JobFlow): TrackNode[] {
   return flow.sections.map(s => ({ id: s.id, label: s.label, state: trackState[clientState(s.state)], ...(s.completedAt ? { at: s.completedAt } : {}),
     children: s.groups.filter(g => g.steps.length).map(g => ({ id: g.id, label: g.label, state: trackState[clientState(g.state)], children: g.steps.map(st => ({ id: st.id, label: st.label, state: trackState[clientState(st.state)], ...(st.state === "completed" && st.at ? { at: st.at } : {}) })) })) }));
 }
-const natureNames: Record<string, string> = { OIL: "Oil", GAS: "Gas", WATER: "Water", CONDENSATE: "Condensate", BHS: "Bottomhole", SPMC: "SPMC field", MPSR: "MPSR transfer", WHS: "Wellhead", SEP: "Separator", STN: "Station", MDT: "MDT transfer" };
+const natureNames: Record<string, string> = { OIL: "Oil", GAS: "Gas", WATER: "Water", CONDENSATE: "Condensate", BHS: "Bottomhole", OHS: "Open-hole field", OHT: "Open-hole transfer", SPMC: "Open-hole field", MPSR: "Open-hole transfer", WHS: "Wellhead", SEP: "Separator", STN: "Station", MDT: "Open-hole transfer" };
 export function jobSummary(job: JobRecord): JobSummary {
   const types = new Map<string, number>();
   for (const sample of job.samples || []) {

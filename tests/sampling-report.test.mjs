@@ -44,7 +44,7 @@ test('sample IDs and measurements match between listing and sheets; recorded uni
   assert.equal(all['BHT:'], '64.9 °C');
   assert.equal(all['Final Pressure:'], '27579 kPa @ 64.9 °C');
   assert.equal(all['Opening Pressure:'], '1034 kPa @ 25 °C');
-  assert.equal(all['Bottle No:'], 'PDS S1.01');
+  assert.equal(all['Cylinder No:'], 'PDS S1.01');
   assert.equal(all['Sampling Date:'], '7-Oct-26');
   assert.equal(all['WHP:'], 'N/A', 'N/A is shown as entered, without a unit');
   assert.equal(all['At Depth:'], model.NOT_RECORDED, 'no data source: never copied from another field');
@@ -122,13 +122,13 @@ test('the generic Oil Rate keeps its own label; std/sep-condition rates are not 
 test('the default summary is built only from recorded information and adapts to the sampling type', () => {
   const s = (job) => validation.samplingSummary({ clientName: 'PDO', well: 'W-1', ...job });
   assert.equal(s({ samplingSource: 'Open Hole (MPSR - Lab Transfer)', samples: input().samples }),
-    'Vision Advanced Petroleum Solutions was contracted by PDO for open hole sample transfer from MPSR (laboratory transfer).\n\nA total of Four samples were recorded in Four PDS.\n\nAll of the samples are recorded for the well W-1.');
+    'Vision Advanced Petroleum Solutions was contracted by PDO for open hole sample transfer (laboratory transfer).\n\nA total of Four samples were recorded in Four PDS.\n\nAll of the samples are recorded for the well W-1.');
   const wellhead = s({ samplingSource: 'Wellhead Sampling', samples: [{ id: 'A', containerType: 'Glass container', containerId: 'G1' }, { id: 'B', bottle: 'SSB', bottleSerial: '9' }, { id: 'C' }] });
   assert.match(wellhead, /for wellhead sampling\./);
   assert.match(wellhead, /A total of Three samples were recorded in One glass container and One SSB\. The container type is not recorded for one sample\./);
   assert.doesNotMatch(wellhead, /MPSR|PDS|transfer/);
   const spmc = s({ samplingSource: 'Open Hole (SPMC - Field Sampling)', samples: [{ id: 'A', bottle: 'PDS', sampler: 'SPS' }, { id: 'B', bottle: 'PDS', sampler: 'SPS' }] });
-  assert.match(spmc, /open hole field sampling \(SPMC\)\.[\s\S]*Two PDS\.[\s\S]*Samplers recorded: Two SPS\./);
+  assert.match(spmc, /open hole field sampling\.[\s\S]*Two PDS\.[\s\S]*Samplers recorded: Two SPS\./);
   assert.match(s({ samplingSource: 'Other', otherSamplingType: 'Tank sampling', samples: [{ id: 'A' }] }), /for sampling \(Tank sampling\)\.\n\nA total of One sample was recorded\./);
   assert.match(s({ samplingSource: 'Separator Sampling', samples: [] }), /No samples are recorded for this job\.$/);
   assert.match(s({ samplingSource: 'Station Sampling', wellMode: 'multiple', wells: ['A-1', 'A-2'], samples: [{ id: 'x' }] }), /recorded for the wells A-1, A-2\.$/);

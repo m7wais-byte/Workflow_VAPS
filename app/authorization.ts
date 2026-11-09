@@ -5,7 +5,7 @@ export const permissionLabels = {
   jobDetails: 'Access job details',
   sampling: 'Access sampling and reports',
   analysis: 'Access PVT analysis',
-  inventory: 'Access bottle inventory',
+  inventory: 'Access cylinder inventory',
   companyOverview: 'View company overview & activity',
   deleteJobs: 'Delete and restore jobs',
   settings: 'Manage clients',

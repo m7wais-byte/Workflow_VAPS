@@ -172,11 +172,11 @@ function sheetFor(sample: ReportSample, title: string): Omit<SampleSheet, 'remar
   return {
     sampleId: sample.id, title,
     identification: {
-      left: [['Sample No:', orNR(sample.id)], [glass ? 'Container No:' : 'Bottle No:', containerRef(sample)], ['Sampling Date:', dateShort(f.samplingDate)], ['Sampling Time:', orNR(f.samplingTime)], ['Sampling Point:', orNR(sample.depth)], ['Perforations:', orNR(f.perforations)]],
+      left: [['Sample No:', orNR(sample.id)], [glass ? 'Container No:' : 'Cylinder No:', containerRef(sample)], ['Sampling Date:', dateShort(f.samplingDate)], ['Sampling Time:', orNR(f.samplingTime)], ['Sampling Point:', orNR(sample.depth)], ['Perforations:', orNR(f.perforations)]],
       right: [['Sample Nature:', orNR(f.sampleNature)], ['Flow Period:', orNR(f.flowPeriod)], ['Formation:', orNR(f.formation)], ...(sampler ? [['Sampler:', sampler] as Field] : [])],
     },
     shipping: {
-      left: [[glass ? 'Container Type:' : 'Sample Bottle Type:', glass ? 'Glass container' : orNR(sample.bottle)], [glass ? 'Container Volume:' : 'Sample Bottle Volume:', withUnit(f.sampleBottleVolume, f.sampleBottleVolumeUnit)], ['Sample Volume:', withUnit(f.sampleVolume, f.sampleVolumeUnit)]],
+      left: [[glass ? 'Container Type:' : 'Sample Cylinder Type:', glass ? 'Glass container' : orNR(sample.bottle)], [glass ? 'Container Volume:' : 'Sample Cylinder Volume:', withUnit(f.sampleBottleVolume, f.sampleBottleVolumeUnit)], ['Sample Volume:', withUnit(f.sampleVolume, f.sampleVolumeUnit)]],
       right: [['Gas Cap Created:', orNR(f.gasCapCreated)], ['Fluid Remaining:', withUnit(f.fluidRemaining, f.fluidRemainingUnit)], ['Final Pressure:', pressureAt(f, 'finalPressure', 'finalTemperature')]],
     },
     matched: {
