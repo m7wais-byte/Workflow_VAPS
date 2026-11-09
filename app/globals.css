@@ -3137,3 +3137,16 @@ button.flow-section-head { width:100%; border:0; border-bottom:4px solid var(--i
 .team-members .crew-accountable,.team-members>small,.team-members>.overlap-notice,.team-members>[class*="overlap"]{grid-column:1/-1}
 .team-members .ops-check{display:flex;align-items:center;gap:8px}
 .team-members .ops-check .crew-role{margin-left:4px}
+/* Review before sending: grouped, numbered checks */
+.send-review-head{display:flex;align-items:flex-start;gap:16px;margin-bottom:8px}
+.send-review-head>div:first-child{flex:1}
+.send-review-head h2{margin:4px 0 6px;font-family:Georgia,serif;font-size:20px;color:var(--navy);font-weight:600}
+.send-review-head p{margin:0;font-size:14px;color:#526971}
+.send-review-group{border-top:1px solid var(--line);padding:14px 0 4px}
+.send-review-group h3{margin:0 0 4px;font-size:13px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--teal-dark)}
+.send-review-group .review-grid{margin:8px 0}
+.review-records{margin:4px 0 8px;font-size:13px;color:var(--muted)}
+.review-approval{margin:6px 0 10px;font-size:15px;color:var(--ink)}
+.send-review-next{background:#f3f8f7;border:1px solid #d5e8e4;border-radius:8px;padding:14px 16px;margin-top:10px}
+.send-review-next .send-notify{margin:6px 0 0}
+@media (max-width:760px){.send-review-head{flex-direction:column}.send-review-head .job-id-badge{width:100%;align-items:flex-start;text-align:left}}

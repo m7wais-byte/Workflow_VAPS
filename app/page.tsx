@@ -7,7 +7,7 @@ import { CompanyDashboard } from './company-dashboard';
 import { jobFlow, type JobFlow } from './job-flow';
 import { canOpenJob, jobsInWork, applyJobOperation, noJobAccessMessage } from './job-access';
 import { StatusBadge, OverdueBadge, MiniTracker } from './flow-ui';
-import { OperationsWorkspace, WeeklyWork, Clarification, ClarificationReview, LabWorkspace } from './operations-workspace';
+import { OperationsWorkspace, WeeklyWork, ClarificationReview, LabWorkspace } from './operations-workspace';
 import { SamplingReportDocument, exportSamplingReportPdf, samplingReportInput, type ReportContext } from './sampling-report';
 import { applyOperation, isTrashed, trashJob, restoreJob, operationComplete, latest, operationsFor, streamLead, labStatus, labStatuses, type ActivityRecord, isDraft, canSeeDraft, samplingTeam, samplingStatus, latestData, samplingDataLocked, dataReviewRequired, type Actor, type Operations, type Command } from './operations-model';
 import { readSavedRouting, effectiveRouting, storedTestRouting, testRoutingKey, type TestRouting, type SavedRouting } from './test-routing';
@@ -2123,21 +2123,36 @@ export default function Home() {
                 <label className="full-field instructions-field"><span>Sampling instructions *</span><textarea rows={5} value={job.samplingInstructions} onChange={(e) => updateJob("samplingInstructions", e.target.value)} placeholder="e.g. Confirm the separator sampling point with the client focal point before rig-up. Sample at stable separator conditions and record separator pressure and temperature. Report any H₂S readings immediately." /><small className="field-help">How the field team must carry out the sampling: site and sampling point, conditions to confirm, safety notes. Only the assigned crew see this.</small></label>
               </section>
 
-              {dispatchReview && editingDraft && <section className="panel ops-panel send-review" aria-live="polite"><h2>Review before sending to Sampling</h2><dl className="review-grid">
-                <div><dt>Job ID</dt><dd><strong>{displayJobId}</strong> · {clientName}</dd></div>
-                <div><dt>Job date → due date</dt><dd>{ukDate(job.dateReceived) || "Not recorded"} → {ukDate(job.dueDate) || "Not recorded"}</dd></div>
-                <div><dt>Location</dt><dd>{[job.countryCode, job.fieldArea, job.wells.filter(Boolean).join(", ")].filter(Boolean).join(" · ")}</dd></div>
-                <div><dt>Client focal point</dt><dd>{[job.clientFocalPoint, job.clientFocalPointContact, job.clientFocalPointEmail].filter(Boolean).join(" · ") || "Not recorded"}</dd></div>
-                <div className="full-field"><dt>Job / request description</dt><dd className="instructions-text">{job.description}</dd></div>
-                <div className="full-field"><dt>Sampling scope</dt><dd><ul className="review-plan">{job.samplingPlan.map((row) => <li key={row.source}><strong>{sourceLabel(row.source)}</strong> · {rowSummary(row)}{row.note ? ` · ${row.note}` : ""}</li>)}</ul><small>{planRecordCount(job.samplingPlan)} sample records: {planRecords(job.samplingPlan).map((record) => record.id).join(", ")}</small>{scopeAttachment && <small> · Attached: {scopeAttachment.name}</small>}</dd></div>
-                <div><dt>Accountable</dt><dd>{employeeName(job.assignedEngineerId)}</dd></div>
-                <div><dt>Backup / support</dt><dd>{job.samplingTeamIds.filter((id) => id !== job.assignedEngineerId).map(employeeName).join(", ") || "None"}</dd></div>
-                <div><dt>Driver</dt><dd>{employeeName(job.assignedDriverId)}</dd></div>
-                <div className="full-field"><dt>Sampling instructions</dt><dd className="instructions-text">{job.samplingInstructions}</dd></div>
-                <div className="full-field"><dt>Sign-off</dt><dd>No sign-off is recorded at job creation. The sampling report is approved later by {approver ? employeeName(approver) : "the sampling approver (not configured; ask an administrator)"}.</dd></div></dl>
-                <p>After sending, the job moves to <strong>Sampling</strong>; next action: {samplingIsRequired(samplingType) ? "complete sampling preparation" : "complete pre-job coordination"}.</p>
-                <ul className="send-notify"><li><strong>{employeeName(job.assignedEngineerId)}</strong> receives the job as a task in My work.</li>{job.samplingTeamIds.filter((id) => id !== job.assignedEngineerId).length > 0 && <li><strong>{job.samplingTeamIds.filter((id) => id !== job.assignedEngineerId).map(employeeName).join(", ")}</strong> {job.samplingTeamIds.filter((id) => id !== job.assignedEngineerId).length === 1 ? "is" : "are"} told as backup.</li>}<li><strong>{employeeName(job.assignedDriverId)}</strong> sees the transport as coming up.</li><li>The laboratory (scope selection, sample receipt and team leads) gets a heads-up with the general job details. No laboratory scope is set yet.</li><li>The Sequence of Events records the send automatically. No email is sent.</li></ul>
-                <Clarification id="initial-scope"/></section>}
+              {dispatchReview && editingDraft && (() => {
+                const backups = job.samplingTeamIds.filter((id) => id !== job.assignedEngineerId);
+                const records = planRecords(job.samplingPlan);
+                return <section className="panel ops-panel send-review" aria-live="polite">
+                  <div className="send-review-head"><div><span className="eyebrow">STEP 1 OF 5 · FINAL CHECK</span><h2>Review before sending to Sampling</h2><p>Check the details below. Use <strong>Back to editing</strong> to change anything, or <strong>Confirm &amp; send</strong> to release the job to the sampling team.</p></div><div className="job-id-badge"><small>JOB ID</small><strong>{displayJobId}</strong><span>{clientName}</span></div></div>
+                  <div className="send-review-group"><h3>1 · Job details</h3><dl className="review-grid">
+                    <div><dt>Client</dt><dd>{clientName}</dd></div>
+                    <div><dt>Job date → due date</dt><dd>{ukDate(job.dateReceived) || "Not recorded"} → {ukDate(job.dueDate) || "Not recorded"}</dd></div>
+                    <div><dt>Location</dt><dd>{[job.countryCode, job.fieldArea, job.wells.filter(Boolean).join(", ")].filter(Boolean).join(" · ")}</dd></div>
+                    <div><dt>Client focal point</dt><dd>{[job.clientFocalPoint, job.clientFocalPointContact, job.clientFocalPointEmail].filter(Boolean).join(" · ") || "Not recorded"}</dd></div>
+                    <div className="full-field"><dt>Job / request description</dt><dd className="instructions-text">{job.description}</dd></div>
+                  </dl></div>
+                  <div className="send-review-group"><h3>2 · Sampling scope</h3><ul className="review-plan">{job.samplingPlan.map((row) => <li key={row.source}><strong>{sourceLabel(row.source)}</strong> · {rowSummary(row)}{row.note ? ` · ${row.note}` : ""}</li>)}</ul><p className="review-records">{records.length} sample record{records.length === 1 ? "" : "s"}: {records.map((record) => record.id).join(", ")}{scopeAttachment ? ` · Attached: ${scopeAttachment.name}` : ""}</p></div>
+                  <div className="send-review-group"><h3>3 · Crew &amp; instructions</h3><dl className="review-grid">
+                    <div><dt>Accountable</dt><dd>{employeeName(job.assignedEngineerId)}</dd></div>
+                    <div><dt>Backup / support</dt><dd>{backups.map(employeeName).join(", ") || "None"}</dd></div>
+                    <div><dt>Driver</dt><dd>{employeeName(job.assignedDriverId)}</dd></div>
+                    <div className="full-field"><dt>Sampling instructions</dt><dd className="instructions-text">{job.samplingInstructions}</dd></div>
+                  </dl></div>
+                  <div className="send-review-group"><h3>4 · Approval</h3><p className="review-approval">No approval is needed to send this job. The sampling report will be approved by {approver ? <strong>{employeeName(approver)}</strong> : "the sampling approver (not configured yet; ask an administrator to set it in Settings → Authorization)"} (Sampling approval).</p></div>
+                  <div className="send-review-group send-review-next"><h3>What happens when you send</h3><ul className="send-notify">
+                    <li>The job moves to <strong>Sampling</strong>. Next action: {samplingIsRequired(samplingType) ? "complete sampling preparation" : "complete pre-job coordination"}.</li>
+                    <li><strong>{employeeName(job.assignedEngineerId)}</strong> receives the job as a task in My work.</li>
+                    {backups.length > 0 && <li><strong>{backups.map(employeeName).join(", ")}</strong> {backups.length === 1 ? "sees" : "see"} the job as backup.</li>}
+                    <li><strong>{employeeName(job.assignedDriverId)}</strong> sees the transport as coming up.</li>
+                    <li>The laboratory (scope selection, sample receipt and team leads) gets a heads-up with the general job details. No laboratory scope is set yet.</li>
+                    <li>The Sequence of Events records the send automatically. No email is sent.</li>
+                  </ul></div>
+                </section>;
+              })()}
               {jobErrors.length > 0 && <div className="preparation-validation" role="alert"><span>!</span><div><strong>{editingDraft ? "Job cannot be sent yet" : "Job cannot be saved"}</strong><ul>{jobErrors.map((error) => <li key={error}>{error}</li>)}</ul></div></div>}
 
               <div className="form-actions">{editingDraft ? <>{dispatchReview ? <button type="button" className="outline-button" onClick={() => setDispatchReview(false)}>Back to editing</button> : <button type="button" className="outline-button" onClick={saveDraft}>Save Draft</button>}<button type="submit" className="primary-button">{dispatchReview ? "Confirm & send to Sampling" : "Send to Sampling"} <span>→</span></button></> : <button type="submit" className="primary-button">Save job details <span>→</span></button>}</div>
