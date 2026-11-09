@@ -1,6 +1,6 @@
 /**
- * A sample is held in a bottle (from the bottle inventory) or a glass container (its own ID).
- * Records saved before containerType existed are bottles identified by bottleSerial.
+ * A sample is held in a cylinder (from the cylinder inventory) or a glass container (its own ID).
+ * The stored container type value stays 'Bottle' (shown as Cylinder); records saved before containerType existed are cylinders identified by bottleSerial.
  */
 export type ContainerType = 'Bottle' | 'Glass container';
 export const containerTypes: ContainerType[] = ['Bottle', 'Glass container'];
@@ -15,8 +15,8 @@ export function containerId(sample: ContainerFields): string {
 export function containerComplete(sample: ContainerFields): boolean {
   return isGlass(sample) ? !!containerId(sample) : !!sample.bottle && !!containerId(sample);
 }
-export const containerNoun = (sample: ContainerFields) => isGlass(sample) ? 'Glass container' : 'Bottle';
-/** Type and identifier for display, e.g. "PDS · 1234" or "Glass container · G-07". */
+export const containerNoun = (sample: ContainerFields) => isGlass(sample) ? 'Glass container' : 'Cylinder';
+/** Type and identifier for display, e.g. "Type A · 1234" or "Glass container · G-07". */
 export function containerLabel(sample: ContainerFields, missing = 'Not recorded'): string {
   if (isGlass(sample)) return containerId(sample) ? 'Glass container · ' + containerId(sample) : missing;
   return [sample.bottle, sample.bottleSerial].filter(Boolean).join(' · ') || missing;

@@ -7,6 +7,7 @@ import { defaultAuthorization, defaultResponsibilities } from './authorization';
 import { cylinderCatalog } from './cylinder-catalog';
 import { defaultFieldData } from './sample-defaults';
 import { addDays, localDate } from './local-date';
+import { DOWNHOLE_TOOL } from './naming';
 
 export const demoClient = { code: 'X', shortName: 'DEMO', name: 'DEMO Operator (fictional)', country: 'Oman', notes: 'Fictional client used by the workflow demo.', active: true };
 export const demoLogin = { id: 'MA001', password: '1234' };
@@ -26,7 +27,7 @@ export type StoreFile = (name: string, content: string) => Promise<StoredFile>;
 
 type Sample = NonNullable<JobRecord['samples']>[number];
 const stageNames = ['Job Setup', 'Sampling Preparation', 'Sampling Data', 'Report Preview', 'Final Report'];
-const bottles = cylinderCatalog.filter(b => b.type === 'PDS');
+const bottles = cylinderCatalog.filter(b => b.type === 'Type A');
 
 export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): Promise<JobRecord[]> {
  const employees = initialDirectory().employees, policy = defaultAuthorization(employees.map(e => e.id));
@@ -36,7 +37,7 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
  const clock = (daysAgo: number) => { let t = new Date(`${addDays(day, -daysAgo)}T07:30:00`).getTime(); return () => new Date(t += 47 * 60000).toISOString(); };
  const sample = (id: string, nature: 'BHS' | 'WHS' | 'SEP', complete: boolean, field: Record<string, string>, by: string, at: string): Sample => {
   const b = bottles[bottle++ % bottles.length];
-  return { id, sampler: nature === 'BHS' ? 'SPS' : '', bottle: b.type, samplerSerial: nature === 'BHS' ? 'DEMO-SPS-0' + bottle : '', bottleSerial: b.serial, bottleCapacity: b.capacity, calibrationStatus: 'Passed', pressureTestStatus: 'Passed', equipmentCondition: 'Good', preparedBy: by, preparedAt: at, preparationRemarks: 'DEMO preparation record.',
+  return { id, sampler: nature === 'BHS' ? DOWNHOLE_TOOL : '', bottle: b.type, samplerSerial: nature === 'BHS' ? 'DEMO-TOOL-0' + bottle : '', bottleSerial: b.serial, bottleCapacity: b.capacity, calibrationStatus: 'Passed', pressureTestStatus: 'Passed', equipmentCondition: 'Good', preparedBy: by, preparedAt: at, preparationRemarks: 'DEMO preparation record.',
    fieldData: { ...defaultFieldData(), sampleNature: nature, ...(complete ? field : {}) }, dataComplete: complete, dataCompletedBy: complete ? by : '', dataCompletedAt: complete ? at : '', pressure: '', temperature: '', depth: '', notes: complete ? 'DEMO sample, fictional values.' : '' };
  };
  const job = (seq: number, details: Partial<JobRecord>, created: string, stageDone: number): JobRecord => {
