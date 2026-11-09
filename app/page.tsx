@@ -29,6 +29,8 @@ import { defaultFieldData } from "./sample-defaults";
 import { containerComplete, containerId, containerLabel, containerNoun, containerTypes, isGlass, type ContainerType } from "./sample-container";
 import { buildDemoJobs, demoClient, demoLogin, demoConfiguration } from "./demo-data";
 import { storeWorkbook } from "./workbook-storage";
+import { teamName } from "./team-name";
+import { planRecords, planRecordCount, planErrors, legacyPlan, newPlanRow, rowSummary, isSeparator, CASED_HOLE, type SamplingPlanRow } from "./sampling-plan";
 import { coordinator, canWork, type TeamWork } from "./team-workflow";
 import { JobWorkflow } from "./job-workflow";
 import { jobProgress, trackChanges, type JobProgress, type StageId, type TrackEvent } from "./job-workflow-model";
@@ -39,7 +41,7 @@ import { SettingsShell, EmployeeSettings, OptionSettings, CompanySettings, defau
 import { BottleSettings } from "./bottle-settings";
 import { bottleStorageKey, validateBottle, type Bottle } from "./bottle-inventory";
 import { Bell, Inbox, BriefcaseBusiness, ChevronRight, FileText, FlaskConical, Gauge, LayoutDashboard, ListChecks, PackageSearch, Plus, Search, Settings, ShieldCheck, TriangleAlert } from "lucide-react";
-import { DateInput, TimeInput, ukDateTime } from "./uk-date";
+import { DateInput, TimeInput, ukDate, ukDateTime } from "./uk-date";
 
 function ReviewData({ value }: { value: Record<string, unknown> }) {
   return <dl className="review-data-grid">{Object.entries(value).filter(([key]) => key !== "dataUrl").map(([key, entry]) => <div key={key}><dt>{key.replace(/([a-z])([A-Z])/g, "$1 $2")}</dt><dd>{entry && typeof entry === "object" ? <ReviewData value={entry as Record<string, unknown>} /> : typeof entry === "boolean" ? (entry ? "Yes" : "No") : String(entry ?? "") || "Not recorded"}</dd></div>)}</dl>;
@@ -99,6 +101,11 @@ type Sample = {
   temperature: string;
   depth: string;
   notes: string;
+  /** Sampling type of this record when a job has several types; missing on older records (they use the job's type). */
+  samplingSource?: string;
+  /** Separator Sampling: phase and set of this cylinder. */
+  phase?: "Oil" | "Gas";
+  set?: number;
 };
 
 type Client = {
@@ -135,8 +142,10 @@ type JobDetails = {
   assignedEngineerId: string;
   assignedDriverId: string;
   requestedSampleCount: string;
+  /** Every sampling type of the job with its quantity; the first row is the primary type that drives preparation. */
+  samplingPlan: SamplingPlanRow[];
   samplingInstructions: string;
-  /** Supporting sampling employees; assignedEngineerId is the accountable lead. */
+  /** Backup / support sampling employees; assignedEngineerId is the accountable lead. */
   samplingTeamIds: string[];
   requiredTests: string[];
   otherTests: string;
@@ -196,6 +205,9 @@ export type JobRecord = {
   clientReference?: string;
   samplingRequired?: boolean;
   samplingSource?: SamplingSource;
+  /** All sampling types of the job (samplingSource is the first, primary one). */
+  samplingSources?: SamplingSource[];
+  samplingPlan?: SamplingPlanRow[];
   holeType?: HoleType;
   scopeOfWorkAttachment?: ScopeAttachment;
   samples?: Sample[];
@@ -267,6 +279,8 @@ type SequenceEvent = {
   description: string;
   createdBy?: string;
   createdAt?: string;
+  /** Recorded by the system (e.g. job created, sent to Sampling), not typed by a person. */
+  auto?: boolean;
 };
 
 type CoordinationTask = {
@@ -349,7 +363,7 @@ const emptyClientForm: ClientForm = { code: "", name: "", shortName: "", country
 const clientStorageKey = "vaps-demo-clients-v1";
 
 const emptyJobDetails = (): JobDetails => ({
-  requestedSampleCount: "3", samplingInstructions: "", samplingTeamIds: [], requiredTests: [], otherTests: "", sampleCountNotes: "",
+  requestedSampleCount: "", samplingPlan: [], samplingInstructions: "", samplingTeamIds: [], requiredTests: [], otherTests: "", sampleCountNotes: "",
   countryCode: "OM", dateReceived: localDate(), fieldArea: "", employee: "", assignedEngineerId: "", assignedDriverId: "", clientFocalPoint: "", clientFocalPointContact: "", clientFocalPointEmail: "", dueDate: "", description: "",
   well: "", wellMode: "single", wells: [""], rigInstallation: "", plannedDepth: "", formation: "", perforationInterval: "", wellheadLocation: "", chokeSize: "", whp: "", wht: "",
   facility: "", separatorId: "", separatorStage: "", samplingPoint: "", separatorPressure: "", separatorTemperature: "", relatedWell: "", locationNotes: "", otherDescription: "", otherSamplingType: "",
@@ -517,7 +531,7 @@ export default function Home() {
   const [selectedJobDetailsId, setSelectedJobDetailsId] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; error?: string; busy?: boolean } | null>(null);
   const [clients, setClients] = useState<Client[]>(defaultClients);
-  const [client, setClient] = useState("P");
+  const [client, setClient] = useState("");
   const [clientModal, setClientModal] = useState<{ mode: "add" | "edit"; originalCode?: string } | null>(null);
   const clientNameInput = useRef<HTMLInputElement>(null);
   useEffect(() => { if (clientModal) clientNameInput.current?.focus(); }, [clientModal]);
@@ -586,9 +600,8 @@ export default function Home() {
         // Saved records live in browser storage, so they are loaded after mount to keep server and client HTML identical.
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setClients(parsed);
-        if (!parsed.some((item) => item.code === client && item.active)) {
-          setClient(parsed.find((item) => item.active)?.code ?? "P");
-        }
+        // No client is pre-selected: the coordinator picks one, and the job ID appears only then.
+        if (client && !parsed.some((item) => item.code === client && item.active)) setClient("");
       }
     } catch {
       setNotice("Saved clients could not be loaded. Existing storage was preserved.");
@@ -604,6 +617,14 @@ export default function Home() {
   const displayJobId = storedJobs.find(item => item.id === createdJobId)?.jobNumber || generatedJobId;
   const samplingTypeLabel = samplingType === "Other" && job.otherSamplingType.trim() ? `Other — ${job.otherSamplingType.trim()}` : samplingType;
   const activeClients = clients.filter((item) => item.active);
+  /** Display name of a sampling type, including the free text for "Other". */
+  const sourceLabel = (source: string) => source === "Other" && job.otherSamplingType.trim() ? `Other — ${job.otherSamplingType.trim()}` : source;
+  /** Adds a system entry (e.g. job created, sent to Sampling) to the Sequence of Events, kept in date and time order. */
+  const withAutoEvent = (list: SequenceEvent[], description: string): SequenceEvent[] => {
+    const at = new Date();
+    const entry: SequenceEvent = { date: localDate(at), time: `${String(at.getHours()).padStart(2, "0")}:${String(at.getMinutes()).padStart(2, "0")}`, description, createdBy: currentEmployee?.id, createdAt: at.toISOString(), auto: true };
+    return [...list, entry].sort((left, right) => `${left.date || ""}T${left.time}`.localeCompare(`${right.date || ""}T${right.time}`));
+  };
   const locationParts = (item: Partial<JobRecord & JobDetails>, source?: SamplingSource | "") => {
     const samplingSource = source || item.samplingSource || "";
     const parts = isCasedHoleSampling(samplingSource)
@@ -781,6 +802,7 @@ export default function Home() {
       : storedSource === "Open Hole (MDT Transfer)" ? "Open Hole (MPSR - Lab Transfer)" : (item.samplingSource || "");
     setSamplingRequired(item.samplingRequired ?? (normalizedSource ? samplingIsRequired(normalizedSource) : null));
     setSamplingType(normalizedSource);
+    setJob((current) => ({ ...current, samplingPlan: legacyPlan({ ...item, samplingSource: normalizedSource || undefined }) }));
     setHoleType(item.holeType || "");
     setScopeAttachment(item.scopeOfWorkAttachment || null);
     const loadedSamples = item.samples || [];
@@ -868,7 +890,7 @@ export default function Home() {
     const responsibleId = job.assignedEngineerId || currentJob?.responsibleId || job.employee || currentEmployee.id;
     const jobFields = {
       jobResponsibleId: job.employee || currentJob?.jobResponsibleId || currentJob?.responsibleId || currentEmployee.id,
-      requestedSampleCount: job.requestedSampleCount, samplingInstructions: job.samplingInstructions, samplingTeamIds: job.samplingTeamIds.filter(id => id && id !== job.assignedEngineerId), requiredTests: job.requiredTests, otherTests: job.otherTests, sampleCountNotes: job.sampleCountNotes,
+      requestedSampleCount: job.samplingPlan.length ? String(planRecordCount(job.samplingPlan)) : job.requestedSampleCount, samplingPlan: job.samplingPlan, samplingSources: job.samplingPlan.map((row) => row.source as SamplingSource), samplingInstructions: job.samplingInstructions, samplingTeamIds: job.samplingTeamIds.filter(id => id && id !== job.assignedEngineerId), requiredTests: job.requiredTests, otherTests: job.otherTests, sampleCountNotes: job.samplingPlan.length ? job.samplingPlan.filter((row) => (row.note || "").trim()).map((row) => `${row.source}: ${row.note!.trim()}`).join(" · ") : job.sampleCountNotes,
       countryCode: job.countryCode, dateReceived: job.dateReceived, description: job.description, assignedEngineerId: job.assignedEngineerId, assignedDriverId: job.assignedDriverId, clientFocalPoint: job.clientFocalPoint, clientFocalPointContact: job.clientFocalPointContact, clientFocalPointEmail: job.clientFocalPointEmail, fieldArea: job.fieldArea, well: job.well, wellMode: job.wellMode, wells: job.wells, rigInstallation: job.rigInstallation,
       plannedDepth: job.plannedDepth, formation: job.formation, perforationInterval: job.perforationInterval, wellheadLocation: job.wellheadLocation,
       chokeSize: job.chokeSize, whp: job.whp, wht: job.wht, facility: job.facility, separatorId: job.separatorId, separatorStage: job.separatorStage,
@@ -937,6 +959,7 @@ export default function Home() {
     setWorkspaceView("new-job");
     setStage("job");
     setCreatedJobId("");
+    setClient("");
     setSamplingRequired(null);
     setSamplingType("");
     setHoleType("");
@@ -1401,6 +1424,25 @@ export default function Home() {
     updateCurrentJob("Sampling Preparation", "Complete pre-job coordination", { "Sampling Preparation": "In Progress" }, completed && task ? `completed pre-job task: ${task.label}` : undefined, { coordinationTasks: nextTasks, coordinationDetails, events: nextEvents });
   }
 
+  /** Job Setup: ticks or unticks a sampling type. The first type in the plan is the primary one used for preparation. */
+  function toggleSamplingType(type: SamplingSource) {
+    const plan = job.samplingPlan.some((row) => row.source === type) ? job.samplingPlan.filter((row) => row.source !== type) : [...job.samplingPlan, newPlanRow(type)];
+    setJob((current) => ({ ...current, samplingPlan: plan }));
+    setDispatchReview(false); setJobErrors([]);
+    const primary = plan[0]?.source as SamplingSource | undefined;
+    if (primary) { if (primary !== samplingType) selectSamplingType(primary); }
+    else { setSamplingType(""); setSamplingRequired(null); setCoordinationTasks([]); setSamples([]); }
+  }
+  function updatePlanRow(source: string, patch: Partial<SamplingPlanRow>) {
+    setDispatchReview(false); setJobErrors([]);
+    setJob((current) => ({ ...current, samplingPlan: current.samplingPlan.map((row) => {
+      if (row.source !== source) return row;
+      const next = { ...row, ...patch };
+      // Changing the number of sets keeps oil and gas in step unless they were changed on purpose.
+      if (isSeparator(row) && patch.count !== undefined) { if (row.oil === row.count) next.oil = patch.count; if (row.gas === row.count) next.gas = patch.count; }
+      return next;
+    }) }));
+  }
   function selectSamplingType(type: SamplingSource) {
     setSamplingType(type);
     setCoordinationTasks((current) => createCoordinationTasks(type, current));
@@ -1500,15 +1542,15 @@ export default function Home() {
     if (job.wellMode === "single" && namedWells.length !== 1) errors.push("Enter the well name.");
     if (job.wellMode === "multiple" && (namedWells.length < 2 || namedWells.length !== job.wells.length)) errors.push("Enter at least two well names and complete every well field.");
     if (!job.description.trim()) errors.push("Enter the job / request description.");
-    if (!samplingType) errors.push("Sampling Type is required.");
-    if (samplingType && !isMpsrLabTransfer(samplingType) && samplingType !== "Other") {
+    const plan = job.samplingPlan;
+    // Jobs sent before several sampling types existed keep their single type and count.
+    if (!plan.length && !(currentJob && !isDraft(currentJob) && samplingType)) errors.push("Select at least one sampling type.");
+    if (plan.some((row) => !isMpsrLabTransfer(row.source as SamplingSource) && row.source !== "Other")) {
       if (!job.clientFocalPoint.trim()) errors.push("Enter the Client Focal Point.");
       if (!job.clientFocalPointContact.trim()) errors.push("Enter the Focal Point Contact Number.");
     }
-    if (samplingType === "Other" && !job.otherSamplingType.trim()) errors.push("Specify the other sampling type.");
-    const requestedCount = Number(job.requestedSampleCount);
-    if (!Number.isInteger(requestedCount) || requestedCount < 1 || requestedCount > 20) errors.push("Enter a whole sample count from 1 to 20.");
-    if (isCasedHoleSampling(samplingType) && requestedCount < 3 && !job.sampleCountNotes.trim()) errors.push("Add a note explaining the request for fewer than 3 cased-hole samples.");
+    if (plan.some((row) => row.source === "Other") && !job.otherSamplingType.trim()) errors.push("Specify the other sampling type.");
+    if (plan.length) errors.push(...planErrors(plan, sourceLabel));
     // Jobs sent before instructions existed stay editable without them.
     if (sending && !job.samplingInstructions.trim()) errors.push("Write the sampling instructions for the sampling team.");
     if (!job.assignedEngineerId) errors.push("Assign the accountable sampling employee.");
@@ -1526,9 +1568,11 @@ export default function Home() {
     if (!currentJob && !selectedClient?.active) { setJobErrors(["Select an active client before saving a draft; it forms part of the job ID."]); return; }
     setJobErrors([]); setDispatchReview(false);
     const reservedId = currentJob?.id || jobId;
+    const draftEvents = currentJob ? events : withAutoEvent(events, `Job ${displayJobId} created as a draft by ${employeeName(currentEmployee.id)}`);
     try {
-      updateCurrentJob("Job Setup", "Complete the draft and send it to Sampling", {}, `${currentJob ? "Saved" : "Created"} draft ${displayJobId}`, { ...(currentJob ? {} : { id: reservedId, jobNumber: displayJobId, globalSequence: nextSequence }), status: "Draft" });
+      if (!updateCurrentJob("Job Setup", "Complete the draft and send it to Sampling", {}, `${currentJob ? "Saved" : "Created"} draft ${displayJobId}`, { ...(currentJob ? {} : { id: reservedId, jobNumber: displayJobId, globalSequence: nextSequence, events: draftEvents }), status: "Draft" })) return;
     } catch (error) { setJobErrors([(error as Error).message]); return; }
+    if (!currentJob) setEvents(draftEvents);
     if (!currentJob) { window.localStorage.setItem(globalCounterStorageKey, String(nextSequence)); setGlobalCounter(nextSequence); setCreatedJobId(reservedId); }
     setNotice(`Draft ${displayJobId} saved on this device. It has not been sent to Sampling.`);
   }
@@ -1553,25 +1597,31 @@ export default function Home() {
     }
     const reservedJobId = currentJob?.id || jobId;
     const reservedSequence = currentJob?.globalSequence || nextSequence;
-    const requestedCount = Number(job.requestedSampleCount);
-    const requiresSampling = samplingIsRequired(samplingType);
-    const sampleNature = isCasedHoleSampling(samplingType) ? "BHS" : isSpmcFieldSampling(samplingType) ? "SPMC" : isMpsrLabTransfer(samplingType) ? "MPSR" : samplingType === "Wellhead Sampling" ? "WHS" : samplingType === "Separator Sampling" ? "SEP" : samplingType === "Station Sampling" ? "STN" : "";
-    const plannedSamples = Array.from({ length: requestedCount }, (_, index) => ({
-      ...(samples[index] || emptySamples()[0]), id: `1.${String(index + 1).padStart(2, "0")}`,
-      sampler: isSpmcFieldSampling(samplingType) ? "SPMC" : isCasedHoleSampling(samplingType) ? "SPS" : "",
-      fieldData: { ...(samples[index]?.fieldData || defaultFieldData()), sampleNature },
-    }));
+    const requiresSampling = job.samplingPlan.some((row) => samplingIsRequired(row.source as SamplingSource));
+    const natureOf = (source: SamplingSource) => isCasedHoleSampling(source) ? "BHS" : isSpmcFieldSampling(source) ? "SPMC" : isMpsrLabTransfer(source) ? "MPSR" : source === "Wellhead Sampling" ? "WHS" : source === "Separator Sampling" ? "SEP" : source === "Station Sampling" ? "STN" : "";
+    // One record per sample (per cylinder for Separator Sampling), numbered in one running sequence across all types.
+    const plannedSamples: Sample[] = planRecords(job.samplingPlan).map((record, index) => {
+      const source = record.source as SamplingSource;
+      return {
+        ...(samples[index] || emptySamples()[0]), id: record.id, samplingSource: source, phase: record.phase, set: record.set,
+        sampler: isSpmcFieldSampling(source) ? "SPMC" : isCasedHoleSampling(source) ? "SPS" : "",
+        fieldData: { ...(samples[index]?.fieldData || defaultFieldData()), sampleNature: natureOf(source) },
+      };
+    });
+    const crew = [`Accountable: ${employeeName(job.assignedEngineerId)}`, ...job.samplingTeamIds.filter((id) => id !== job.assignedEngineerId).map((id) => `Backup: ${employeeName(id)}`), `Driver: ${employeeName(job.assignedDriverId)}`].join(" · ");
+    const sentEvents = withAutoEvent(events, `Sent to Sampling by ${employeeName(currentEmployee!.id)} · ${job.samplingPlan.map((row) => `${sourceLabel(row.source)} (${rowSummary(row)})`).join(", ")} · ${crew}`);
     const nextAction = requiresSampling ? "Complete sampling preparation" : "Complete pre-job coordination";
     try {
-      updateCurrentJob("Sampling Preparation", nextAction, { "Job Setup": "Completed", "Sampling Preparation": "In Progress" }, `Sent job ${displayJobId} to Sampling`, { id: reservedJobId, jobNumber: displayJobId, globalSequence: reservedSequence, samplingRequired: requiresSampling, samplingSource: samplingType as SamplingSource, holeType: "", scopeOfWorkAttachment: scopeAttachment || undefined, samples: plannedSamples, coordinationTasks: createCoordinationTasks(samplingType, coordinationTasks), coordinationDetails, status: "Job Created" }, true);
+      updateCurrentJob("Sampling Preparation", nextAction, { "Job Setup": "Completed", "Sampling Preparation": "In Progress" }, `Sent job ${displayJobId} to Sampling`, { id: reservedJobId, jobNumber: displayJobId, globalSequence: reservedSequence, samplingRequired: requiresSampling, samplingSource: samplingType as SamplingSource, holeType: "", scopeOfWorkAttachment: scopeAttachment || undefined, samples: plannedSamples, events: sentEvents, coordinationTasks: createCoordinationTasks(samplingType, coordinationTasks), coordinationDetails, status: "Job Created" }, true);
     } catch (error) { setJobErrors([(error as Error).message]); setDispatchReview(false); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
     setSamplingRequired(requiresSampling);
     setSamples(plannedSamples);
+    setEvents(sentEvents);
     setExpanded("1.01");
     if (!currentJob) { window.localStorage.setItem(globalCounterStorageKey, String(reservedSequence)); setGlobalCounter(reservedSequence); }
     setDispatchReview(false);
     const team = [job.assignedEngineerId, ...job.samplingTeamIds.filter(id => id !== job.assignedEngineerId)];
-    setNotice(`Job ${displayJobId} sent to Sampling. Received by ${team.map((id, index) => employeeName(id) + (index === 0 ? " (accountable)" : "")).join(", ")}; driver ${employeeName(job.assignedDriverId)}. New stage: Sampling · Next action: ${nextAction}. No email was sent.`);
+    setNotice(`Job ${displayJobId} sent to Sampling. Received by ${team.map((id, index) => employeeName(id) + (index === 0 ? " (accountable)" : " (backup)")).join(", ")}; driver ${employeeName(job.assignedDriverId)}. New stage: Sampling · Next action: ${nextAction}. The laboratory has a heads-up. No email was sent.`);
     // Leave the editor first so its URL sync cannot pull the view back to the sampling form.
     setCreatedJobId("");
     setWorkflowJobId(reservedJobId);
@@ -1673,7 +1723,7 @@ export default function Home() {
     if (!hasPermission("settings") || !window.confirm(`${item.active?"Deactivate":"Reactivate"} ${item.shortName}? Existing jobs and job numbers will be preserved.`)) return;
     const next = clients.map((current) => current.code === item.code ? { ...current, active: !current.active } : current);
     try { persistClients(next); } catch { setNotice("Could not save client status. Please retry."); return; }
-    if (item.active && client === item.code) setClient(next.find((current) => current.active)?.code ?? "P");
+    if (item.active && client === item.code) setClient("");
   }
 
   function renderSequenceEventsPanel() {
@@ -1755,7 +1805,7 @@ export default function Home() {
         </div>
       </aside>
 
-      {(() => { const position = directory.positions.find((p) => p.id === currentEmployee.positionId)?.name || currentEmployee.role; const department = directory.departments.find((d) => d.id === currentEmployee.departmentId)?.name; const teamsOf = (["PVT", "Chemical"] as const).filter((t) => labTeams[t]?.includes(currentEmployee.id)).map((t) => t + " team"); const duties = (Object.keys(responsibilityLabels) as (keyof typeof responsibilityLabels)[]).filter((k) => roleHolder(responsibilities, k, demoEmployees) === currentEmployee.id).map((k) => responsibilityLabels[k]); const positionOf = (p: Employee) => directory.positions.find((o) => o.id === p.positionId)?.name || p.role; return <div className="identity-bar" role="region" aria-label="Current employee">
+      {(() => { const position = directory.positions.find((p) => p.id === currentEmployee.positionId)?.name || currentEmployee.role; const department = directory.departments.find((d) => d.id === currentEmployee.departmentId)?.name; const teamsOf = (["PVT", "Chemical"] as const).filter((t) => labTeams[t]?.includes(currentEmployee.id)).map((t) => teamName(t) + " team"); const duties = (Object.keys(responsibilityLabels) as (keyof typeof responsibilityLabels)[]).filter((k) => roleHolder(responsibilities, k, demoEmployees) === currentEmployee.id).map((k) => responsibilityLabels[k]); const positionOf = (p: Employee) => directory.positions.find((o) => o.id === p.positionId)?.name || p.role; return <div className="identity-bar" role="region" aria-label="Current employee">
         <div className="identity-who"><span className="avatar" aria-hidden="true">{currentEmployee.initials}</span><div><small>Viewing as</small><strong>{currentEmployee.name}</strong><span>{[position, department && department !== position ? department : "", ...teamsOf].filter(Boolean).join(" · ")}</span></div></div>
         <div className="identity-duties" aria-label="Configured duties">{duties.length ? duties.map((d) => <span key={d} className="duty-chip">{d}</span>) : <span className="duty-none">No configured duties · assigned work only</span>}</div>
         <div className="identity-switch"><label>Demo: view as employee<select aria-label="Demo: view as employee" value={currentEmployee.id} onChange={e=>{if(window.confirmSettingsLeave&&!window.confirmSettingsLeave())return;const person=demoEmployees.find(p=>p.id===e.target.value&&p.active);if(person){setCurrentEmployee(person);sessionStorage.setItem(sessionStorageKey,person.id);setWorkspaceView('my-work');}}}>{demoEmployees.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.name} · {positionOf(p)}</option>)}</select></label><small>Only changes whose view you see. Work is assigned inside a job.</small></div>
@@ -2007,12 +2057,14 @@ export default function Home() {
             const approver = roleHolder(responsibilities, "samplingApproval", demoEmployees);
             const team = [job.assignedEngineerId, ...job.samplingTeamIds.filter((id) => id !== job.assignedEngineerId)].filter(Boolean);
             const toggleMember = (id: string, on: boolean) => { setJob((current) => ({ ...current, samplingTeamIds: on ? [...current.samplingTeamIds.filter((x) => x !== id), id] : current.samplingTeamIds.filter((x) => x !== id) })); setDispatchReview(false); setJobErrors([]); };
-            const memberBox = (e: Employee) => <label key={e.id} className="ops-check"><input type="checkbox" checked={job.samplingTeamIds.includes(e.id)} onChange={(event) => toggleMember(e.id, event.target.checked)} />{personLabel(e)}</label>;
+            const memberBox = (e: Employee) => <label key={e.id} className={"ops-check" + (job.samplingTeamIds.includes(e.id) ? " is-backup" : "")}><input type="checkbox" checked={job.samplingTeamIds.includes(e.id)} onChange={(event) => toggleMember(e.id, event.target.checked)} />{personLabel(e)}{job.samplingTeamIds.includes(e.id) && <span className="crew-role">Backup</span>}</label>;
             return <form onSubmit={submitJob} className="job-create-form">
               <section className="panel client-panel">
-                <div className="panel-heading"><span className="section-number">01</span><div><h2>Client &amp; location</h2><p>Choose the client, their focal point, and where the sampling takes place.</p></div><span className="required-chip">CLIENT *</span></div>
-                <div className="client-grid">
-                  {activeClients.map((item) => <button type="button" key={item.code} disabled={!!currentJob} className={client === item.code ? "client-option selected" : "client-option"} aria-pressed={client === item.code} onClick={() => { setClient(item.code); if (!currentJob) setCreatedJobId(""); }}><ClientLogo client={item} /><strong>{item.shortName}</strong><small>{item.name !== item.shortName ? item.name : item.country}</small><span className="client-code">Code {item.code}</span><i aria-hidden="true">✓</i></button>)}
+                <div className="panel-heading job-details-heading"><span className="section-number">01</span><div><h2>Job details</h2><p>Client, location, job dates and what the client has requested.</p></div>
+                  <div className={"job-id-badge" + (client ? "" : " empty")} aria-live="polite"><small>JOB ID</small><strong>{client ? displayJobId : "Select a client"}</strong><span>{currentJob ? "Reserved" : client ? "Reserved when you save or send" : "Appears when you pick a client"}</span></div>
+                </div>
+                <div className="client-grid" role="group" aria-label="Client *">
+                  {activeClients.map((item) => <button type="button" key={item.code} disabled={!!currentJob} className={client === item.code ? "client-option selected" : "client-option"} aria-pressed={client === item.code} onClick={() => { setClient(item.code); if (!currentJob) setCreatedJobId(""); setJobErrors([]); setDispatchReview(false); }}><ClientLogo client={item} /><strong>{item.shortName}</strong><small>{item.name !== item.shortName ? item.name : item.country}</small><span className="client-code">Code {item.code}</span><i aria-hidden="true">✓</i></button>)}
                   {!currentJob && <button type="button" className="client-option add-client-card" onClick={openAddClient}><span>+</span><strong>Add New Client</strong><small>Create a local client record</small></button>}
                 </div>
                 <div className="form-grid">
@@ -2026,47 +2078,66 @@ export default function Home() {
                     <div className="well-mode-toggle" role="group" aria-label="Choose single or multiple wells"><button type="button" className={job.wellMode === "single" ? "selected" : ""} onClick={() => selectWellMode("single")}>Single Well</button><button type="button" className={job.wellMode === "multiple" ? "selected" : ""} onClick={() => selectWellMode("multiple")}>Multiple Wells</button></div>
                     {job.wellMode === "single" ? <input required value={job.wells[0] || ""} onChange={(event) => updateWell(0, event.target.value)} placeholder="e.g. LKW-501" /> : <div className="multiple-well-list">{job.wells.map((well, index) => <div className="multiple-well-row" key={index}><span>{index + 1}</span><input required value={well} onChange={(event) => updateWell(index, event.target.value)} placeholder={`Well ${index + 1} name`} />{job.wells.length > 2 && <button type="button" onClick={() => removeWell(index)} aria-label={`Remove well ${index + 1}`}>Remove</button>}</div>)}<button type="button" className="add-well-button" onClick={addWell}>+ Add another well</button></div>}
                   </div>
-                </div>
-              </section>
-
-              <section className="panel">
-                <div className="panel-heading"><span className="section-number">02</span><div><h2>Job ID &amp; dates</h2><p>The job ID follows the existing numbering rule (country · client code · year · global sequence) and is reserved when the job is first saved.</p></div></div>
-                <div className="form-grid">
-                  <p className="job-number-note">{currentJob ? "Job number reserved." : "The job number shown above is reserved when you save or send."}</p>
-                  <label><span>Job Date *</span><DateInput required value={job.dateReceived} onChange={(e) => updateJob("dateReceived", e.target.value)} /></label>
-                  <label><span>Due Date</span><DateInput value={job.dueDate} onBlur={e=>{if(e.currentTarget.value!==job.dueDate)updateJob("dueDate",e.currentTarget.value);}} onChange={(e) => updateJob("dueDate", e.target.value)} /></label>
+                  <label><span>Job Date *</span><DateInput required value={job.dateReceived} onChange={(e) => updateJob("dateReceived", e.target.value)} /><small>When the job starts (request received).</small></label>
+                  <label><span>Due Date</span><DateInput value={job.dueDate} min={job.dateReceived || undefined} onChange={(e) => updateJob("dueDate", e.target.value)} /><small>When the job must be finished.</small></label>
+                  <label className="full-field"><span>Job / request description *</span><textarea rows={3} maxLength={500} value={job.description} onChange={(e) => updateJob("description", e.target.value)} placeholder="e.g. PVT study on separator oil and gas samples from TEST-01. Sampling report and final PVT report required." /><small className="field-help">What the client has asked for and the expected deliverables. Everyone working on the job sees this. <span>{job.description.length} / 500</span></small></label>
                 </div>
               </section>
 
               <section className="panel job-sampling-panel">
-                <div className="panel-heading"><span className="section-number">03</span><div><h2>Sampling type &amp; sampling scope</h2><p>What the sampling team must collect. Laboratory tests are selected per sample after the sampling report is approved.</p></div><span className="required-chip">REQUIRED</span></div>
-                <div className="prep-type-grid compact-job-types">
-                  {samplingSources.map((type) => <button key={type} type="button" disabled={!editingDraft} className={`prep-type-card functional ${samplingType === type ? "selected" : ""}`} onClick={() => selectSamplingType(type)}><div><strong>{type}</strong><small>{samplingType === type ? (samplingIsRequired(type) ? "SAMPLING REQUIRED" : "NO FIELD SAMPLING") : "SELECT TYPE"}</small></div><i>{samplingType === type ? "✓" : ""}</i></button>)}
+                <div className="panel-heading"><span className="section-number">02</span><div><h2>Sampling type &amp; sampling scope</h2><p>What the sampling team must collect. Select one or more types; each gets its own quantity. Laboratory tests are selected per sample after the sampling report is approved.</p></div><span className="required-chip">REQUIRED</span></div>
+                <div className="prep-type-grid compact-job-types" role="group" aria-label="Sampling types">
+                  {samplingSources.map((type) => { const on = job.samplingPlan.some((row) => row.source === type); return <button key={type} type="button" disabled={!editingDraft} aria-pressed={on} className={`prep-type-card functional ${on ? "selected" : ""}`} onClick={() => toggleSamplingType(type)}><div><strong>{type}</strong><small>{on ? (samplingIsRequired(type) ? "SELECTED · SAMPLING REQUIRED" : "SELECTED · NO FIELD SAMPLING") : "SELECT TYPE"}</small></div><i>{on ? "✓" : ""}</i></button>; })}
                 </div>
-                {samplingType === "Other" && <label className="other-sampling-type-field"><span>Specify Other Type *</span><input value={job.otherSamplingType} onChange={(event) => updateJob("otherSamplingType", event.target.value)} placeholder="Enter the job or transfer type" /></label>}
-                <div className="form-grid scope-plan-fields"><label><span>Number of Samples Required *</span><input type="number" min="1" max="20" step="1" required disabled={!editingDraft} value={job.requestedSampleCount} onChange={(event) => updateJob("requestedSampleCount", event.target.value)} /><small>Creates one record per sample (1.01, 1.02 …) when sent.</small></label><label className="full-field"><span>Sample Quantity Notes</span><input value={job.sampleCountNotes} onChange={(event) => updateJob("sampleCountNotes", event.target.value)} placeholder="Quantity requirements or reason for fewer than 3 cased-hole samples" /></label></div>
+                {job.samplingPlan.some((row) => row.source === "Other") && <label className="other-sampling-type-field"><span>Specify Other Type *</span><input value={job.otherSamplingType} onChange={(event) => updateJob("otherSamplingType", event.target.value)} placeholder="Enter the job or transfer type" /></label>}
+                {job.samplingPlan.length > 0 ? <div className="sampling-plan">
+                  {job.samplingPlan.map((row, index) => <div className="sampling-plan-row" key={row.source}>
+                    <div className="sampling-plan-head"><strong>{sourceLabel(row.source)}</strong>{index === 0 && job.samplingPlan.length > 1 && <span className="plan-tag" title="Sampling preparation follows this type first">Primary</span>}<span className="plan-summary">{rowSummary(row)}</span></div>
+                    <div className="sampling-plan-fields">
+                      {isSeparator(row) ? <>
+                        <label><span>Number of sets *</span><input type="number" min="1" max="20" step="1" disabled={!editingDraft} value={row.count} onChange={(event) => updatePlanRow(row.source, { count: event.target.value })} /><small>1 set = 1 oil + 1 gas cylinder</small></label>
+                        <label><span>Oil cylinders *</span><input type="number" min="0" max="40" step="1" disabled={!editingDraft} value={row.oil ?? ""} onChange={(event) => updatePlanRow(row.source, { oil: event.target.value })} /><small>Defaults to the number of sets</small></label>
+                        <label><span>Gas cylinders *</span><input type="number" min="0" max="40" step="1" disabled={!editingDraft} value={row.gas ?? ""} onChange={(event) => updatePlanRow(row.source, { gas: event.target.value })} /><small>Defaults to the number of sets</small></label>
+                      </> : <label><span>Number of samples *</span><input type="number" min="1" max="20" step="1" disabled={!editingDraft} value={row.count} onChange={(event) => updatePlanRow(row.source, { count: event.target.value })} /><small>{row.source === CASED_HOLE ? "Cased hole: at least 3 unless a note explains why" : "One record per sample"}</small></label>}
+                      <label className="plan-note"><span>Quantity notes{row.source === CASED_HOLE && Number(row.count) < 3 ? " *" : ""}</span><input disabled={!editingDraft} value={row.note || ""} onChange={(event) => updatePlanRow(row.source, { note: event.target.value })} placeholder={row.source === CASED_HOLE ? "Reason for fewer than 3 cased-hole samples, or other quantity requirements" : "Optional quantity requirements"} /></label>
+                    </div>
+                  </div>)}
+                  {(() => { const records = planRecords(job.samplingPlan); return records.length > 0 && <div className="sampling-plan-records"><p><strong>{records.length} sample record{records.length === 1 ? "" : "s"}</strong> will be created when sent, numbered in one sequence across all types:</p><ul>{records.map((record) => <li key={record.id}><b>{record.id}</b> {[job.samplingPlan.length > 1 ? sourceLabel(record.source).replace(/ \(.*\)$/, "") : "", record.set ? `Set ${record.set}` : "", record.phase].filter(Boolean).join(" · ") || sourceLabel(record.source).replace(/ \(.*\)$/, "")}</li>)}</ul></div>; })()}
+                </div> : <p className="sampling-plan-empty">Select at least one sampling type above.</p>}
                 <label className="scope-upload"><input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp" onChange={(event) => attachScopeOfWork(event.target.files?.[0])} /><span>{scopeAttachment ? "Replace file" : "Attach client request / scope document (optional)"}</span><small>PDF, Word, Excel, or image · You can continue without a file.</small></label>
                 {scopeAttachment && <div className="attachment-record"><div><strong>{scopeAttachment.name}</strong><small>{Math.max(1, Math.round(scopeAttachment.size / 1024))} KB · Stored in local demo data</small></div><a href={scopeAttachment.dataUrl} download={scopeAttachment.name}>Open / download</a><button type="button" onClick={() => setScopeAttachment(null)}>Remove</button></div>}
                 {job.requiredTests.length > 0 && <div className="reference-note"><strong>Initial laboratory request (reference only)</strong><p>{job.requiredTests.map((test) => test === "Other" ? job.otherTests.trim() || "Other" : test).join(" · ")}</p><small>Recorded when the job was created. It is not the approved laboratory scope, which is released per sample after sampling approval.</small></div>}
               </section>
 
-              <section className="panel ops-panel">
-                <div className="panel-heading"><span className="section-number">04</span><div><h2>Sampling assignment</h2><p>Only the people named here receive the job. Nobody is assigned automatically.</p></div><span className="required-chip">REQUIRED TO SEND</span></div>
+              <section className="panel ops-panel instructions-panel">
+                <div className="panel-heading"><span className="section-number">03</span><div><h2>Sampling assignment &amp; instructions</h2><p>Only the people named here receive the job. Nobody is assigned automatically.</p></div><span className="required-chip">REQUIRED TO SEND</span></div>
                 <div className="form-grid">
                   <label><span>Accountable sampling employee *</span><select value={job.assignedEngineerId} onChange={e=>{const id=e.target.value;setJob(current=>({...current,assignedEngineerId:id,samplingTeamIds:current.samplingTeamIds.filter(x=>x!==id)}));setDispatchReview(false);setJobErrors([]);}}><option value="">Select employee</option><optgroup label="Sampling team">{samplingCandidates.filter(samplingDepartment).map(e=><option key={e.id} value={e.id}>{personLabel(e)}{e.id===currentEmployee?.id?" (you)":""}</option>)}</optgroup><optgroup label="All other employees">{samplingCandidates.filter(e=>!samplingDepartment(e)).map(e=><option key={e.id} value={e.id}>{personLabel(e)}{e.id===currentEmployee?.id?" (you)":""}</option>)}</optgroup></select><small>Owns the sampling work and its report.</small><OverlapNotice jobs={jobs} employees={demoEmployees} employeeId={job.assignedEngineerId} start={job.dateReceived} end={job.dueDate} exclude={["sampling:"+(currentJob?.id||""),"driver:"+(currentJob?.id||"")]} jobDates /></label>
                   <label><span>Driver *</span><select value={job.assignedDriverId} onChange={e=>{updateJob("assignedDriverId",e.target.value);setDispatchReview(false);}}><option value="">Select driver</option><optgroup label="Drivers">{driverCandidates.filter(isDriver).map(e=><option key={e.id} value={e.id}>{personLabel(e)}</option>)}</optgroup><optgroup label="All other employees">{driverCandidates.filter(e=>!isDriver(e)).map(e=><option key={e.id} value={e.id}>{personLabel(e)}{e.id===currentEmployee?.id?" (you)":""}</option>)}</optgroup></select><small>Transports the samples after sampling-report approval.</small><OverlapNotice jobs={jobs} employees={demoEmployees} employeeId={job.assignedDriverId} start={job.dateReceived} end={job.dueDate} exclude={["sampling:"+(currentJob?.id||""),"driver:"+(currentJob?.id||"")]} jobDates /></label>
-                  <fieldset className="full-field team-members"><legend>Supporting sampling employees (optional)</legend>{samplingCandidates.filter(e=>samplingDepartment(e)&&e.id!==job.assignedEngineerId).map(memberBox)}{samplingCandidates.some(e=>!samplingDepartment(e)&&e.id!==job.assignedEngineerId)&&<details><summary>All other employees</summary>{samplingCandidates.filter(e=>!samplingDepartment(e)&&e.id!==job.assignedEngineerId).map(memberBox)}</details>}<small>Supporting employees see the job, its instructions and the sampling data. The accountable employee remains the single owner.</small>{job.samplingTeamIds.filter(id=>id!==job.assignedEngineerId).map(id=><OverlapNotice key={id} jobs={jobs} employees={demoEmployees} employeeId={id} start={job.dateReceived} end={job.dueDate} exclude={["sampling:"+(currentJob?.id||""),"driver:"+(currentJob?.id||"")]} jobDates />)}</fieldset>
+                  <fieldset className="full-field team-members"><legend>Backup / support sampling employees (optional)</legend>
+                    {job.assignedEngineerId && <p className="crew-accountable"><span className="crew-role accountable">Accountable</span>{employeeName(job.assignedEngineerId)} <small>chosen above</small></p>}
+                    {samplingCandidates.filter(e=>samplingDepartment(e)&&e.id!==job.assignedEngineerId).map(memberBox)}{samplingCandidates.some(e=>!samplingDepartment(e)&&e.id!==job.assignedEngineerId)&&<details><summary>All other employees</summary>{samplingCandidates.filter(e=>!samplingDepartment(e)&&e.id!==job.assignedEngineerId).map(memberBox)}</details>}
+                    <small className="field-help">Backup employees see the job, its instructions and the sampling data, and can support or take over in the field. The accountable employee stays the single owner.</small>{job.samplingTeamIds.filter(id=>id!==job.assignedEngineerId).map(id=><OverlapNotice key={id} jobs={jobs} employees={demoEmployees} employeeId={id} start={job.dateReceived} end={job.dueDate} exclude={["sampling:"+(currentJob?.id||""),"driver:"+(currentJob?.id||"")]} jobDates />)}</fieldset>
                 </div>
-                <p className="assignment-summary"><strong>Receives this job:</strong> {team.length ? team.map((id, index) => employeeName(id) + (index === 0 ? " (accountable)" : "")).join(", ") : "Nobody assigned yet"}{job.assignedDriverId ? ` · Driver: ${employeeName(job.assignedDriverId)}` : ""}</p>
+                <div className="assignment-summary"><strong>Receives this job:</strong> {team.length || job.assignedDriverId ? <span className="crew-list">{team.map((id, index) => <span key={id} className="crew-person">{employeeName(id)} <span className={"crew-role" + (index === 0 ? " accountable" : "")}>{index === 0 ? "Accountable" : "Backup"}</span></span>)}{job.assignedDriverId && <span className="crew-person">{employeeName(job.assignedDriverId)} <span className="crew-role driver">Driver</span></span>}</span> : "Nobody assigned yet"}</div>
+                <label className="full-field instructions-field"><span>Sampling instructions *</span><textarea rows={5} value={job.samplingInstructions} onChange={(e) => updateJob("samplingInstructions", e.target.value)} placeholder="e.g. Confirm the separator sampling point with the client focal point before rig-up. Sample at stable separator conditions and record separator pressure and temperature. Report any H₂S readings immediately." /><small className="field-help">How the field team must carry out the sampling: site and sampling point, conditions to confirm, safety notes. Only the assigned crew see this.</small></label>
               </section>
 
-              <section className="panel instructions-panel">
-                <div className="panel-heading"><span className="section-number">05</span><div><h2>Sampling instructions</h2><p>Explain the specific requirements and important notes for this job. The assigned sampling employees see this text with the job.</p></div><span className="required-chip">REQUIRED TO SEND</span></div>
-                <label className="full-field instructions-field"><span>Sampling instructions *</span><textarea rows={6} value={job.samplingInstructions} onChange={(e) => updateJob("samplingInstructions", e.target.value)} placeholder="e.g. Collect 3 bottomhole samples at the stated depth. Confirm the sampling point with the client focal point before rig-up. Report any H₂S readings immediately." /></label>
-                <label className="full-field"><span>Job / request description *</span><textarea rows={3} value={job.description} onChange={(e) => updateJob("description", e.target.value)} placeholder="Internal request summary and expected deliverables" /><small>{job.description.length} / 500</small></label>
-              </section>
-
-              {dispatchReview && editingDraft && <section className="panel ops-panel send-review" aria-live="polite"><h2>Review before sending to Sampling</h2><dl className="review-grid"><div><dt>Job</dt><dd>{displayJobId} · {clientName}</dd></div><div><dt>Location</dt><dd>{locationSummary(job, samplingType)}</dd></div><div><dt>Sampling</dt><dd>{samplingTypeLabel} · {job.requestedSampleCount} sample{job.requestedSampleCount === "1" ? "" : "s"}</dd></div><div><dt>Due date</dt><dd>{job.dueDate || "Not recorded"}</dd></div><div><dt>Receives the job</dt><dd>{team.map((id, index) => employeeName(id) + (index === 0 ? " (accountable)" : "")).join(", ")}</dd></div><div><dt>Driver</dt><dd>{employeeName(job.assignedDriverId)}</dd></div><div className="full-field"><dt>Sampling instructions</dt><dd className="instructions-text">{job.samplingInstructions}</dd></div><div className="full-field"><dt>Sign-off</dt><dd>No sign-off is recorded at job creation. The sampling report is approved later by {approver ? employeeName(approver) : "the sampling approver (not configured; ask an administrator)"}.</dd></div></dl><p>After sending, the job moves to <strong>Sampling</strong>; next action: {samplingIsRequired(samplingType) ? "complete sampling preparation" : "complete pre-job coordination"}. It appears in the assigned employees’ work lists. No email is sent.</p><Clarification id="initial-scope"/></section>}
+              {dispatchReview && editingDraft && <section className="panel ops-panel send-review" aria-live="polite"><h2>Review before sending to Sampling</h2><dl className="review-grid">
+                <div><dt>Job ID</dt><dd><strong>{displayJobId}</strong> · {clientName}</dd></div>
+                <div><dt>Job date → due date</dt><dd>{ukDate(job.dateReceived) || "Not recorded"} → {ukDate(job.dueDate) || "Not recorded"}</dd></div>
+                <div><dt>Location</dt><dd>{[job.countryCode, job.fieldArea, job.wells.filter(Boolean).join(", ")].filter(Boolean).join(" · ")}</dd></div>
+                <div><dt>Client focal point</dt><dd>{[job.clientFocalPoint, job.clientFocalPointContact, job.clientFocalPointEmail].filter(Boolean).join(" · ") || "Not recorded"}</dd></div>
+                <div className="full-field"><dt>Job / request description</dt><dd className="instructions-text">{job.description}</dd></div>
+                <div className="full-field"><dt>Sampling scope</dt><dd><ul className="review-plan">{job.samplingPlan.map((row) => <li key={row.source}><strong>{sourceLabel(row.source)}</strong> · {rowSummary(row)}{row.note ? ` · ${row.note}` : ""}</li>)}</ul><small>{planRecordCount(job.samplingPlan)} sample records: {planRecords(job.samplingPlan).map((record) => record.id).join(", ")}</small>{scopeAttachment && <small> · Attached: {scopeAttachment.name}</small>}</dd></div>
+                <div><dt>Accountable</dt><dd>{employeeName(job.assignedEngineerId)}</dd></div>
+                <div><dt>Backup / support</dt><dd>{job.samplingTeamIds.filter((id) => id !== job.assignedEngineerId).map(employeeName).join(", ") || "None"}</dd></div>
+                <div><dt>Driver</dt><dd>{employeeName(job.assignedDriverId)}</dd></div>
+                <div className="full-field"><dt>Sampling instructions</dt><dd className="instructions-text">{job.samplingInstructions}</dd></div>
+                <div className="full-field"><dt>Sign-off</dt><dd>No sign-off is recorded at job creation. The sampling report is approved later by {approver ? employeeName(approver) : "the sampling approver (not configured; ask an administrator)"}.</dd></div></dl>
+                <p>After sending, the job moves to <strong>Sampling</strong>; next action: {samplingIsRequired(samplingType) ? "complete sampling preparation" : "complete pre-job coordination"}.</p>
+                <ul className="send-notify"><li><strong>{employeeName(job.assignedEngineerId)}</strong> receives the job as a task in My work.</li>{job.samplingTeamIds.filter((id) => id !== job.assignedEngineerId).length > 0 && <li><strong>{job.samplingTeamIds.filter((id) => id !== job.assignedEngineerId).map(employeeName).join(", ")}</strong> {job.samplingTeamIds.filter((id) => id !== job.assignedEngineerId).length === 1 ? "is" : "are"} told as backup.</li>}<li><strong>{employeeName(job.assignedDriverId)}</strong> sees the transport as coming up.</li><li>The laboratory (scope selection, sample receipt and team leads) gets a heads-up with the general job details. No laboratory scope is set yet.</li><li>The Sequence of Events records the send automatically. No email is sent.</li></ul>
+                <Clarification id="initial-scope"/></section>}
               {jobErrors.length > 0 && <div className="preparation-validation" role="alert"><span>!</span><div><strong>{editingDraft ? "Job cannot be sent yet" : "Job cannot be saved"}</strong><ul>{jobErrors.map((error) => <li key={error}>{error}</li>)}</ul></div></div>}
 
               <div className="form-actions">{editingDraft ? <>{dispatchReview ? <button type="button" className="outline-button" onClick={() => setDispatchReview(false)}>Back to editing</button> : <button type="button" className="outline-button" onClick={saveDraft}>Save Draft</button>}<button type="submit" className="primary-button">{dispatchReview ? "Confirm & send to Sampling" : "Send to Sampling"} <span>→</span></button></> : <button type="submit" className="primary-button">Save job details <span>→</span></button>}</div>

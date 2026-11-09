@@ -34,7 +34,7 @@ test('the dashboard follows the whole journey with one next responsible person a
  assert.deepEqual(acts(j,'SALIM'),['Review sampling data']);
  j=step(j,{type:'data-return',general:'Opening pressure missing for 1.02.',comments:[{target:'sample:1.02:data',label:'Sample 1.02 · sampling data',text:'Record the opening pressure.'}]},'SALIM');
  const r=items(j,'MOHSIN').actions[0];assert.equal(r.kind,'returned');assert.equal(r.action,'Correct sampling data and resubmit');assert.match(r.comment,/opening pressure/i);assert.equal(r.from,'SALIM');assert.deepEqual(r.open,{editor:'bottomhole'});
- assert.match(acts(j,'HUSSEINI')[0],/Help correct returned sampling data \(supporting · Mohsin Al Dhuhli submits\)/);
+ assert.match(acts(j,'HUSSEINI')[0],/Help correct returned sampling data \(backup · Mohsin Al Dhuhli submits\)/);
  j=step(j,{type:'data-submit',note:''},'MOHSIN');j=step(j,{type:'data-approve'},'SALIM');
  assert.deepEqual(acts(j,'MOHSIN'),['Prepare sampling report']);assert.deepEqual(acts(j,'SALIM'),[]);
  j=step(j,{type:'report-draft',kind:'sampling',text:'Summary',checker:''},'MOHSIN');assert.deepEqual(acts(j,'MOHSIN'),['Submit sampling report for approval']);

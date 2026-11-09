@@ -4,6 +4,8 @@ import { containerLabel } from './sample-container';
 import { addDays as addDaysIso } from './local-date';
 import type { Responsibilities } from './authorization';
 import { teamName } from './team-name';
+import { legacyPlan, rowSummary } from './sampling-plan';
+import { ukDate } from './uk-format';
 
 /**
  * Personal dashboard items, derived from the same workflow states the Jobs, Sampling and PVT Lab pages use
@@ -34,8 +36,8 @@ export type BlockedItem = { key: string; setting: Setting; what: string; jobs: s
 export type UpcomingItem = { key: string; jobId: string; jobNumber: string; client: string; area: Area; role: string; what: string; after: string; sample?: string; test?: string; due?: string; dueKind: DueKind; open: { tab: string } };
 /** In-app scope and assignment alerts. Reading one never completes the work behind it. */
 export type Alert = {
-  key: string; kind: 'scope' | 'assignment' | 'moved' | 'external'; jobId: string; jobNumber: string; headline: string;
-  samples: string; scope: string; destination: Stream | 'Both'; by: string; at: string; planner: string; assignee?: string; button: string; open: { tab: string };
+  key: string; kind: 'scope' | 'assignment' | 'moved' | 'external' | 'sampling'; jobId: string; jobNumber: string; headline: string;
+  samples: string; scope: string; /** Not set on a sampling heads-up: no laboratory scope exists yet. */destination?: Stream | 'Both'; by: string; at: string; planner: string; assignee?: string; button: string; open: { tab: string };
   /** Seen-marker keys covered by this alert (its own key plus the "New" markers of the tasks it announces). */keys: string[];
 };
 
@@ -110,7 +112,7 @@ export function workItems(jobs: JobRecord[], actor: Actor, today: string) {
       const action = returned ? (accountable ? 'Correct sampling data and resubmit' : 'Help correct returned sampling data') : st.key === 'preparation' ? (accountable ? 'Complete sampling preparation' : 'Help with sampling preparation') : st.next === 'Review and submit the sampling data' ? (accountable ? 'Review and submit sampling data' : 'Sampling data ready for submission') : (accountable ? 'Complete sampling data' : 'Help complete sampling data');
       if (!accountable && st.next === 'Review and submit the sampling data') wait({ ...base, key: `w-support:${job.id}`, what: 'Sampling data complete', waitingOn: name(lead) + ' (accountable) to submit', open: { tab: 'sampling' } });
       const button = returned ? 'Correct sampling data' : st.key === 'preparation' ? 'Open preparation' : st.next === 'Review and submit the sampling data' && accountable ? 'Review and submit' : 'Open sample sheets';
-      if (accountable || st.next !== 'Review and submit the sampling data') add({ ...base, role: accountable ? 'Accountable sampling employee' : 'Supporting sampling employee', button, key: `sampling:${job.id}`, kind: returned ? 'returned' : sEvents.some((k) => k.startsWith('assign:')) ? 'assignment' : 'task', action: action + (accountable ? '' : ` (supporting · ${name(lead)} submits)`), status: st.label, due: job.dueDate || undefined, from: returned ? data?.reviewedBy : o.dispatchedBy, fromLabel: returned ? 'Returned by' : 'Assigned by', comment: returned ? [data?.general, ...(data?.comments || []).map((c) => `${c.label}: ${c.text}`)].filter(Boolean).join(' · ') : undefined, events: sEvents, open: { editor: samplingStage(job, roles) } });
+      if (accountable || st.next !== 'Review and submit the sampling data') add({ ...base, role: accountable ? 'Accountable sampling employee' : 'Backup sampling employee', button, key: `sampling:${job.id}`, kind: returned ? 'returned' : sEvents.some((k) => k.startsWith('assign:')) ? 'assignment' : 'task', action: action + (accountable ? '' : ` (backup · ${name(lead)} submits)`), status: st.label, due: job.dueDate || undefined, from: returned ? data?.reviewedBy : o.dispatchedBy, fromLabel: returned ? 'Returned by' : 'Assigned by', comment: returned ? [data?.general, ...(data?.comments || []).map((c) => `${c.label}: ${c.text}`)].filter(Boolean).join(' · ') : undefined, events: sEvents, open: { editor: samplingStage(job, roles) } });
     }
     if (st.owner === me && (hasAccess(actor, 'sampling') || (me === lead && hasAccess(actor, 'jobDetails')))) {
       if (st.key === 'data-review') add({ ...base, button: 'Review sampling data', role: 'Sampling approval', key: `data-review:${job.id}`, kind: 'review', action: 'Review sampling data', status: st.label, due: job.dueDate || undefined, from: data?.submittedBy, fromLabel: 'Submitted by', events: sEvents, open: { tab: 'sampling-report' } });
@@ -197,6 +199,13 @@ export function workItems(jobs: JobRecord[], actor: Actor, today: string) {
     if (final?.status === 'Awaiting Approval' && roles.finalApproval === me && hasAccess(actor, 'analysis')) add({ ...base, role: 'Final report approval', button: 'Approve final report', key: `final-approve:${job.id}`, kind: 'review', action: `Approve final laboratory report v${final.version}`, status: 'Awaiting final approval', due: job.dueDate || undefined, from: final.preparedBy, fromLabel: 'Prepared by', events: [], open: { tab: 'reporting' } });
     // Coming up: real responsibilities on this job that are not this employee's turn yet. No approval button before its prerequisites.
     const dispatched = !!o.dispatchedAt, approved = samplingApproved(job), openLab = lab.filter((a) => a.status !== 'Completed');
+    // Laboratory heads-up while the job is in sampling: general job details only, because the laboratory scope is chosen after the sampling report is approved.
+    const labDuty = ([roles.scopeSelector, roles.labReceipt, roles.pvtTeamLead, roles.chemicalTeamLead] as (string | undefined)[]).includes(me);
+    if (dispatched && !approved && labDuty && hasAccess(actor, 'analysis') && !team.includes(me) && o.dispatchedBy !== me) {
+      const plan = legacyPlan(job), where = [job.fieldArea, job.wells?.filter(Boolean).join(', ') || job.well].filter(Boolean).join(' / ');
+      const key = `heads-up:${job.id}:${o.dispatchedAt}`;
+      alert({ key, kind: 'sampling', jobId: job.id, jobNumber: job.jobNumber, headline: `Job in sampling · ${job.clientName}`, samples: where || 'Location not recorded', scope: plan.map((r) => `${r.source} (${rowSummary(r)})`).join(', ') + (job.dueDate ? ` · job due ${ukDate(job.dueDate)}` : ''), by: o.dispatchedBy || job.createdById, at: o.dispatchedAt!, planner: '', button: 'View job', open: { tab: 'overview' }, keys: [key] });
+    }
     if (dispatched && !approved) {
       if (job.assignedDriverId === me) soon({ key: `soon-transport:${job.id}`, area: 'Transport', role: 'Driver', what: 'Transport samples/containers to the laboratory', after: 'After the sampling report is approved', open: { tab: 'handover' } });
       if (roles.samplingApproval === me && hasAccess(actor, 'sampling') && st.owner !== me && st.key !== 'returned') soon({ key: `soon-sampling-approval:${job.id}`, area: 'Sampling', role: 'Sampling approval', what: st.key === 'report-generation' ? 'Approve the sampling report' : 'Review the sampling data, then approve the report', after: st.key === 'report-generation' ? `After ${name(lead)} submits the report` : `After ${name(lead)} submits the sampling data`, open: { tab: 'sampling-report' } });
@@ -307,7 +316,7 @@ export function inboxRows(work: ReturnType<typeof workItems>, jobs: JobRecord[],
     else if (r.waiting[0]) r.open = r.waiting[0].open;
     else if (r.upcoming[0]) r.open = r.upcoming[0].open;
     r.roles = [...new Set([...r.actions, ...r.blockedActions].map((i) => i.role).concat(r.upcoming.map((u) => u.role)).filter(Boolean))];
-    if (!r.roles.length) { const job = byId.get(r.jobId)!; r.roles = [job.assignedEngineerId === me ? 'Accountable sampling employee' : samplingTeam(job).includes(me) ? 'Supporting sampling employee' : '', job.assignedDriverId === me ? 'Driver' : '', ...[...new Set(operationsFor(job).activities.filter((a) => a.owner === me && a.status !== 'Completed').map((a) => a.stream + ' test'))]].filter(Boolean); }
+    if (!r.roles.length) { const job = byId.get(r.jobId)!; r.roles = [job.assignedEngineerId === me ? 'Accountable sampling employee' : samplingTeam(job).includes(me) ? 'Backup sampling employee' : '', job.assignedDriverId === me ? 'Driver' : '', ...[...new Set(operationsFor(job).activities.filter((a) => a.owner === me && a.status !== 'Completed').map((a) => a.stream + ' test'))]].filter(Boolean); }
     r.overdue = r.actions.some((i) => i.overdue);
     r.returned = r.actions.some((i) => i.kind === 'returned');
     r.isNew = r.actions.some(opts.isNew);

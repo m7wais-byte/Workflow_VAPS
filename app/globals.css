@@ -3053,3 +3053,87 @@ button.flow-section-head { width:100%; border:0; border-bottom:4px solid var(--i
 }
 .pg-table .pg-row>th { background:transparent; color:var(--ink); }
 .pg-table .pg-row.pg-completed>th .pg-activity strong { color:var(--ink-2); }
+
+/* Round 1 job-creation edits: Job ID badge, sampling plan, crew roles, UK date fields, register that fits the screen */
+.job-details-heading{align-items:center}
+.job-details-heading>div:nth-child(2){flex:1}
+.job-id-badge{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:2px;padding:10px 16px;border:1.5px solid var(--teal);border-radius:8px;background:#edf7f5;min-width:190px;text-align:right}
+.job-id-badge small{font-size:11px;letter-spacing:.14em;font-weight:750;color:var(--teal)}
+.job-id-badge strong{font-family:var(--font-geist-mono),monospace;font-size:20px;letter-spacing:.02em;color:var(--navy)}
+.job-id-badge span{font-size:12px;color:var(--muted)}
+.job-id-badge.empty{border-style:dashed;border-color:#b7cbc9;background:#f6f9f9}
+.job-id-badge.empty strong{font-family:inherit;font-size:15px;color:var(--muted)}
+.uk-date-input{position:relative;display:flex;align-items:stretch;flex-wrap:wrap}
+.uk-date-input>input[type=text]{flex:1;min-width:0;padding-right:44px}
+.uk-date-picker{position:absolute;right:1px;top:1px;height:calc(100% - 2px);max-height:44px;width:40px;border:0;border-left:1px solid var(--line);background:#f6f9f9;color:var(--teal);display:grid;place-items:center;cursor:pointer;border-radius:0 4px 4px 0}
+.uk-time-input>input[type=text]{padding-right:12px}
+.uk-date-picker:disabled{cursor:default;color:var(--muted)}
+.uk-date-native{position:absolute;right:0;bottom:0;width:1px;height:1px;opacity:0;pointer-events:none;border:0;padding:0}
+.uk-date-input.invalid>input[type=text]{border-color:#c0392b}
+.uk-date-error{flex-basis:100%;color:#b03a2e!important;font-size:12px;margin-top:4px}
+.sampling-plan{margin-top:16px;display:grid;gap:12px}
+.sampling-plan-row{border:1px solid var(--line);border-left:3px solid var(--teal);border-radius:8px;padding:14px 16px;background:#fbfdfd}
+.sampling-plan-head{display:flex;align-items:center;flex-wrap:wrap;gap:8px 10px;margin-bottom:12px}
+.sampling-plan-head strong{color:var(--navy);font-size:15px}
+.plan-tag{font-size:11px;font-weight:750;letter-spacing:.08em;text-transform:uppercase;padding:2px 8px;border-radius:10px;background:#e2f1ee;color:var(--teal)}
+.plan-summary{margin-left:auto;font-size:13px;font-weight:650;color:var(--teal-dark)}
+.sampling-plan-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px 16px;align-items:start}
+.sampling-plan-fields label{display:flex;flex-direction:column;gap:6px}
+.sampling-plan-fields label>span{font-size:13px;font-weight:650;color:var(--ink)}
+.sampling-plan-fields small{font-size:12px;color:var(--muted)}
+.sampling-plan-fields .plan-note{grid-column:1/-1}
+.sampling-plan-records{padding:12px 14px;border-radius:8px;background:#f3f6f8;font-size:13px}
+.sampling-plan-records p{margin:0 0 8px}
+.sampling-plan-records ul{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
+.sampling-plan-records li{padding:3px 9px;border:1px solid var(--line);border-radius:12px;background:var(--paper);font-size:12px;color:#526971}
+.sampling-plan-records li b{font-family:var(--font-geist-mono),monospace;color:var(--navy);margin-right:3px}
+.sampling-plan-empty{margin:14px 0 0;font-size:13px;color:var(--muted)}
+.crew-role{display:inline-block;margin-left:8px;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:750;letter-spacing:.06em;text-transform:uppercase;background:#fdf1dc;color:#8a5a12;vertical-align:middle}
+.crew-role.accountable{background:#dcefeb;color:var(--teal-dark)}
+.crew-role.driver{background:#e6ecf5;color:#2d4a72}
+.crew-accountable{margin:0 0 10px;font-size:14px;color:var(--navy)}
+.crew-accountable .crew-role{margin:0 8px 0 0}
+.crew-accountable small{color:var(--muted)}
+.ops-check.is-backup{color:var(--navy);font-weight:600}
+.assignment-summary .crew-list{display:inline-flex;flex-wrap:wrap;gap:6px 16px;margin-left:6px}
+.assignment-summary .crew-person{white-space:nowrap}
+.assignment-summary .crew-person .crew-role{margin-left:4px}
+.instructions-panel .instructions-field{margin-top:18px}
+.instructions-field small,.client-panel .form-grid label>small{font-size:12px;color:var(--muted);margin-top:4px}
+.review-plan{margin:0 0 4px;padding-left:18px}
+.send-notify{margin:8px 0 0;padding-left:18px;font-size:14px;line-height:1.6;color:#526971}
+.alert-sampling{border-left-color:#2d4a72!important}
+/* Job register fits a laptop screen; on phones each job becomes a card */
+.jobs-register-table:not(.trash-table){min-width:0;table-layout:fixed}
+.jobs-register-table:not(.trash-table) th:nth-child(1){width:15%}
+.jobs-register-table:not(.trash-table) th:nth-child(2){width:17%}
+.jobs-register-table:not(.trash-table) th:nth-child(3){width:25%}
+.jobs-register-table:not(.trash-table) th:nth-child(4){width:14%}
+.jobs-register-table:not(.trash-table) th:nth-child(5){width:16%}
+.jobs-register-table:not(.trash-table) th:nth-child(6){width:13%}
+.jobs-register-table:not(.trash-table) td{overflow-wrap:anywhere}
+.jobs-register-table:not(.trash-table) td:last-child{text-align:right}
+.jobs-register-table:not(.trash-table) td:last-child .register-action{white-space:normal}
+@media (max-width:760px){
+  .job-details-heading{flex-wrap:wrap}
+  .job-id-badge{margin-left:0;width:100%;align-items:flex-start;text-align:left}
+  .sampling-plan-fields{grid-template-columns:1fr}
+  .plan-summary{margin-left:0;flex-basis:100%}
+  .jobs-register-table:not(.trash-table),.jobs-register-table:not(.trash-table) tbody,.jobs-register-table:not(.trash-table) tr,.jobs-register-table:not(.trash-table) td{display:block;width:100%}
+  .jobs-register-table:not(.trash-table) thead{display:none}
+  .jobs-register-table:not(.trash-table) tr{padding:12px 4px;border-bottom:1px solid var(--line)}
+  .jobs-register-table:not(.trash-table) td{border:0;padding:6px 10px;text-align:left!important}
+  .jobs-register-table:not(.trash-table) td:nth-child(n+2)::before{display:block;font-size:11px;font-weight:750;letter-spacing:.08em;text-transform:uppercase;color:#71868e;margin-bottom:2px}
+  .jobs-register-table:not(.trash-table) td:nth-child(2)::before{content:"Client · Field / Well"}
+  .jobs-register-table:not(.trash-table) td:nth-child(3)::before{content:"Current stage"}
+  .jobs-register-table:not(.trash-table) td:nth-child(4)::before{content:"Your responsibility"}
+  .jobs-register-table:not(.trash-table) td:nth-child(5)::before{content:"Status · Job due"}
+  .jobs-register-table:not(.trash-table) td:nth-child(6)::before{content:none}
+  .jobs-register-table:not(.trash-table) tr.needs-action td:first-child{box-shadow:none}
+  .jobs-register-table:not(.trash-table) tr.needs-action{box-shadow:inset 3px 0 0 var(--teal)}
+}
+.full-field>small.field-help{position:static;display:flex;justify-content:space-between;gap:12px;margin-top:6px;font-size:12px;color:var(--muted)}
+.full-field>small.field-help span{flex:none;color:#a0aaae}
+.team-members .crew-accountable,.team-members>small,.team-members>.overlap-notice,.team-members>[class*="overlap"]{grid-column:1/-1}
+.team-members .ops-check{display:flex;align-items:center;gap:8px}
+.team-members .ops-check .crew-role{margin-left:4px}

@@ -23,6 +23,12 @@ const eslintConfig = defineConfig([
   jsxA11y.flatConfigs.recommended,
   next.configs["core-web-vitals"],
   {
+    rules: {
+      // DateInput / TimeInput (app/uk-date.tsx) render the real input inside the label.
+      "jsx-a11y/label-has-associated-control": ["error", { controlComponents: ["DateInput", "TimeInput"], depth: 3 }],
+    },
+  },
+  {
     languageOptions: {
       globals: {
         ...globals.browser,

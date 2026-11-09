@@ -67,15 +67,15 @@ export function activityStep(a: ActivityRecord, roles: Responsibilities, additio
   const base = { id: 'act:' + a.id, label: (a.kind === 'validation' ? a.title : short(a.title)) + ' · Sample ' + a.sampleId, sample: a.sampleId, due: a.due || undefined, additional, external: !!a.external };
   const done = a.files.at(-1)?.qcApprovedAt || [...(a.history || [])].reverse().find((h) => h.action === 'qc-approved')?.at;
   switch (a.status) {
-    case 'Completed': return { ...base, state: 'completed', detail: 'QC approved', team: a.stream + ' team', at: done };
-    case 'Changes Requested': return { ...base, state: 'blocked', correction: true, detail: ext ? 'Returned · results to be corrected' : 'Returned for correction', team: a.stream + ' team', owner: a.owner || undefined };
+    case 'Completed': return { ...base, state: 'completed', detail: 'QC approved', team: teamName(a.stream) + ' team', at: done };
+    case 'Changes Requested': return { ...base, state: 'blocked', correction: true, detail: ext ? 'Returned · results to be corrected' : 'Returned for correction', team: teamName(a.stream) + ' team', owner: a.owner || undefined };
     case 'QC Returned': return { ...base, state: 'blocked', correction: true, detail: 'Returned by QC · with team lead', team: a.stream + ' Team Lead', owner: lead || undefined };
     case 'Awaiting QC': return qc ? { ...base, state: 'in-progress', detail: 'QC review', team: 'QC review', owner: qc } : { ...base, state: 'blocked', setting: true, detail: 'QC reviewer not configured', team: 'QC review' };
     case 'Workbook Submitted': return { ...base, state: 'in-progress', detail: ext ? 'External results · team-lead review' : 'Team-lead review', team: a.stream + ' Team Lead', owner: lead || undefined };
-    case 'In Progress': return { ...base, state: 'in-progress', detail: ext || 'In progress', team: a.stream + ' team', owner: a.owner || undefined };
+    case 'In Progress': return { ...base, state: 'in-progress', detail: ext || 'In progress', team: teamName(a.stream) + ' team', owner: a.owner || undefined };
     default:
       if (!a.owner) return { ...base, state: 'not-started', detail: a.external ? 'Awaiting internal coordinator' : 'Awaiting assignment', team: a.stream + ' Team Lead', owner: lead || undefined };
-      return { ...base, state: 'not-started', detail: ext || (a.start ? 'Assigned · planned start ' + a.start : 'Assigned · not started'), team: a.stream + ' team', owner: a.owner };
+      return { ...base, state: 'not-started', detail: ext || (a.start ? 'Assigned · planned start ' + a.start : 'Assigned · not started'), team: teamName(a.stream) + ' team', owner: a.owner };
   }
 }
 

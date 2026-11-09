@@ -53,7 +53,7 @@ export function MyWork({ now, upcoming, waiting, blocked, blockedActions, alerts
       <header><strong>{alerts.length} new alert{alerts.length === 1 ? '' : 's'}</strong><span>Reading an alert does not complete the work; open it to act.</span></header>
       <ul>{visibleAlerts.map((a) => <li key={a.key} className={'alert-' + a.kind}>
         <div><strong>{a.headline}</strong> · <b className="mono">{a.jobNumber}</b> · {a.samples} · {a.scope}
-          <small>Destination {a.destination} · {a.kind === 'scope' ? 'added' : a.kind === 'moved' ? 'reassigned' : 'assigned'} by {name(a.by)} · {stamp(a.at)} · Planning: {a.planner ? name(a.planner) : 'Unassigned (team lead not configured)'} · Assigned: {a.assignee ? (a.kind === 'scope' ? a.assignee : name(a.assignee)) : 'not yet'}</small></div>
+          {a.kind === 'sampling' ? <small>Sent to Sampling by {name(a.by)} · {stamp(a.at)} · Laboratory scope is chosen after the sampling report is approved.</small> : <small>Destination {teamName(a.destination || '')} · {a.kind === 'scope' ? 'added' : a.kind === 'moved' ? 'reassigned' : 'assigned'} by {name(a.by)} · {stamp(a.at)} · Planning: {a.planner ? name(a.planner) : 'Unassigned (team lead not configured)'} · Assigned: {a.assignee ? (a.kind === 'scope' ? a.assignee : name(a.assignee)) : 'not yet'}</small>}</div>
         <div className="alert-go"><button type="button" className="primary-button" onClick={() => onOpenTab(a.jobId, a.open.tab, a)}>{a.button}</button><button type="button" className="text-button" onClick={() => onReadAlert(a)}>Mark read</button></div>
       </li>)}</ul>
       {alerts.length > 3 && <button type="button" className="text-button" onClick={() => setAllAlerts(!allAlerts)}>{allAlerts ? 'Show fewer' : `Show all ${alerts.length}`}</button>}
