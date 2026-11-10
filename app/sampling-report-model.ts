@@ -173,7 +173,7 @@ function sheetFor(sample: ReportSample, title: string): Omit<SampleSheet, 'remar
     sampleId: sample.id, title,
     identification: {
       left: [['Sample No:', orNR(sample.id)], [glass ? 'Container No:' : 'Cylinder No:', containerRef(sample)], ['Sampling Date:', dateShort(f.samplingDate)], ['Sampling Time:', orNR(f.samplingTime)], ['Sampling Point:', orNR(sample.depth)], ['Perforations:', orNR(f.perforations)]],
-      right: [['Sample Nature:', orNR(f.sampleNature)], ['Flow Period:', orNR(f.flowPeriod)], ['Formation:', orNR(f.formation)], ...(sampler ? [['Sampler:', sampler] as Field] : [])],
+      right: [['Sample Nature:', orNR(f.sampleNature)], ['Flow Period:', withUnit(f.flowPeriod, f.flowPeriodUnit)], ['Formation:', orNR(f.formation)], ...(sampler ? [['Sampler:', sampler] as Field] : [])],
     },
     shipping: {
       left: [[glass ? 'Container Type:' : 'Sample Cylinder Type:', glass ? 'Glass container' : orNR(sample.bottle)], [glass ? 'Container Volume:' : 'Sample Cylinder Volume:', withUnit(f.sampleBottleVolume, f.sampleBottleVolumeUnit)], ['Sample Volume:', withUnit(f.sampleVolume, f.sampleVolumeUnit)]],
@@ -181,14 +181,14 @@ function sheetFor(sample: ReportSample, title: string): Omit<SampleSheet, 'remar
     },
     matched: {
       left: [['Opening Pressure:', pressureAt(f, 'initialOpeningPressure', 'initialOpeningTemperature')], ['Transfer Pressure:', pressureAt(f, 'transferPressure', 'transferTemperature')]],
-      right: [['Opening Pressure:', pressureAt(f, 'receivingBottleOpeningPressure', 'receivingBottleOpeningTemperature')], ['Transfer Duration:', orNR(f.transferDuration)]],
+      right: [['Opening Pressure:', pressureAt(f, 'receivingBottleOpeningPressure', 'receivingBottleOpeningTemperature')], ['Transfer Duration:', withUnit(f.transferDuration, f.transferDurationUnit)]],
     },
     production: [
-      [['BHP:', withUnit(f.bhp, f.bhpUnit)], ['BHT:', withUnit(f.bht, f.bhtUnit)], ['At Depth:', NOT_RECORDED], ['WHP:', withUnit(f.whp, f.whpUnit)], ['WHT:', withUnit(f.wht, f.whtUnit)], ['Choke Size:', orNR(f.chokeSize)], ['Stable Since:', orNR(f.stableSince)], ['H2S:', orNR(f.h2s)], ['CO2:', orNR(f.co2)]],
-      [['Sep Press:', withUnit(f.separatorPressure, f.separatorPressureUnit)], ['Sep Temp:', withUnit(f.separatorTemperature, f.separatorTemperatureUnit)], ['Gas Rate (std):', orNR(f.gasRate)], ['Gas Gravity:', orNR(f.gasGravity)], ['Gas diff press:', withUnit(f.gasDifferentialPressure, f.gasDifferentialPressureUnit)], ['Gas Press:', withUnit(f.gasPressure, f.gasPressureUnit)], ['Gas Temp:', withUnit(f.gasTemperature, f.gasTemperatureUnit)], ['Fb factor:', orNR(f.fbFactor)], ['Fpv factor:', orNR(f.fpvFactor)]],
+      [['BHP:', withUnit(f.bhp, f.bhpUnit)], ['BHT:', withUnit(f.bht, f.bhtUnit)], ['At Depth:', NOT_RECORDED], ['WHP:', withUnit(f.whp, f.whpUnit)], ['WHT:', withUnit(f.wht, f.whtUnit)], ['Choke Size:', withUnit(f.chokeSize, f.chokeSizeUnit)], ['Stable Since:', orNR(f.stableSince)], ['H2S:', withUnit(f.h2s, f.h2sUnit)], ['CO2:', withUnit(f.co2, f.co2Unit)]],
+      [['Sep Press:', withUnit(f.separatorPressure, f.separatorPressureUnit)], ['Sep Temp:', withUnit(f.separatorTemperature, f.separatorTemperatureUnit)], ['Gas Rate (std):', withUnit(f.gasRate, f.gasRateUnit)], ['Gas Gravity:', withUnit(f.gasGravity, f.gasGravityUnit && f.gasGravityUnit !== 'air = 1' ? f.gasGravityUnit : '')], ['Gas diff press:', withUnit(f.gasDifferentialPressure, f.gasDifferentialPressureUnit)], ['Gas Press:', withUnit(f.gasPressure, f.gasPressureUnit)], ['Gas Temp:', withUnit(f.gasTemperature, f.gasTemperatureUnit)], ['Fb factor:', orNR(f.fbFactor)], ['Fpv factor:', orNR(f.fpvFactor)]],
       // The data sheet records one "Oil Rate" without its condition basis, so it keeps its own label and the
       // std/sep-condition rows stay "Not recorded". Likewise BSW is recorded without a sampling point.
-      [['Oil Rate (std cond):', NOT_RECORDED], ['Corrected by:', orNR(f.correctedBy)], ['Oil rate (sep cond):', NOT_RECORDED], ['Oil Rate:', orNR(f.oilRate)], ['Con. gravity 60/60:', orNR(f.condensateGravity)], ['Oil line temp:', withUnit(f.oilLineTemperature, f.oilLineTemperatureUnit)], ['Water rate:', orNR(f.waterRate)], ['CGR:', orNR(f.cgr)], ['WOR:', orNR(f.wor)], ['BSW:', orNR(f.bsw)]],
+      [['Oil Rate (std cond):', NOT_RECORDED], ['Corrected by:', orNR(f.correctedBy)], ['Oil rate (sep cond):', NOT_RECORDED], ['Oil Rate:', withUnit(f.oilRate, f.oilRateUnit)], ['Con. gravity:', withUnit(f.condensateGravity, f.condensateGravityUnit === 'SG 60/60 °F' ? '' : f.condensateGravityUnit)], ['Oil line temp:', withUnit(f.oilLineTemperature, f.oilLineTemperatureUnit)], ['Water rate:', withUnit(f.waterRate, f.waterRateUnit)], ['GOR:', withUnit(f.gor, f.gorUnit)], ['CGR:', withUnit(f.cgr, f.cgrUnit)], ['WOR:', withUnit(f.wor, f.worUnit)], ['BSW:', withUnit(f.bsw, f.bswUnit)]],
     ],
   };
 }

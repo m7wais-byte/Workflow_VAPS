@@ -1,7 +1,7 @@
 "use client";
 
 import { assetUrl } from "./deployment";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { MyWork, LabSummary, type MyWorkFilter } from './dashboard';
 import { CompanyDashboard } from './company-dashboard';
 import { jobFlow, type JobFlow } from './job-flow';
@@ -145,6 +145,8 @@ type JobDetails = {
   requestedSampleCount: string;
   /** Every sampling type of the job with its quantity; the first row is the primary type that drives preparation. */
   samplingPlan: SamplingPlanRow[];
+  /** Units for the job-level sampling context values (e.g. separatorPressure → "psi"). */
+  contextUnits: Record<string, string>;
   samplingInstructions: string;
   /** Backup / support sampling employees; assignedEngineerId is the accountable lead. */
   samplingTeamIds: string[];
@@ -209,6 +211,7 @@ export type JobRecord = {
   /** All sampling types of the job (samplingSource is the first, primary one). */
   samplingSources?: SamplingSource[];
   samplingPlan?: SamplingPlanRow[];
+  contextUnits?: Record<string, string>;
   holeType?: HoleType;
   scopeOfWorkAttachment?: ScopeAttachment;
   samples?: Sample[];
@@ -364,7 +367,7 @@ const emptyClientForm: ClientForm = { code: "", name: "", shortName: "", country
 const clientStorageKey = "vaps-demo-clients-v1";
 
 const emptyJobDetails = (): JobDetails => ({
-  requestedSampleCount: "", samplingPlan: [], samplingInstructions: "", samplingTeamIds: [], requiredTests: [], otherTests: "", sampleCountNotes: "",
+  requestedSampleCount: "", samplingPlan: [], contextUnits: {}, samplingInstructions: "", samplingTeamIds: [], requiredTests: [], otherTests: "", sampleCountNotes: "",
   countryCode: "OM", dateReceived: localDate(), fieldArea: "", employee: "", assignedEngineerId: "", assignedDriverId: "", clientFocalPoint: "", clientFocalPointContact: "", clientFocalPointEmail: "", dueDate: "", description: "",
   well: "", wellMode: "single", wells: [""], rigInstallation: "", plannedDepth: "", formation: "", perforationInterval: "", wellheadLocation: "", chokeSize: "", whp: "", wht: "",
   facility: "", separatorId: "", separatorStage: "", samplingPoint: "", separatorPressure: "", separatorTemperature: "", relatedWell: "", locationNotes: "", otherDescription: "", otherSamplingType: "",
@@ -372,14 +375,28 @@ const emptyJobDetails = (): JobDetails => ({
 });
 
 const samplerTypes = [DOWNHOLE_TOOL];
-const pressureUnits = ["kPa", "bar", "psi"];
-const temperatureUnits = ["°C", "°F"];
-const volumeUnits = ["cc", "mL"];
+// Units the sampling engineer can choose for each measurement on the data sheet. Values are stored as entered with their unit.
+const pressureUnits = ["psi", "psia", "psig", "bar", "barg", "kPa", "MPa"];
+const temperatureUnits = ["°C", "°F", "K"];
+const volumeUnits = ["cc", "mL", "L"];
+const depthUnits = ["m", "ft", "m MD", "m TVD", "ft MD", "ft TVD"];
+const durationUnits = ["min", "h", "days"];
+const flowPeriodUnits = ["h", "min", "days"];
+const chokeUnits = ["/64 in", "in", "mm", "% open"];
+const concentrationUnits = ["ppm", "mol %", "% vol", "mg/m³"];
+const gasRateUnits = ["MMscf/d", "Mscf/d", "scf/d", "Sm³/d", "m³/d", "MSm³/d"];
+const liquidRateUnits = ["STB/d", "bbl/d", "m³/d", "Sm³/d", "L/min"];
+const gasGravityUnits = ["air = 1"];
+const liquidGravityUnits = ["SG 60/60 °F", "°API", "kg/m³"];
+const gorUnits = ["scf/STB", "Sm³/Sm³", "m³/m³", "Mscf/STB"];
+const cgrUnits = ["STB/MMscf", "bbl/MMscf", "Sm³/MSm³", "m³/m³"];
+const worUnits = ["bbl/bbl", "STB/STB", "m³/m³"];
+const bswUnits = ["% vol"];
 const navItems = ["Dashboard", "My work", "Jobs", "Sampling", "Laboratory", "Inventory", "Settings"];
 const navIcons = [LayoutDashboard, Inbox, BriefcaseBusiness, FlaskConical, ListChecks, PackageSearch, Settings];
 
 const standardConditionFields = [
-  "flowPeriod", "formation", "perforations", "sampleBottleVolume", "sampleVolume", "fluidRemaining", "initialOpeningPressure", "initialOpeningTemperature", "receivingBottleOpeningPressure", "receivingBottleOpeningTemperature", "transferPressure", "transferTemperature", "finalPressure", "finalTemperature", "transferDuration", "bhp", "bht", "whp", "wht", "chokeSize", "stableSince", "separatorPressure", "separatorTemperature", "oilRate", "correctedBy", "gasRate", "waterRate", "gasGravity", "condensateGravity", "oilLineTemperature", "gasDifferentialPressure", "gasPressure", "gasTemperature", "fbFactor", "fpvFactor", "cgr", "wor", "bsw", "h2s", "co2",
+  "flowPeriod", "formation", "perforations", "sampleBottleVolume", "sampleVolume", "fluidRemaining", "initialOpeningPressure", "initialOpeningTemperature", "receivingBottleOpeningPressure", "receivingBottleOpeningTemperature", "transferPressure", "transferTemperature", "finalPressure", "finalTemperature", "transferDuration", "bhp", "bht", "whp", "wht", "chokeSize", "stableSince", "separatorPressure", "separatorTemperature", "oilRate", "correctedBy", "gasRate", "waterRate", "gasGravity", "condensateGravity", "oilLineTemperature", "gasDifferentialPressure", "gasPressure", "gasTemperature", "fbFactor", "fpvFactor", "cgr", "wor", "bsw", "h2s", "co2", "gor", "gor",
 ];
 
 const emptySamples = (): Sample[] => ["1.01", "1.02", "1.03"].map((id) => ({
@@ -800,6 +817,7 @@ export default function Home() {
       otherDescription: item.otherDescription || "",
       otherSamplingType: item.otherSamplingType || "",
       oilRate: item.oilRate || "",
+      contextUnits: item.contextUnits || {},
       gasRate: item.gasRate || "",
       waterRate: item.waterRate || "",
     });
@@ -899,7 +917,7 @@ export default function Home() {
     const responsibleId = job.assignedEngineerId || currentJob?.responsibleId || job.employee || currentEmployee.id;
     const jobFields = {
       jobResponsibleId: job.employee || currentJob?.jobResponsibleId || currentJob?.responsibleId || currentEmployee.id,
-      requestedSampleCount: job.samplingPlan.length ? String(planRecordCount(job.samplingPlan)) : job.requestedSampleCount, samplingPlan: job.samplingPlan, samplingSources: job.samplingPlan.map((row) => row.source as SamplingSource), samplingInstructions: job.samplingInstructions, samplingTeamIds: job.samplingTeamIds.filter(id => id && id !== job.assignedEngineerId), requiredTests: job.requiredTests, otherTests: job.otherTests, sampleCountNotes: job.samplingPlan.length ? job.samplingPlan.filter((row) => (row.note || "").trim()).map((row) => `${row.source}: ${row.note!.trim()}`).join(" · ") : job.sampleCountNotes,
+      requestedSampleCount: job.samplingPlan.length ? String(planRecordCount(job.samplingPlan)) : job.requestedSampleCount, samplingPlan: job.samplingPlan, contextUnits: job.contextUnits, samplingSources: job.samplingPlan.map((row) => row.source as SamplingSource), samplingInstructions: job.samplingInstructions, samplingTeamIds: job.samplingTeamIds.filter(id => id && id !== job.assignedEngineerId), requiredTests: job.requiredTests, otherTests: job.otherTests, sampleCountNotes: job.samplingPlan.length ? job.samplingPlan.filter((row) => (row.note || "").trim()).map((row) => `${row.source}: ${row.note!.trim()}`).join(" · ") : job.sampleCountNotes,
       countryCode: job.countryCode, dateReceived: job.dateReceived, description: job.description, assignedEngineerId: job.assignedEngineerId, assignedDriverId: job.assignedDriverId, clientFocalPoint: job.clientFocalPoint, clientFocalPointContact: job.clientFocalPointContact, clientFocalPointEmail: job.clientFocalPointEmail, fieldArea: job.fieldArea, well: job.well, wellMode: job.wellMode, wells: job.wells, rigInstallation: job.rigInstallation,
       plannedDepth: job.plannedDepth, formation: job.formation, perforationInterval: job.perforationInterval, wellheadLocation: job.wellheadLocation,
       chokeSize: job.chokeSize, whp: job.whp, wht: job.wht, facility: job.facility, separatorId: job.separatorId, separatorStage: job.separatorStage,
@@ -1173,6 +1191,14 @@ export default function Home() {
     }
   }
 
+  /** Job-level sampling context value with its unit (stored in contextUnits). */
+  function contextUnitField(label: string, field: keyof JobDetails, units: string[]): ReactNode {
+    const unit = job.contextUnits[field] || units[0];
+    return <label><span>{label}</span><div className="value-unit"><input inputMode="decimal" value={String(job[field] ?? "")} onChange={(event) => updateJob(field, event.target.value)} placeholder="Value if known" /><select aria-label={`${label} unit`} value={unit} onChange={(event) => { const value = event.target.value; setJob((current) => ({ ...current, contextUnits: { ...current.contextUnits, [field]: value } })); }}>{units.map((u) => <option key={u}>{u}</option>)}</select></div></label>;
+  }
+
+  const dataChip = (status: string) => <span className={"section-state " + (status === "Complete" ? "st-completed" : status === "In Progress" ? "st-in-progress" : "st-not-started")}>{status === "Complete" ? "✓ Complete" : status === "In Progress" ? "In progress" : "Not started"}</span>;
+  const stepChip = (done: number, total: number) => { const st = total && done >= total ? "completed" : done > 0 ? "in-progress" : "not-started"; return <span className={"section-state st-" + st}>{st === "completed" ? "✓ Complete" : st === "in-progress" ? `In progress · ${done} of ${total}` : "Not started"}</span>; };
   function sampleDataStatus(sample: Sample) {
     if (sample.dataComplete) return "Complete";
     const started = Boolean(sample.fieldData.samplingDate || sample.fieldData.samplingTime || sample.depth || sample.notes || sample.fieldData.bhp || sample.fieldData.sampleVolume);
@@ -1181,12 +1207,13 @@ export default function Home() {
 
   function samplingTextField(sample: Sample, label: string, field: string, options: { required?: boolean; type?: string; placeholder?: string } = {}): ReactNode {
     const value = field === "depth" ? sample.depth : field === "notes" ? sample.notes : sample.fieldData[field] || "";
+    if (options.type === "date" || options.type === "time") { const Field = options.type === "date" ? DateInput : TimeInput; return <label><span>{label}{options.required ? " *" : ""}</span><Field required={options.required} value={value} onChange={(event) => { if (event.target.value !== value) updateSampleFieldData(sample.id, field, event.target.value); }} /></label>; }
     return <label><span>{label}{options.required ? " *" : ""}</span><input type={options.type || "text"} value={value} onBlur={(event) => { const entered = event.currentTarget.value; if (options.placeholder?.endsWith("or N/A") && entered.trim() === "-") updateSampleFieldData(sample.id, field, "N/A"); else if ((options.type === "date" || options.type === "time") && entered !== value) updateSampleFieldData(sample.id, field, entered); }} onChange={(event) => updateSampleFieldData(sample.id, field, event.target.value)} placeholder={options.placeholder} /></label>;
   }
 
   function samplingUnitField(sample: Sample, label: string, field: string, unitField: string, units: string[], options: { required?: boolean; placeholder?: string } = {}): ReactNode {
     const value = field === "depth" ? sample.depth : sample.fieldData[field] || "";
-    return <label><span>{label}{options.required ? " *" : ""}</span><div className="value-unit"><input type="text" inputMode="decimal" value={value} onBlur={(event) => { if (event.currentTarget.value.trim() === "-") updateSampleFieldData(sample.id, field, "N/A"); }} onChange={(event) => updateSampleFieldData(sample.id, field, event.target.value)} placeholder={options.placeholder || "Value or N/A"} /><select aria-label={`${label} unit`} value={sample.fieldData[unitField]} onChange={(event) => updateSampleFieldData(sample.id, unitField, event.target.value)}>{units.map((unit) => <option key={unit}>{unit}</option>)}</select></div></label>;
+    return <label><span>{label}{options.required ? " *" : ""}</span><div className="value-unit"><input type="text" inputMode="decimal" value={value} onBlur={(event) => { if (event.currentTarget.value.trim() === "-") updateSampleFieldData(sample.id, field, "N/A"); }} onChange={(event) => updateSampleFieldData(sample.id, field, event.target.value)} placeholder={options.placeholder || "Value or N/A"} /><select aria-label={`${label} unit`} value={sample.fieldData[unitField] || units[0]} onChange={(event) => updateSampleFieldData(sample.id, unitField, event.target.value)}>{[...new Set([...(sample.fieldData[unitField] && !units.includes(sample.fieldData[unitField]) ? [sample.fieldData[unitField]] : []), ...units])].map((unit) => <option key={unit}>{unit}</option>)}</select></div></label>;
   }
 
   function samplingSelectField(sample: Sample, label: string, field: string, options: string[]): ReactNode {
@@ -1209,8 +1236,8 @@ export default function Home() {
         {samplingTextField(sample, "Sampling Date", "samplingDate", { required: true, type: "date" })}
         {samplingTextField(sample, "Sampling Time", "samplingTime", { required: true, type: "time" })}
         {samplingTextField(sample, "Sample Nature", "sampleNature", { required: true, placeholder: "e.g. BHS, WHS, separator" })}
-        {samplingTextField(sample, "Sampling Point / Depth", "depth", { required: true, placeholder: "Location, point, or measured depth" })}
-        {samplingTextField(sample, "Flow Period", "flowPeriod", { required: true, placeholder: "Value or N/A" })}
+        {samplingUnitField(sample, "Sampling Point / Depth", "depth", "depthUnit", depthUnits, { required: true, placeholder: "Depth, or point description" })}
+        {samplingUnitField(sample, "Flow Period", "flowPeriod", "flowPeriodUnit", flowPeriodUnits, { required: true })}
         {samplingTextField(sample, "Formation", "formation", { required: true, placeholder: "Value or N/A" })}
         {samplingTextField(sample, "Perforations", "perforations", { required: true, placeholder: "Value or N/A" })}
       </div></section>
@@ -1222,15 +1249,15 @@ export default function Home() {
       <details className="technical-data-section"><summary><div><span>03</span><strong>Matched / Transfer Conditions</strong><small>Opening and transfer conditions for the sample and receiving cylinder</small></div><b>⌄</b></summary><div className="technical-field-grid">
         {samplingUnitField(sample, "Sample Opening Pressure", "initialOpeningPressure", "initialOpeningPressureUnit", pressureUnits, { required: true })}{samplingUnitField(sample, "Sample Opening Temperature", "initialOpeningTemperature", "initialOpeningTemperatureUnit", temperatureUnits, { required: true })}
         {samplingUnitField(sample, "Receiving Cylinder Opening Pressure", "receivingBottleOpeningPressure", "receivingBottleOpeningPressureUnit", pressureUnits, { required: true })}{samplingUnitField(sample, "Receiving Cylinder Opening Temperature", "receivingBottleOpeningTemperature", "receivingBottleOpeningTemperatureUnit", temperatureUnits, { required: true })}
-        {samplingUnitField(sample, "Transfer Pressure", "transferPressure", "transferPressureUnit", pressureUnits, { required: true })}{samplingUnitField(sample, "Transfer Temperature", "transferTemperature", "transferTemperatureUnit", temperatureUnits, { required: true })}{samplingTextField(sample, "Transfer Duration", "transferDuration", { required: true, placeholder: "e.g. 20 min or N/A" })}
+        {samplingUnitField(sample, "Transfer Pressure", "transferPressure", "transferPressureUnit", pressureUnits, { required: true })}{samplingUnitField(sample, "Transfer Temperature", "transferTemperature", "transferTemperatureUnit", temperatureUnits, { required: true })}{samplingUnitField(sample, "Transfer Duration", "transferDuration", "transferDurationUnit", durationUnits, { required: true })}
       </div></details>
       <details className="technical-data-section"><summary><div><span>04</span><strong>Production Conditions During Sampling</strong><small>Enter measured values or N/A for every non-applicable condition</small></div><b>⌄</b></summary><div className="technical-field-grid">
         {samplingUnitField(sample, "Bottomhole Pressure (BHP)", "bhp", "bhpUnit", pressureUnits, { required: true })}{samplingUnitField(sample, "Bottomhole Temperature (BHT)", "bht", "bhtUnit", temperatureUnits, { required: true })}{samplingUnitField(sample, "Wellhead Pressure (WHP)", "whp", "whpUnit", pressureUnits, { required: true })}{samplingUnitField(sample, "Wellhead Temperature (WHT)", "wht", "whtUnit", temperatureUnits, { required: true })}
-        {samplingTextField(sample, "Choke Size", "chokeSize", { required: true, placeholder: "Value or N/A" })}{samplingTextField(sample, "Stable Since", "stableSince", { required: true, placeholder: "Date/time or N/A" })}{samplingTextField(sample, "H2S", "h2s", { required: true, placeholder: "Value or N/A" })}{samplingTextField(sample, "CO2", "co2", { required: true, placeholder: "Value or N/A" })}
-        {samplingUnitField(sample, "Separator Pressure", "separatorPressure", "separatorPressureUnit", pressureUnits, { required: true })}{samplingUnitField(sample, "Separator Temperature", "separatorTemperature", "separatorTemperatureUnit", temperatureUnits, { required: true })}{samplingTextField(sample, "Gas Rate (std)", "gasRate", { required: true, placeholder: "Value or N/A" })}{samplingTextField(sample, "Gas Gravity", "gasGravity", { required: true, placeholder: "Value or N/A" })}
-        {samplingUnitField(sample, "Gas Differential Pressure", "gasDifferentialPressure", "gasDifferentialPressureUnit", pressureUnits, { required: true })}{samplingUnitField(sample, "Gas Pressure", "gasPressure", "gasPressureUnit", pressureUnits, { required: true })}{samplingUnitField(sample, "Gas Temperature", "gasTemperature", "gasTemperatureUnit", temperatureUnits, { required: true })}{samplingTextField(sample, "Fb Factor", "fbFactor", { required: true, placeholder: "Value or N/A" })}
-        {samplingTextField(sample, "Fpv Factor", "fpvFactor", { required: true, placeholder: "Value or N/A" })}{samplingTextField(sample, "Oil Rate", "oilRate", { required: true, placeholder: "Value or N/A" })}{samplingTextField(sample, "Corrected By", "correctedBy", { required: true, placeholder: "Name/reference or N/A" })}{samplingTextField(sample, "Condensate Gravity 60/60", "condensateGravity", { required: true, placeholder: "Value or N/A" })}
-        {samplingUnitField(sample, "Oil Line Temperature", "oilLineTemperature", "oilLineTemperatureUnit", temperatureUnits, { required: true })}{samplingTextField(sample, "Water Rate", "waterRate", { required: true, placeholder: "Value or N/A" })}{samplingTextField(sample, "CGR", "cgr", { required: true, placeholder: "Value or N/A" })}{samplingTextField(sample, "WOR", "wor", { required: true, placeholder: "Value or N/A" })}{samplingTextField(sample, "BSW", "bsw", { required: true, placeholder: "Value or N/A" })}
+        {samplingUnitField(sample, "Choke Size", "chokeSize", "chokeSizeUnit", chokeUnits, { required: true })}{samplingTextField(sample, "Stable Since", "stableSince", { required: true, placeholder: "Date/time or N/A" })}{samplingUnitField(sample, "H₂S", "h2s", "h2sUnit", concentrationUnits, { required: true })}{samplingUnitField(sample, "CO₂", "co2", "co2Unit", concentrationUnits, { required: true })}
+        {samplingUnitField(sample, "Separator Pressure", "separatorPressure", "separatorPressureUnit", pressureUnits, { required: true })}{samplingUnitField(sample, "Separator Temperature", "separatorTemperature", "separatorTemperatureUnit", temperatureUnits, { required: true })}{samplingUnitField(sample, "Gas Rate (std)", "gasRate", "gasRateUnit", gasRateUnits, { required: true })}{samplingUnitField(sample, "Gas Gravity", "gasGravity", "gasGravityUnit", gasGravityUnits, { required: true })}
+        {samplingUnitField(sample, "Gas Differential Pressure", "gasDifferentialPressure", "gasDifferentialPressureUnit", pressureUnits, { required: true })}{samplingUnitField(sample, "Gas Pressure", "gasPressure", "gasPressureUnit", pressureUnits, { required: true })}{samplingUnitField(sample, "Gas Temperature", "gasTemperature", "gasTemperatureUnit", temperatureUnits, { required: true })}{samplingTextField(sample, "Fb Factor (dimensionless)", "fbFactor", { required: true, placeholder: "Value or N/A" })}
+        {samplingTextField(sample, "Fpv Factor (dimensionless)", "fpvFactor", { required: true, placeholder: "Value or N/A" })}{samplingUnitField(sample, "Oil Rate", "oilRate", "oilRateUnit", liquidRateUnits, { required: true })}{samplingTextField(sample, "Corrected By", "correctedBy", { required: true, placeholder: "Name/reference or N/A" })}{samplingUnitField(sample, "Condensate / Oil Gravity", "condensateGravity", "condensateGravityUnit", liquidGravityUnits, { required: true })}
+        {samplingUnitField(sample, "Oil Line Temperature", "oilLineTemperature", "oilLineTemperatureUnit", temperatureUnits, { required: true })}{samplingUnitField(sample, "Water Rate", "waterRate", "waterRateUnit", liquidRateUnits, { required: true })}{samplingUnitField(sample, "GOR", "gor", "gorUnit", gorUnits, { required: true })}{samplingUnitField(sample, "CGR", "cgr", "cgrUnit", cgrUnits, { required: true })}{samplingUnitField(sample, "WOR", "wor", "worUnit", worUnits, { required: true })}{samplingUnitField(sample, "BSW", "bsw", "bswUnit", bswUnits, { required: true })}
       </div></details>
       <label className="sample-remarks"><span>Remarks</span><textarea rows={4} value={sample.notes} onChange={(event) => updateSampleFieldData(sample.id, "notes", event.target.value)} placeholder="Record the data source, sample condition, observations, or exceptions…" /></label>
     </>;
@@ -1996,18 +2023,19 @@ export default function Home() {
             </section>
           </>}
 
-          {stage === "type" && (() => {
+          {(stage === "type" || stage === "bottomhole") && (() => {
             const plan = job.samplingPlan.length ? job.samplingPlan : legacyPlan({ ...(currentJob || {}), samplingSource: samplingType || undefined, requestedSampleCount: job.requestedSampleCount });
             const backups = job.samplingTeamIds.filter((id) => id !== job.assignedEngineerId);
             const wells = job.wellMode === "multiple" ? job.wells.filter(Boolean).join(", ") : job.well || job.wells[0];
             const box = (label: string, value: ReactNode, full = false) => <div className={full ? "full-field" : undefined}><dt>{label}</dt><dd>{value || "Not recorded"}</dd></div>;
             return <section className="panel prep-summary" aria-label="Job summary">
-              <div className="prep-summary-head"><div><span className="eyebrow">JOB SUMMARY</span><h2>{displayJobId} · {clientName}</h2><p>Everything you need for this job in one place. Fill in the preparation below.</p></div>
+              <div className="prep-summary-head"><div><span className="eyebrow">JOB SUMMARY</span><h2>{displayJobId} · {clientName}</h2><p>Everything you need for this job in one place. {stage === "type" ? "Fill in the preparation below." : "Fill in the sampling data for each sample below."}</p></div>
                 {currentJob && <button type="button" className="outline-button" onClick={() => { setWorkflowJobId(currentJob.id); setWorkspaceView("workflow"); }}>Open job page</button>}</div>
               <dl className="review-grid prep-summary-grid">
                 {box("Field / well", [job.fieldArea, wells].filter(Boolean).join(" · "))}
                 {box("Due date", ukDate(job.dueDate) || "Not recorded")}
-                {box("Client focal point", [job.clientFocalPoint, job.clientFocalPointContact, job.clientFocalPointEmail].filter(Boolean).join(" · "))}
+                {locationDetails(job, samplingType).filter(([label]) => label !== "FIELD / AREA" && label !== "WELL").map(([label, value]) => <Fragment key={label}>{box(label.charAt(0) + label.slice(1).toLowerCase(), value)}</Fragment>)}
+                <div className="prep-focal"><dt>Client focal point</dt><dd>{job.clientFocalPoint || job.clientFocalPointContact || job.clientFocalPointEmail ? <><strong>{job.clientFocalPoint || "Name not recorded"}</strong>{job.clientFocalPointContact && <a href={"tel:" + job.clientFocalPointContact.replace(/[^+\d]/g, "")}>📞 {job.clientFocalPointContact}</a>}{job.clientFocalPointEmail && <a href={"mailto:" + job.clientFocalPointEmail}>✉ {job.clientFocalPointEmail}</a>}</> : "Not recorded"}</dd></div>
                 {box("Crew", <span className="crew-list">{job.assignedEngineerId && <span className="crew-person">{employeeName(job.assignedEngineerId)} <span className="crew-role accountable">Accountable</span></span>}{backups.map((id) => <span key={id} className="crew-person">{employeeName(id)} <span className="crew-role">Backup</span></span>)}{job.assignedDriverId && <span className="crew-person">{employeeName(job.assignedDriverId)} <span className="crew-role driver">Driver</span></span>}</span>)}
                 {box("Sampling scope", <ul className="review-plan">{plan.map((row) => <li key={row.source}><strong>{sourceLabel(row.source)}</strong> · {rowSummary(row)}{row.note ? ` · ${row.note}` : ""}</li>)}</ul>, true)}
                 <div className="full-field prep-instructions"><dt>Sampling instructions</dt><dd className="instructions-text">{job.samplingInstructions || "No specific sampling instructions recorded for this job."}</dd></div>
@@ -2021,20 +2049,6 @@ export default function Home() {
             </section>;
           })()}
 
-          {stage === "bottomhole" && <>
-            <section className="sampling-data-job-summary">
-              <div><small>JOB ID</small><strong>{displayJobId}</strong></div>
-              <div><small>CLIENT</small><strong>{clientName}</strong></div>
-              {locationDetails(job, samplingType).map(([label, value]) => <div key={label}><small>{label}</small><strong>{value}</strong></div>)}
-              <div><small>ASSIGNED ENGINEER</small><strong>{employeeName(currentJob?.assignedEngineerId || currentJob?.responsibleId || job.assignedEngineerId)}</strong></div>
-              <div><small>ASSIGNED DRIVER</small><strong>{employeeName(currentJob?.assignedDriverId || job.assignedDriverId)}</strong></div>
-              <div><small>SAMPLING SOURCE / METHOD</small><strong>{samplingTypeLabel}</strong></div>
-              {requiresEquipmentPreparation(samplingType) && <div><small>SAMPLE COUNT</small><strong>{samples.length}</strong></div>}
-              <div><small>CURRENT STAGE</small><strong>Sampling Data</strong></div>
-              <div><small>JOB DUE</small><strong>{job.dueDate || "Not recorded"}</strong></div>
-            </section>
-            <details className="job-context-details"><summary>More job context <span>⌄</span></summary><div><span><small>Preparation completed</small><strong>{formatDateTime(preparationCompletedAt)}</strong></span><span><small>Job owner</small><strong>{employeeName(currentJob?.ownerId)}</strong></span><span><small>Last updated</small><strong>{formatDateTime(currentJob?.lastUpdatedAt)}</strong></span></div></details>
-          </>}
 
           {samplingFlow ? (() => {
             const prep = currentJob!.stages.find((item) => item.name === "Sampling Preparation")?.status;
@@ -2060,12 +2074,12 @@ export default function Home() {
           {samplingFlow && (stage === "type" || stage === "bottomhole") && <section className="panel step-guide"><div><span className="eyebrow">STEP {stage === "type" ? 1 : 2} OF 4</span><h2>{stage === "type" ? (transferFlow ? "Transfer preparation" : "Preparation") : (transferFlow ? "Sample transfer data" : "Sample records & sampling data")}</h2><p>{stage === "type" ? "Complete the coordination checklist and prepare the equipment and container for each sample. Glass containers need only their own ID." : "Fill the standard data sheet for every sample and mark each one complete. Use N/A only where a condition does not apply."}</p><p className="required-legend"><strong>Required:</strong> fields marked * · <strong>Optional:</strong> remarks and notes · Your entries are kept when you move between steps; use Save Draft to store them.</p></div><div className="step-guide-status"><small>STATUS</small><strong>{currentSamplingStatus!.label}</strong><span>Next: {currentSamplingStatus!.next}</span>{samplingDataLocked(currentJob!) ? <button type="button" className="outline-button" onClick={() => setStage("report")}>View submission</button> : stage === "type" ? <button type="button" className="outline-button" onClick={() => setStage("bottomhole")}>Continue to sample data →</button> : <button type="button" className="outline-button" onClick={() => setStage("report")}>Continue to review &amp; submit →</button>}</div></section>}
 
 
-          {stage !== "job" && stage !== "type" && currentJob && <details className="workflow-details"><summary><span>Workflow responsibility</span><strong>{currentJob.currentStage} · {currentJob.stages.filter((item) => item.status === "Completed" || item.status === "Skipped").length} of {workflowStageNames.length} stages resolved</strong><i>⌄</i></summary><section className="stage-tracking" aria-label="Workflow responsibility">{currentJob.stages.map((item) => <article key={item.name} className={item.status.toLowerCase().replace(" ", "-")}><div><span>{item.status === "Completed" ? "✓" : item.status === "Skipped" ? "—" : "•"}</span><strong>{item.name}</strong></div><dl><div><dt>Assigned to</dt><dd>{employeeName(item.assignedTo)}</dd></div><div><dt>Status</dt><dd>{item.status}</dd></div><div><dt>Started</dt><dd>{formatDateTime(item.started)}</dd></div><div><dt>Completed</dt><dd>{formatDateTime(item.completed)}</dd></div><div><dt>Last updated by</dt><dd>{employeeName(item.lastUpdatedBy)}</dd></div></dl></article>)}</section></details>}
+          {stage !== "job" && stage !== "type" && stage !== "bottomhole" && currentJob && <details className="workflow-details"><summary><span>Workflow responsibility</span><strong>{currentJob.currentStage} · {currentJob.stages.filter((item) => item.status === "Completed" || item.status === "Skipped").length} of {workflowStageNames.length} stages resolved</strong><i>⌄</i></summary><section className="stage-tracking" aria-label="Workflow responsibility">{currentJob.stages.map((item) => <article key={item.name} className={item.status.toLowerCase().replace(" ", "-")}><div><span>{item.status === "Completed" ? "✓" : item.status === "Skipped" ? "—" : "•"}</span><strong>{item.name}</strong></div><dl><div><dt>Assigned to</dt><dd>{employeeName(item.assignedTo)}</dd></div><div><dt>Status</dt><dd>{item.status}</dd></div><div><dt>Started</dt><dd>{formatDateTime(item.started)}</dd></div><div><dt>Completed</dt><dd>{formatDateTime(item.completed)}</dd></div><div><dt>Last updated by</dt><dd>{employeeName(item.lastUpdatedBy)}</dd></div></dl></article>)}</section></details>}
 
-          {stage !== "job" && stage !== "type" && <section className="panel scope-plan-summary"><h2>Sampling scope</h2><p><strong>Sampling:</strong> {samplingTypeLabel || "Not selected"} · <strong>Samples requested:</strong> {job.requestedSampleCount || "Not specified"}</p>{job.sampleCountNotes && <p>{job.sampleCountNotes}</p>}</section>}
-          {stage !== "job" && stage !== "type" && <section className="panel instructions-panel"><div className="panel-heading"><div><h2>Sampling instructions</h2><p>From {employeeName(currentJob?.createdById)} · Assigned: {[job.assignedEngineerId, ...job.samplingTeamIds.filter((id) => id !== job.assignedEngineerId)].filter(Boolean).map((id, index) => employeeName(id) + (index === 0 ? " (accountable)" : "")).join(", ") || "Not assigned"}</p></div></div><p className="instructions-text">{job.samplingInstructions || "No specific sampling instructions recorded for this job."}</p></section>}
-          {stage !== "job" && stage !== "type" && currentJob && <div className="track-job-link"><button type="button" className="outline-button" onClick={() => { setWorkflowJobId(currentJob.id); setWorkspaceView("workflow"); }}>View job workflow & summary</button></div>}
-          {stage !== "job" && stage !== "type" && <section className="panel"><div className="panel-heading"><div><h2>Client Focal Point</h2><p>Recorded at Job Setup · Reference for the sampling team</p></div></div><div className="job-details-grid"><div><small>NAME</small><strong>{job.clientFocalPoint || "Not specified"}</strong></div><div><small>CONTACT NUMBER</small><strong>{job.clientFocalPointContact || "Not specified"}</strong></div><div><small>EMAIL</small><strong>{job.clientFocalPointEmail || "Not specified"}</strong></div></div></section>}
+          {stage !== "job" && stage !== "type" && stage !== "bottomhole" && <section className="panel scope-plan-summary"><h2>Sampling scope</h2><p><strong>Sampling:</strong> {samplingTypeLabel || "Not selected"} · <strong>Samples requested:</strong> {job.requestedSampleCount || "Not specified"}</p>{job.sampleCountNotes && <p>{job.sampleCountNotes}</p>}</section>}
+          {stage !== "job" && stage !== "type" && stage !== "bottomhole" && <section className="panel instructions-panel"><div className="panel-heading"><div><h2>Sampling instructions</h2><p>From {employeeName(currentJob?.createdById)} · Assigned: {[job.assignedEngineerId, ...job.samplingTeamIds.filter((id) => id !== job.assignedEngineerId)].filter(Boolean).map((id, index) => employeeName(id) + (index === 0 ? " (accountable)" : "")).join(", ") || "Not assigned"}</p></div></div><p className="instructions-text">{job.samplingInstructions || "No specific sampling instructions recorded for this job."}</p></section>}
+          {stage !== "job" && stage !== "type" && stage !== "bottomhole" && currentJob && <div className="track-job-link"><button type="button" className="outline-button" onClick={() => { setWorkflowJobId(currentJob.id); setWorkspaceView("workflow"); }}>View job workflow & summary</button></div>}
+          {stage !== "job" && stage !== "type" && stage !== "bottomhole" && <section className="panel"><div className="panel-heading"><div><h2>Client Focal Point</h2><p>Recorded at Job Setup · Reference for the sampling team</p></div></div><div className="job-details-grid"><div><small>NAME</small><strong>{job.clientFocalPoint || "Not specified"}</strong></div><div><small>CONTACT NUMBER</small><strong>{job.clientFocalPointContact || "Not specified"}</strong></div><div><small>EMAIL</small><strong>{job.clientFocalPointEmail || "Not specified"}</strong></div></div></section>}
           {stage === "job" && (() => {
             const editingDraft = !currentJob || isDraft(currentJob);
             const positionName = (e: Employee) => directory.positions.find((p) => p.id === e.positionId)?.name || e.role;
@@ -2291,21 +2305,16 @@ export default function Home() {
             <>
               {Object.values(sampleDataErrors).some((errors) => errors.length) && <div className="sampling-data-validation" role="alert"><span>!</span><div><strong>Sampling Data requires attention</strong><p>Complete the highlighted sample records before continuing.</p></div></div>}
 
-              <section className="sampling-data-overview">
-                <div><span className="sample-symbol">↓</span><div><small>SAMPLING SOURCE / METHOD</small><strong>Cased Hole (Bottomhole / Downhole Sampling)</strong></div></div>
-                <div><small>SAMPLES LOADED FROM PREPARATION</small><strong>{samples.length}</strong><span>{samples.map((sample) => sample.id).join(" · ")}</span></div>
-                <div><small>COMPLETED SAMPLE RECORDS</small><strong>{samples.filter((sample) => sample.dataComplete).length} / {samples.length}</strong><span>{samples.filter((sample) => sample.dataComplete).length === samples.length ? "Ready to continue" : "Complete each sample below"}</span></div>
-              </section>
 
-              <section className="panel sampling-data-panel">
-                <div className="panel-heading premium-heading"><div><span className="eyebrow">FIELD DATA CAPTURE</span><h2>Prepared sample records</h2><p>Preparation references are locked. Expand a sample to enter its field conditions and transfer record.</p></div><span className="client-total">{samples.filter((sample) => sample.dataComplete).length} / {samples.length} COMPLETE</span></div>
+              <section className="panel sampling-data-panel prep-step">
+                <div className="panel-heading premium-heading"><span className="prep-step-num">1</span><div><span className="eyebrow">STEP 1</span><h2>Sampling data per sample {stepChip(samples.filter((sample) => sample.dataComplete).length, samples.length)}</h2><p>Open each sample, fill in its data sheet with values and units, then mark it complete. The preparation details are shown read-only at the top of each sample.</p></div></div>
                 <div className="sampling-data-accordion">
                   {samples.map((sample, index) => { const status = sampleDataStatus(sample); return <article className={expanded === sample.id ? "sampling-data-sample open" : "sampling-data-sample"} key={sample.id}>
                     <button type="button" className="sampling-data-toggle" onClick={() => setExpanded(expanded === sample.id ? "" : sample.id)} aria-expanded={expanded === sample.id}>
                       <span className="sample-index">{String(index + 1).padStart(2, "0")}</span>
                       <div className="sample-heading"><strong>Sample {sample.id}</strong><small>{sample.sampler} · {sample.samplerSerial || "Serial pending"} / {containerLabel(sample, containerNoun(sample) + " pending")}</small></div>
                       <div className="sample-date"><small>SAMPLING DATE / TIME</small><strong>{sample.fieldData.samplingDate || sample.fieldData.samplingTime ? `${sample.fieldData.samplingDate || "Date pending"} · ${sample.fieldData.samplingTime || "Time pending"}` : "Not recorded"}</strong></div>
-                      <span className={`data-status ${status.toLowerCase().replace(" ", "-")}`}>{status}</span><b>⌄</b>
+                      {dataChip(status)}<b>⌄</b>
                     </button>
                     {expanded === sample.id && <div className="sampling-data-body">
                       <section className="preparation-reference"><header><div><small>READ-ONLY REFERENCE</small><h3>Sampling Preparation</h3></div><span>Locked</span></header><div className="preparation-reference-grid">
@@ -2326,13 +2335,13 @@ export default function Home() {
 
           {stage === "bottomhole" && samplingType && !isCasedHoleSampling(samplingType) && (
             <>
-              <section className="sampling-data-overview source-aware-overview"><div><span className="sample-symbol">{samplingType === "Wellhead Sampling" ? "↕" : samplingType === "Separator Sampling" ? "◉" : "+"}</span><div><small>SAMPLING SOURCE / METHOD</small><strong>{samplingTypeLabel}</strong></div></div><div><small>CONTEXTUAL LOCATION</small><strong>{locationSummary(job, samplingType)}</strong><span>Loaded from Sampling Preparation</span></div><div><small>DATA MODEL</small><strong>Standard Data Sheet</strong><span>Required for every sample</span></div></section>
-              <section className="panel source-data-panel"><div className="panel-heading premium-heading"><div><span className="eyebrow">SAMPLING CONTEXT</span><h2>{samplingTypeLabel} data</h2><p>Record the source-level context, then complete the standard data sheet for every sample below.</p></div><span className="required-chip">REQUIRED</span></div><div className="form-grid source-data-grid">
-                {samplingType === "Wellhead Sampling" && <><label><span>WHP if known</span><input value={job.whp} onChange={(event) => updateJob("whp", event.target.value)} /></label><label><span>WHT if known</span><input value={job.wht} onChange={(event) => updateJob("wht", event.target.value)} /></label><label className="full-field"><span>Wellhead Conditions / Notes</span><textarea rows={4} value={job.locationNotes} onChange={(event) => updateJob("locationNotes", event.target.value)} /></label></>}
-                {samplingType === "Separator Sampling" && <><label><span>Separator Pressure if known</span><input value={job.separatorPressure} onChange={(event) => updateJob("separatorPressure", event.target.value)} /></label><label><span>Separator Temperature if known</span><input value={job.separatorTemperature} onChange={(event) => updateJob("separatorTemperature", event.target.value)} /></label><label><span>Choke Size</span><input value={job.chokeSize} onChange={(event) => updateJob("chokeSize", event.target.value)} /></label><label><span>Oil Rate</span><input value={job.oilRate} onChange={(event) => updateJob("oilRate", event.target.value)} /></label><label><span>Gas Rate</span><input value={job.gasRate} onChange={(event) => updateJob("gasRate", event.target.value)} /></label><label><span>Water Rate</span><input value={job.waterRate} onChange={(event) => updateJob("waterRate", event.target.value)} /></label><label><span>Sampling Point</span><input value={job.samplingPoint} onChange={(event) => updateJob("samplingPoint", event.target.value)} /></label></>}
+
+              <section className="panel source-data-panel prep-step"><div className="panel-heading premium-heading"><span className="prep-step-num">1</span><div><span className="eyebrow">STEP 1</span><h2>{samplingTypeLabel} conditions</h2><p>Conditions for the whole job, if known, with their units. The data sheet for each sample follows in Step 2.</p></div></div><div className="form-grid source-data-grid">
+                {samplingType === "Wellhead Sampling" && <>{contextUnitField("WHP if known", "whp", pressureUnits)}{contextUnitField("WHT if known", "wht", temperatureUnits)}<label className="full-field"><span>Wellhead Conditions / Notes</span><textarea rows={4} value={job.locationNotes} onChange={(event) => updateJob("locationNotes", event.target.value)} /></label></>}
+                {samplingType === "Separator Sampling" && <>{contextUnitField("Separator Pressure if known", "separatorPressure", pressureUnits)}{contextUnitField("Separator Temperature if known", "separatorTemperature", temperatureUnits)}{contextUnitField("Choke Size", "chokeSize", chokeUnits)}{contextUnitField("Oil Rate", "oilRate", liquidRateUnits)}{contextUnitField("Gas Rate", "gasRate", gasRateUnits)}{contextUnitField("Water Rate", "waterRate", liquidRateUnits)}<label><span>Sampling Point</span><input value={job.samplingPoint} onChange={(event) => updateJob("samplingPoint", event.target.value)} placeholder="e.g. 1st stage separator, gas outlet" /></label></>}
                 {samplingType === "Other" && <><label><span>Location / Facility</span><input value={job.facility} onChange={(event) => updateJob("facility", event.target.value)} /></label><label><span>Sampling Point</span><input value={job.samplingPoint} onChange={(event) => updateJob("samplingPoint", event.target.value)} /></label><label className="full-field"><span>Description</span><textarea rows={5} value={job.otherDescription} onChange={(event) => updateJob("otherDescription", event.target.value)} /></label></>}
               </div></section>
-              <section className="panel generic-samples-panel"><div className="panel-heading premium-heading"><div><span className="eyebrow">STANDARD DATA SHEETS</span><h2>Individual sample data sheets</h2><p>The same controlled data sheet is required for every sample and every sampling situation.</p></div><button type="button" className="outline-button" onClick={addSample}>+ Add Sample</button></div><div className="generic-sample-list">{samples.map((sample) => <article key={sample.id}><header><strong>Sample {sample.id}</strong><span className={`data-status ${sampleDataStatus(sample).toLowerCase().replace(" ", "-")}`}>{sampleDataStatus(sample)}</span><button type="button" onClick={() => removeSample(sample.id)}>Remove</button></header><section className="data-section generic-bottle-reference"><header><span>00</span><div><small>SAMPLE CONTAINER</small><h3>Cylinder / Container Reference</h3></div></header><CylinderPicker inventory={bottleInventory} sample={sample} onSelect={(serial) => updatePreparationSample(sample.id, "bottleSerial", serial)} onField={(field, value) => updatePreparationSample(sample.id, field, value)} /></section>{standardDataSheetForm(sample)}{sampleDataErrors[sample.id]?.length > 0 && <div className="sample-data-errors" role="alert"><strong>Complete the following:</strong><ul>{sampleDataErrors[sample.id].map((error) => <li key={error}>{error}</li>)}</ul></div>}<footer className="sample-completion-bar"><div><small>DATA ENTRY TRACKING</small><strong>{sample.dataComplete ? `Completed by ${employeeName(sample.dataCompletedBy)}` : `Data entered by ${currentEmployee.name}`}</strong><span>{sample.dataComplete ? formatDateTime(sample.dataCompletedAt) : "Complete every standard data-sheet section to finish this record."}</span></div><button type="button" className={sample.dataComplete ? "outline-button completed-button" : "primary-button"} onClick={() => markSampleComplete(sample.id)}>{sample.dataComplete ? "✓ Sample Complete" : "Mark Sample Complete"}</button></footer></article>)}</div></section>
+              <section className="panel generic-samples-panel prep-step"><div className="panel-heading premium-heading"><span className="prep-step-num">2</span><div><span className="eyebrow">STEP 2</span><h2>Sample data sheets {stepChip(samples.filter((sample) => sample.dataComplete).length, samples.length)}</h2><p>Fill in the data sheet for every sample, with values and units, then mark it complete.</p></div><button type="button" className="outline-button" onClick={addSample}>+ Add Sample</button></div><div className="generic-sample-list">{samples.map((sample) => <article key={sample.id} className={expanded === sample.id ? "is-open" : undefined}><header><button type="button" className="generic-sample-toggle" aria-expanded={expanded === sample.id} onClick={() => setExpanded(expanded === sample.id ? "" : sample.id)}><strong>Sample {sample.id}</strong><small>{[sample.set ? `Set ${sample.set}` : "", sample.phase, containerLabel(sample, "Container not selected")].filter(Boolean).join(" · ")}</small></button>{dataChip(sampleDataStatus(sample))}<button type="button" onClick={() => removeSample(sample.id)}>Remove</button></header>{expanded === sample.id && <><section className="data-section generic-bottle-reference"><header><span>00</span><div><small>SAMPLE CONTAINER</small><h3>Cylinder / Container Reference</h3></div></header><CylinderPicker inventory={bottleInventory} sample={sample} onSelect={(serial) => updatePreparationSample(sample.id, "bottleSerial", serial)} onField={(field, value) => updatePreparationSample(sample.id, field, value)} /></section>{standardDataSheetForm(sample)}{sampleDataErrors[sample.id]?.length > 0 && <div className="sample-data-errors" role="alert"><strong>Complete the following:</strong><ul>{sampleDataErrors[sample.id].map((error) => <li key={error}>{error}</li>)}</ul></div>}<footer className="sample-completion-bar"><div><small>DATA ENTRY TRACKING</small><strong>{sample.dataComplete ? `Completed by ${employeeName(sample.dataCompletedBy)}` : `Data entered by ${currentEmployee.name}`}</strong><span>{sample.dataComplete ? formatDateTime(sample.dataCompletedAt) : "Complete every standard data-sheet section to finish this record."}</span></div><button type="button" className={sample.dataComplete ? "outline-button completed-button" : "primary-button"} onClick={() => markSampleComplete(sample.id)}>{sample.dataComplete ? "✓ Sample Complete" : "Mark Sample Complete"}</button></footer></>}</article>)}</div></section>
               <section className="sampling-data-footer"><div><small>SAMPLING DATA TRACKING</small><strong>Entered by {currentEmployee.name}</strong><span>{locationSummary(job, samplingType)}</span></div><div><button type="button" className="text-button" onClick={() => setStage("type")}>← Back to Preparation</button><button type="button" className="outline-button" onClick={saveSamplingDataDraft}>Save Draft</button><button type="button" className="primary-button" onClick={completeSamplingData}>Complete Sampling Data &amp; Continue <span>→</span></button></div></section>
             </>
           )}
