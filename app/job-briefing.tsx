@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { Settings2, PlayCircle } from "lucide-react";
 import type { JobRecord } from "./page";
-import { samplingTeam, samplingWorkers, samplingStarted, canManageJobAccess, operationsFor, type Actor, type Command } from "./operations-model";
+import { samplingTeam, samplingWorkers, samplingStarted, canManageJobAccess, canViewJobAccess, operationsFor, type Actor, type Command } from "./operations-model";
 import { legacyPlan, planRecordCount, rowSummary } from "./sampling-plan";
 import { ukDate, ukDateTime } from "./uk-format";
 
@@ -39,9 +39,9 @@ export function JobBriefing({ job, actor, onCommand, onStarted }: Props) {
     </dl>; return started ? <details className="briefing-details"><summary>Show job details</summary>{grid}</details> : grid; })()}
     {!started && accountable && <div className="briefing-start"><p><strong>What is needed now:</strong> read the briefing, then press <strong>Start job</strong>. The start is recorded in the Sequence of Events and the sampling preparation opens.</p><button type="button" className="attention-button start-job-button" onClick={start}><PlayCircle size={18} aria-hidden="true" /> Start job</button></div>}
     {!started && !accountable && <p className="briefing-note">Only {name(lead)} (accountable) can start this job.</p>}
-    {viewOnly && <p className="briefing-note">You are a backup on this job with <strong>view-only</strong> access: you can follow the job, its instructions and the sampling data, but not change them. The job coordinator can give you work access in Job access.</p>}
+    {viewOnly && <p className="briefing-note">You are a backup on this job with <strong>view-only</strong> access: you can follow the job, its instructions and the sampling data, but not change them. The job coordinator can give you work access if needed.</p>}
     {error && <p className="ops-error" role="alert">{error}</p>}
-    <JobAccess job={job} actor={actor} onCommand={onCommand} />
+    {canViewJobAccess(actor) && <JobAccess job={job} actor={actor} onCommand={onCommand} />}
   </section>;
 }
 

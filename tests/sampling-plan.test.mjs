@@ -96,7 +96,7 @@ test('Start job: only the accountable employee starts, once; Job access only by 
   assert.equal(j.events.at(-1).auto, true);
   assert.throws(() => applyOperation(j, { type: 'start-job' }, actor('HUSSEINI')), /already started/);
   assert.deepEqual(samplingWorkers(j), ['HUSSEINI'], 'backup is view only by default');
-  assert.throws(() => applyOperation(j, { type: 'job-access', editors: ['MOHSIN'], reason: 'x' }, actor('HUSSEINI')), /Only the job coordinator/);
+  assert.throws(() => applyOperation(j, { type: 'job-access', editors: ['MOHSIN'], reason: 'x' }, actor('HUSSEINI')), /Only employees with Edit job access/);
   assert.throws(() => applyOperation(j, { type: 'job-access', editors: ['MOHSIN'], reason: ' ' }, actor('SALIM')), /Reason for the access change is required/);
   assert.throws(() => applyOperation(j, { type: 'job-access', editors: ['ALI'], reason: 'Driver help' }, actor('SALIM')), /Only backup sampling employees/);
   j = applyOperation(j, { type: 'job-access', editors: ['MOHSIN'], reason: 'Ahmed on leave' }, actor('SALIM'));
@@ -112,4 +112,16 @@ test('an older job with some preparation ticked but no Start job still asks for 
   assert.equal(samplingStarted({ ...old, stages: [{ name: 'Sampling Preparation', status: 'Completed' }] }), true);
   assert.equal(samplingStarted({ ...old, operations: { ...ops, samplingData: [{ version: 1 }] } }), true);
   assert.equal(samplingStarted({ ...old, operations: { ...ops, samplingStart: { by: 'HUSSEINI', at: '2026-11-03T08:00:00Z' } } }), true);
+});
+
+test('job access and the full job record follow Settings → Authorization', async () => {
+  const { defaultAuthorization, readAuthorization, allowed } = await bundle('app/authorization.ts');
+  const ids = ['MA001', 'SALIM', 'WILFRED', 'HUSSEINI', 'MOHSIN'];
+  const p = defaultAuthorization(ids);
+  assert.deepEqual([p.jobAccessView, p.jobAccessEdit], [['SALIM'], ['SALIM']]);
+  assert.equal(allowed(p, 'HUSSEINI', 'jobAccessView'), false, 'the sampling engineer does not see job access');
+  assert.equal(allowed(p, 'HUSSEINI', 'jobSections'), false, 'the sampling engineer works from the overview only');
+  assert.equal(allowed(p, 'SALIM', 'jobSections'), true);
+  const saved = readAuthorization(JSON.stringify({ ...p, jobAccessView: undefined, jobAccessEdit: undefined, jobSections: undefined }), ids);
+  assert.deepEqual(saved.jobAccessEdit, ['SALIM'], 'settings saved before these permissions get the defaults');
 });

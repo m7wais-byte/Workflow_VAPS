@@ -15,6 +15,9 @@ export const permissionLabels = {
   tests: 'Manage test catalogue',
   viewWorkbook: 'View workbook',
   downloadWorkbook: 'Download workbook',
+  jobAccessView: 'View job access (who can work on a job)',
+  jobAccessEdit: 'Edit job access (change who can work on a job)',
+  jobSections: 'View all job sections (full job record)',
 };
 export type Permission = keyof typeof permissionLabels;
 export type Authorization = Record<Permission, string[]>;
@@ -30,9 +33,11 @@ export const driverOnlyAccess: Permission[] = ['jobDetails'];
 export const driverOnlyIds = ['HUMAID'];
 /** Company-wide overview (all jobs, pipeline, activity): administrator, coordinator and PVT supervisor by default. */
 export const companyOverviewDefault = [administratorId, 'SALIM', 'WILFRED'];
+/** Job access and the full job record: the job coordinator by default; the full record also for company-overview holders. */
+export const jobAccessDefault = ['SALIM'];
 export function defaultAuthorization(ids: string[]): Authorization {
   const broad = ids.filter(id => !driverOnlyIds.includes(id));
-  return { createJob: ['SALIM'], jobDetails: [...ids], sampling: [...broad], analysis: [...broad], inventory: [...broad], companyOverview: companyOverviewDefault.filter(id => ids.includes(id)), deleteJobs: [administratorId], settings: [administratorId], company: [administratorId], employees: [administratorId], authorization: [administratorId], tests: [administratorId], viewWorkbook: workbookAccessDefault.filter(id => ids.includes(id)), downloadWorkbook: workbookAccessDefault.filter(id => ids.includes(id)) };
+  return { createJob: ['SALIM'], jobDetails: [...ids], sampling: [...broad], analysis: [...broad], inventory: [...broad], companyOverview: companyOverviewDefault.filter(id => ids.includes(id)), deleteJobs: [administratorId], settings: [administratorId], company: [administratorId], employees: [administratorId], authorization: [administratorId], tests: [administratorId], viewWorkbook: workbookAccessDefault.filter(id => ids.includes(id)), downloadWorkbook: workbookAccessDefault.filter(id => ids.includes(id)), jobAccessView: jobAccessDefault.filter(id => ids.includes(id)), jobAccessEdit: jobAccessDefault.filter(id => ids.includes(id)), jobSections: companyOverviewDefault.filter(id => ids.includes(id)) };
 }
 export function readAuthorization(raw: string | null, ids: string[]): Authorization {
   if (raw === null) return defaultAuthorization(ids);
@@ -44,6 +49,8 @@ export function readAuthorization(raw: string | null, ids: string[]): Authorizat
   if (value.deleteJobs === undefined) value.deleteJobs = [administratorId];
   if (value.tests === undefined) value.tests = [administratorId];
   for (const key of ['viewWorkbook', 'downloadWorkbook']) if (value[key] === undefined) value[key] = workbookAccessDefault.filter(id => ids.includes(id));
+  for (const key of ['jobAccessView', 'jobAccessEdit']) if (value[key] === undefined) value[key] = jobAccessDefault.filter(id => ids.includes(id));
+  if (value.jobSections === undefined) value.jobSections = companyOverviewDefault.filter(id => ids.includes(id));
   for (const key of Object.keys(permissionLabels) as Permission[]) {
     if (!Array.isArray(value[key]) || value[key].some((id: unknown) => typeof id !== 'string' || !ids.includes(id))) throw Error('Invalid authorization settings');
   }

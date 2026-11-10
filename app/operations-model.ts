@@ -84,8 +84,10 @@ export const samplingWorkers=(job:JobRecord)=>{const team=samplingTeam(job);cons
 /** Sampling work starts when the accountable employee presses Start job. */
 /** Jobs sent before Start job existed count as started only once preparation is completed or sampling data was submitted; anything earlier waits for Start job (entries already made are kept). */
 export const samplingStarted=(job:JobRecord)=>!!job.operations?.samplingStart||!job.operations?.dispatchedAt||!!job.operations?.samplingData?.length||(job.stages||[]).some(s=>s.name==='Sampling Preparation'&&s.status==='Completed');
-/** Who may change Job access: the person who created or sent the job, or a job coordinator (Create new jobs). */
-export const canManageJobAccess=(job:JobRecord,actor:Actor)=>actor.id===job.createdById||actor.id===job.operations?.dispatchedBy||hasAccess(actor,'createJob');
+/** Who may change Job access: holders of Edit job access (Settings → Authorization). */
+export const canManageJobAccess=(_job:JobRecord,actor:Actor)=>hasAccess(actor,'jobAccessEdit');
+/** Who sees the Job access panel: holders of View or Edit job access. */
+export const canViewJobAccess=(actor:Actor)=>hasAccess(actor,'jobAccessView')||hasAccess(actor,'jobAccessEdit');
 /** Sampling data as submitted for review: samples, events, preparation and coordination. */
 export const dataSnapshot=(job:JobRecord)=>JSON.stringify({samples:job.samples||[],events:job.events||[],coordinationTasks:job.coordinationTasks||[],coordinationDetails:job.coordinationDetails||{},preparation:job.stages?.find(s=>s.name==='Sampling Preparation')?.status||'',source:job.samplingSource||''});
 export const latestData=(job:JobRecord)=>(operationsFor(job).samplingData||[]).at(-1);
@@ -311,7 +313,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   break;
  }
  case 'job-access':{
-  if(!canManageJobAccess(job,actor))throw Error('Only the job coordinator can change who may work on this job.');
+  if(!canManageJobAccess(job,actor))throw Error('Only employees with Edit job access (Settings → Authorization) can change who may work on this job.');
   requireText(command.reason,'Reason for the access change');reason=command.reason;
   const backups=samplingTeam(job).filter(id=>id!==job.assignedEngineerId);
   for(const id of command.editors)if(!backups.includes(id))throw Error('Only backup sampling employees on this job can be given edit access.');
