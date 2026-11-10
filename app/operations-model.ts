@@ -45,6 +45,7 @@ export type ReviewComment = { target:string; label:string; text:string };
 export type DataReview = { version:number; status:'Submitted'|'Returned'|'Approved'|'Reopened'; submittedBy:string; submittedAt:string; snapshot:string; note:string; reviewedBy?:string; reviewedAt?:string; general?:string; comments:ReviewComment[]; reopenedBy?:string; reopenedAt?:string; reason?:string };
 export type Operations = { version:1; labScopes?:LabScopeVersion[]; samplingData?:DataReview[]; revision:number; originalRequest:string[]; scope:ScopeRecord[]; activities:ActivityRecord[]; conditions:{pressure:string;pressureUnit:string;temperature:string;temperatureUnit:string;notes:string}; scopeConfirmedAt?:string; dispatchedAt?:string; dispatchedBy?:string; samplingReports:ReportVersion[]; finalReports:ReportVersion[]; handover?:{sampleIds:string[];/** Container identifier per sample (bottle serial or glass-container ID). */bottles:Record<string,string>;containerTypes?:Record<string,ContainerType>;sentBy:string;sentAt:string;receivedBy?:string;receivedAt?:string;notes:string}; additions:{id:string;title:string;reason:string;by:string;at:string;confirmedAt?:string;destination?:Destination}[]; history:{at:string;by:string;action:string;reason:string}[];
  /** When the accountable sampling employee pressed Start job. */samplingStart?:{by:string;at:string};
+ /** When the coordinator released this job's cylinders back to the sampling team for cleaning and checks. */cylindersReleased?:{by:string;at:string};
  /** Backup sampling employees who may also work on the sampling (set in Job access). Others in the sampling team only view the job. */samplingEditors?:string[];
  /** Planning estimates for the job progress overview, keyed by progress row (schedule-estimate.ts). Never changes statuses or completion records. */progressPlan?:Record<string,ScheduleEstimate> };
 export const clarificationItems = [
@@ -86,6 +87,10 @@ export const samplingWorkers=(job:JobRecord)=>{const team=samplingTeam(job);cons
 export const samplingStarted=(job:JobRecord)=>!!job.operations?.samplingStart||!job.operations?.dispatchedAt||!!job.operations?.samplingData?.length||(job.stages||[]).some(s=>s.name==='Sampling Preparation'&&s.status==='Completed');
 /** Who may change Job access: holders of Edit job access (Settings → Authorization). */
 export const canManageJobAccess=(_job:JobRecord,actor:Actor)=>hasAccess(actor,'jobAccessEdit');
+/** The job is finished: final report approved, or completed in the earlier workflow. */
+export const jobFinished=(job:JobRecord)=>operationComplete(job)||(!job.operations?.dispatchedAt&&job.status==='Completed');
+/** Cylinder serials recorded on the job's samples (glass containers excluded). */
+export const jobCylinderSerials=(job:JobRecord)=>[...new Set((job.samples||[]).filter(s=>s.containerType!=='Glass container'&&s.bottleSerial?.trim()).map(s=>s.bottleSerial.trim()))];
 /** Who sees the Job access panel: holders of View or Edit job access. */
 export const canViewJobAccess=(actor:Actor)=>hasAccess(actor,'jobAccessView')||hasAccess(actor,'jobAccessEdit');
 /** Sampling data as submitted for review: samples, events, preparation and coordination. */
@@ -250,6 +255,8 @@ export type Command =
  | {type:'dispatch';engineer:string;driver:string;/** Supporting sampling employees besides the accountable engineer. */team?:string[]}
  /** The accountable sampling employee confirms the job briefing and starts the sampling work. */
  | {type:'start-job'}
+ /** After the job is finished, the coordinator releases its cylinders to the sampling team for cleaning, calibration and checks. */
+ | {type:'release-cylinders';note?:string}
  /** Job access: which backup sampling employees may work on the sampling (the rest view only). */
  | {type:'job-access';editors:string[];reason:string}
  | {type:'data-submit';note:string}
@@ -310,6 +317,16 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   o.samplingStart={by:actor.id,at:now};
   const d=new Date(now);const pad=(n:number)=>String(n).padStart(2,'0');
   next.events=[...(job.events||[]),{date:`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,time:`${pad(d.getHours())}:${pad(d.getMinutes())}`,description:'Job started by '+(actor.employees.find(e=>e.id===actor.id)?.name||actor.id)+' (accountable). Sampling preparation begins.',createdBy:actor.id,createdAt:now,auto:true}];
+  break;
+ }
+ case 'release-cylinders':{
+  if(!hasAccess(actor,'createJob')&&actor.id!==o.dispatchedBy)throw Error('Only the job coordinator can release the cylinders of a job.');
+  if(o.cylindersReleased)throw Error('The cylinders of this job were already released.');
+  if(!jobFinished(job))throw Error('Cylinders are released after the job is finished (final report approved).');
+  const serials=jobCylinderSerials(job);if(!serials.length)throw Error('This job holds no cylinders.');
+  o.cylindersReleased={by:actor.id,at:now};
+  const d=new Date(now);const pad=(n:number)=>String(n).padStart(2,'0');
+  next.events=[...(job.events||[]),{date:`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,time:`${pad(d.getHours())}:${pad(d.getMinutes())}`,description:'Cylinders released to the sampling team for cleaning, calibration and checks by '+(actor.employees.find(e=>e.id===actor.id)?.name||actor.id)+': '+serials.join(', ')+(command.note?.trim()?'. Note: '+command.note.trim():''),createdBy:actor.id,createdAt:now,auto:true}];
   break;
  }
  case 'job-access':{

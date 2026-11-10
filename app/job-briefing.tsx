@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { Settings2, PlayCircle } from "lucide-react";
 import type { JobRecord } from "./page";
-import { samplingTeam, samplingWorkers, samplingStarted, canManageJobAccess, canViewJobAccess, operationsFor, type Actor, type Command } from "./operations-model";
+import { samplingTeam, samplingWorkers, samplingStarted, canManageJobAccess, canViewJobAccess, operationsFor, jobFinished, jobCylinderSerials, hasAccess, type Actor, type Command } from "./operations-model";
 import { legacyPlan, planRecordCount, rowSummary } from "./sampling-plan";
 import { ukDate, ukDateTime } from "./uk-format";
 
@@ -76,4 +76,23 @@ export function JobAccess({ job, actor, onCommand }: Omit<Props, "onStarted">) {
       <button type="button" className="primary-button" disabled={!changed || !reason.trim()} onClick={save}>Save job access</button></div>}
     {error && <p className="ops-error" role="alert">{error}</p>}
   </div>;
+}
+
+/** After the job is finished, the coordinator releases its cylinders back to the sampling team for cleaning and checks. */
+export function CylinderRelease({ job, actor, onCommand }: Omit<Props, "onStarted">) {
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const o = operationsFor(job), serials = jobCylinderSerials(job);
+  const name = (id?: string) => actor.employees.find((e) => e.id === id)?.name || "Not recorded";
+  if (!serials.length || !jobFinished(job)) return null;
+  const rel = o.cylindersReleased;
+  const canRelease = hasAccess(actor, "createJob") || actor.id === o.dispatchedBy;
+  if (rel) return <section className="panel ops-panel cyl-release is-done"><h2>Cylinders released</h2><p>{name(rel.by)} released {serials.length} cylinder{serials.length === 1 ? "" : "s"} on {ukDateTime(rel.at)}: {serials.join(", ")}. The sampling team collects, cleans, calibrates and checks them in <a href="#sampling">Sampling → Cylinders</a>.</p></section>;
+  const release = () => { try { onCommand({ type: "release-cylinders", note }); setError(""); } catch (e) { setError((e as Error).message); } };
+  return <section className="panel ops-panel cyl-release" aria-labelledby="cyl-release-title">
+    <h2 id="cyl-release-title">Job finished · release the cylinders</h2>
+    <p>This job still holds <strong>{serials.length} cylinder{serials.length === 1 ? "" : "s"}</strong>: {serials.join(", ")}. Release them so the sampling team can dispose of the remaining sample, clean, calibrate and check them for the next job. Until then they stay blocked as In use.</p>
+    {canRelease ? <div className="cyl-release-form"><label><span>Message to the sampling team (optional)</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Cylinders are in the PVT lab store, shelf B" /></label><button type="button" className="attention-button" onClick={release}>Release cylinders to the sampling team</button></div> : <p className="briefing-note">The job coordinator releases the cylinders.</p>}
+    {error && <p className="ops-error" role="alert">{error}</p>}
+  </section>;
 }

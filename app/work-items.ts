@@ -1,10 +1,11 @@
 import type { JobRecord } from './page';
-import { samplingWorkers, samplingStarted, operationsFor, samplingStatus, latestData, latest, labStatus, isDraft, canSeeDraft, samplingTeam, samplingApproved, finalReady, testsAwaitingQcApproval, assignmentEngineers, actorRoles, hasAccess, streamLead, additionalWorkPending, unplannedValidation, type Actor, type ActivityRecord, type Stream } from './operations-model';
+import { samplingWorkers, samplingStarted, jobFinished, jobCylinderSerials, operationsFor, samplingStatus, latestData, latest, labStatus, isDraft, canSeeDraft, samplingTeam, samplingApproved, finalReady, testsAwaitingQcApproval, assignmentEngineers, actorRoles, hasAccess, streamLead, additionalWorkPending, unplannedValidation, type Actor, type ActivityRecord, type Stream } from './operations-model';
 import { containerLabel } from './sample-container';
 import { addDays as addDaysIso } from './local-date';
 import type { Responsibilities } from './authorization';
 import { teamName } from './team-name';
 import { legacyPlan, rowSummary } from './sampling-plan';
+import { readCylinderStatus, cylinderStatuses } from './cylinder-status';
 import { ukDate } from './uk-format';
 
 /**
@@ -95,6 +96,8 @@ export function workItems(jobs: JobRecord[], actor: Actor, today: string) {
   const alert = (i: Alert) => { if (!alerts.has(i.key)) alerts.set(i.key, i); };
   const wait = (i: WaitingItem) => { if (!waiting.has(i.key)) waiting.set(i.key, i); };
   const block = (key: BlockedItem['setting'], what: string, job: JobRecord) => { const b = blocked.get(key) || { key, setting: key, what, jobs: [] }; if (!b.jobs.includes(job.jobNumber)) b.jobs.push(job.jobNumber); blocked.set(key, b); };
+  // Cylinder status register (browser storage); jobs decide In use / Returned.
+  const cylStatus = cylinderStatuses(jobs, readCylinderStatus());
   for (const job of jobs) {
     if (!canSeeDraft(job, actor)) continue;
     current = job;
@@ -204,6 +207,13 @@ export function workItems(jobs: JobRecord[], actor: Actor, today: string) {
     if (final?.status === 'Awaiting Approval' && roles.finalApproval === me && hasAccess(actor, 'analysis')) add({ ...base, role: 'Final report approval', button: 'Approve final report', key: `final-approve:${job.id}`, kind: 'review', action: `Approve final laboratory report v${final.version}`, status: 'Awaiting final approval', due: job.dueDate || undefined, from: final.preparedBy, fromLabel: 'Prepared by', events: [], open: { tab: 'reporting' } });
     // Coming up: real responsibilities on this job that are not this employee's turn yet. No approval button before its prerequisites.
     const dispatched = !!o.dispatchedAt, approved = samplingApproved(job), openLab = lab.filter((a) => a.status !== 'Completed');
+    // Cylinders: after the job is finished the coordinator releases them; the job's sampling team then cleans and checks them.
+    const serials = jobCylinderSerials(job);
+    if (serials.length && jobFinished(job) && !o.cylindersReleased && hasAccess(actor, 'createJob')) add({ ...base, area: 'Sampling', role: 'Job coordinator', button: 'Release cylinders', key: `cyl-release:${job.id}`, kind: 'task', action: `Job finished: release ${serials.length} cylinder${serials.length === 1 ? '' : 's'} to the sampling team for cleaning`, status: 'Job finished · cylinders still held', events: [], open: { tab: 'overview' } });
+    if (o.cylindersReleased && team.includes(me)) {
+      const waiting = serials.filter((x) => cylStatus(x).state === 'returned');
+      if (waiting.length) add({ ...base, area: 'Sampling', role: me === lead ? 'Accountable sampling employee' : 'Backup sampling employee', button: 'Open cylinders', key: `cyl-clean:${job.id}`, kind: 'task', action: `Collect, clean and check ${waiting.length} cylinder${waiting.length === 1 ? '' : 's'}: ${waiting.join(', ')}`, status: 'Returned · needs cleaning', from: o.cylindersReleased.by, fromLabel: 'Released by', events: [], open: { tab: 'cylinders' } });
+    }
     // Laboratory heads-up while the job is in sampling: general job details only, because the laboratory scope is chosen after the sampling report is approved.
     const labDuty = ([roles.scopeSelector, roles.labReceipt, roles.pvtTeamLead, roles.chemicalTeamLead] as (string | undefined)[]).includes(me);
     if (dispatched && !approved && labDuty && hasAccess(actor, 'analysis') && !team.includes(me) && o.dispatchedBy !== me) {

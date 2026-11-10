@@ -74,7 +74,11 @@ test('the dashboard follows the whole journey with one next responsible person a
  j=step(j,{type:'report-action',kind:'final',action:'submit',comments:''},'SHEREIQI');
  assert.deepEqual(acts(j,'WILFRED'),['Approve final laboratory report v1']);assert.equal(items(j,'SHEREIQI').waiting[0].waitingOn,'Wilfred Mendonca');
  j=step(j,{type:'report-action',kind:'final',action:'approve',comments:''},'WILFRED');
- for(const id of ['SALIM','MOHSIN','SHEREIQI','BAHRI','WILFRED','RANJITH','NASSER','YAQEEN','ALI'])assert.deepEqual(acts(j,id),[],id+' has nothing left');
+ for(const id of ['MOHSIN','SHEREIQI','BAHRI','WILFRED','RANJITH','NASSER','YAQEEN','ALI'])assert.deepEqual(acts(j,id),[],id+' has nothing left');
+ assert.deepEqual(acts(j,'SALIM'),['Job finished: release 1 cylinder to the sampling team for cleaning'],'the coordinator releases the cylinders of a finished job');
+ j=step(j,{type:'release-cylinders'},'SALIM');
+ assert.deepEqual(acts(j,'SALIM'),[],'nothing left for the coordinator after the release');
+ assert.match(acts(j,'MOHSIN')[0]||'',/Collect, clean and check 1 cylinder/,'the sampling team cleans and checks the returned cylinder');
 });
 
 test('a person with several duties sees each action once; ordering puts overdue work first and New only breaks ties',()=>{
