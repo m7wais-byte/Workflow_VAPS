@@ -27,14 +27,16 @@ test('the dashboard follows the whole journey with one next responsible person a
  for(const id of ['MOHSIN','HUSSEINI','SHEREIQI','WILFRED'])assert.deepEqual(acts(j,id),[],id+' sees no draft');
  j=step(j,{type:'dispatch',engineer:'MOHSIN',driver:'ALI',team:['HUSSEINI']},'SALIM');
  const m=items(j,'MOHSIN').actions[0];assert.equal(m.action,'Review and submit sampling data');assert.equal(m.fromLabel,'Assigned by');assert.equal(m.from,'SALIM');assert.equal(m.overdue,true,'due date before today');
- assert.deepEqual(acts(j,'HUSSEINI'),[],'supporting employee has nothing to do once data is complete');assert.equal(items(j,'HUSSEINI').waiting[0].waitingOn,'Mohsin Al Dhuhli (accountable) to submit');
+ assert.deepEqual(acts(j,'HUSSEINI'),[],'a view-only backup has no task');assert.equal(items(j,'HUSSEINI').waiting[0].waitingOn,'Mohsin Al Dhuhli (accountable)');assert.match(items(j,'HUSSEINI').waiting[0].label,/backup \(view only\)/);
  assert.deepEqual(acts(j,'ALI'),[]);assert.deepEqual(acts(j,'SALIM'),[]);
  j=step(j,{type:'data-submit',note:''},'MOHSIN');
  assert.deepEqual(acts(j,'MOHSIN'),[],'submitted work is not shown as an action');assert.equal(items(j,'MOHSIN').waiting[0].waitingOn,'Salim Al Maqbali');
  assert.deepEqual(acts(j,'SALIM'),['Review sampling data']);
  j=step(j,{type:'data-return',general:'Opening pressure missing for 1.02.',comments:[{target:'sample:1.02:data',label:'Sample 1.02 · sampling data',text:'Record the opening pressure.'}]},'SALIM');
  const r=items(j,'MOHSIN').actions[0];assert.equal(r.kind,'returned');assert.equal(r.action,'Correct sampling data and resubmit');assert.match(r.comment,/opening pressure/i);assert.equal(r.from,'SALIM');assert.deepEqual(r.open,{editor:'bottomhole'});
- assert.match(acts(j,'HUSSEINI')[0],/Help correct returned sampling data \(backup · Mohsin Al Dhuhli submits\)/);
+ assert.deepEqual(acts(j,'HUSSEINI'),[],'view-only backup cannot correct');
+ j=step(j,{type:'job-access',editors:['HUSSEINI'],reason:'Mohsin needs help with the corrections'},'SALIM');
+ assert.match(acts(j,'HUSSEINI')[0],/Help correct returned sampling data \(backup · Mohsin Al Dhuhli submits\)/,'a backup given work access can help');
  j=step(j,{type:'data-submit',note:''},'MOHSIN');j=step(j,{type:'data-approve'},'SALIM');
  assert.deepEqual(acts(j,'MOHSIN'),['Prepare sampling report']);assert.deepEqual(acts(j,'SALIM'),[]);
  j=step(j,{type:'report-draft',kind:'sampling',text:'Summary',checker:''},'MOHSIN');assert.deepEqual(acts(j,'MOHSIN'),['Submit sampling report for approval']);

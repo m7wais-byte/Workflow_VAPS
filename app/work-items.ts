@@ -1,5 +1,5 @@
 import type { JobRecord } from './page';
-import { operationsFor, samplingStatus, latestData, latest, labStatus, isDraft, canSeeDraft, samplingTeam, samplingApproved, finalReady, testsAwaitingQcApproval, assignmentEngineers, actorRoles, hasAccess, streamLead, additionalWorkPending, unplannedValidation, type Actor, type ActivityRecord, type Stream } from './operations-model';
+import { samplingWorkers, samplingStarted, operationsFor, samplingStatus, latestData, latest, labStatus, isDraft, canSeeDraft, samplingTeam, samplingApproved, finalReady, testsAwaitingQcApproval, assignmentEngineers, actorRoles, hasAccess, streamLead, additionalWorkPending, unplannedValidation, type Actor, type ActivityRecord, type Stream } from './operations-model';
 import { containerLabel } from './sample-container';
 import { addDays as addDaysIso } from './local-date';
 import type { Responsibilities } from './authorization';
@@ -107,7 +107,12 @@ export function workItems(jobs: JobRecord[], actor: Actor, today: string) {
     const team = samplingTeam(job), lead = job.assignedEngineerId, sEvents = samplingEvents(job, me, roles.samplingApproval);
     // Sampling
     // Assigned work is reachable through the assignment itself, from any department; reviews and approvals keep their permission.
-    if (team.includes(me) && (hasAccess(actor, 'sampling') || hasAccess(actor, 'jobDetails')) && st.team) {
+    const workers = samplingWorkers(job), started = samplingStarted(job);
+    // Before work starts, the accountable employee first reads the job briefing and presses Start job.
+    if (me === lead && !started && st.key === 'preparation' && (hasAccess(actor, 'sampling') || hasAccess(actor, 'jobDetails'))) add({ ...base, area: 'Sampling', role: 'Accountable sampling employee', button: 'View job & start', key: `start:${job.id}`, kind: sEvents.some((k) => k.startsWith('assign:')) ? 'assignment' : 'task', action: 'New job assigned to you: read the briefing and start the job', status: 'Assigned · not started', due: job.dueDate || undefined, from: o.dispatchedBy, fromLabel: 'Assigned by', events: sEvents, open: { tab: 'overview' } });
+    // Backups without edit access follow the job: they see it, but have no task on it.
+    else if (team.includes(me) && !workers.includes(me) && st.team) wait({ ...base, key: `w-follow:${job.id}`, label: 'Following this job as backup (view only)', what: started ? st.label : 'Assigned · not started yet', waitingOn: name(lead) + ' (accountable)', since: o.dispatchedAt, open: { tab: 'overview' } });
+    else if (workers.includes(me) && (hasAccess(actor, 'sampling') || hasAccess(actor, 'jobDetails')) && st.team) {
       const accountable = me === lead, returned = st.key === 'returned';
       const action = returned ? (accountable ? 'Correct sampling data and resubmit' : 'Help correct returned sampling data') : st.key === 'preparation' ? (accountable ? 'Complete sampling preparation' : 'Help with sampling preparation') : st.next === 'Review and submit the sampling data' ? (accountable ? 'Review and submit sampling data' : 'Sampling data ready for submission') : (accountable ? 'Complete sampling data' : 'Help complete sampling data');
       if (!accountable && st.next === 'Review and submit the sampling data') wait({ ...base, key: `w-support:${job.id}`, what: 'Sampling data complete', waitingOn: name(lead) + ' (accountable) to submit', open: { tab: 'sampling' } });

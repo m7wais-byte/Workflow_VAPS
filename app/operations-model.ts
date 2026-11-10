@@ -44,6 +44,8 @@ export type ReviewComment = { target:string; label:string; text:string };
 /** One submission of sampling data and its review. Data approval is separate from sampling-report approval. */
 export type DataReview = { version:number; status:'Submitted'|'Returned'|'Approved'|'Reopened'; submittedBy:string; submittedAt:string; snapshot:string; note:string; reviewedBy?:string; reviewedAt?:string; general?:string; comments:ReviewComment[]; reopenedBy?:string; reopenedAt?:string; reason?:string };
 export type Operations = { version:1; labScopes?:LabScopeVersion[]; samplingData?:DataReview[]; revision:number; originalRequest:string[]; scope:ScopeRecord[]; activities:ActivityRecord[]; conditions:{pressure:string;pressureUnit:string;temperature:string;temperatureUnit:string;notes:string}; scopeConfirmedAt?:string; dispatchedAt?:string; dispatchedBy?:string; samplingReports:ReportVersion[]; finalReports:ReportVersion[]; handover?:{sampleIds:string[];/** Container identifier per sample (bottle serial or glass-container ID). */bottles:Record<string,string>;containerTypes?:Record<string,ContainerType>;sentBy:string;sentAt:string;receivedBy?:string;receivedAt?:string;notes:string}; additions:{id:string;title:string;reason:string;by:string;at:string;confirmedAt?:string;destination?:Destination}[]; history:{at:string;by:string;action:string;reason:string}[];
+ /** When the accountable sampling employee pressed Start job. */samplingStart?:{by:string;at:string};
+ /** Backup sampling employees who may also work on the sampling (set in Job access). Others in the sampling team only view the job. */samplingEditors?:string[];
  /** Planning estimates for the job progress overview, keyed by progress row (schedule-estimate.ts). Never changes statuses or completion records. */progressPlan?:Record<string,ScheduleEstimate> };
 export const clarificationItems = [
  ['initial-scope','Initial scope owner','Confirm who selects and signs off the initial request before sampling. Existing job-creation permissions remain in use.'],
@@ -77,6 +79,12 @@ export const latest = (versions:ReportVersion[]):ReportVersion|undefined=>versio
 export const isDraft=(job:JobRecord)=>job.status==='Draft'&&!job.operations?.dispatchedAt;
 /** Everyone assigned to sampling: the accountable lead first, then supporting members. */
 export const samplingTeam=(job:JobRecord)=>[...new Set([job.assignedEngineerId||'',...(job.samplingTeamIds||[])].filter(Boolean))];
+/** Who may work on the sampling: the accountable employee plus backups given edit access in Job access. Other backups only view the job. */
+export const samplingWorkers=(job:JobRecord)=>{const team=samplingTeam(job);const editors=job.operations?.samplingEditors||[];return [...new Set([job.assignedEngineerId||'',...editors.filter(id=>team.includes(id))].filter(Boolean))];};
+/** Sampling work starts when the accountable employee presses Start job. Jobs sent before this step existed count as started. */
+export const samplingStarted=(job:JobRecord)=>!!job.operations?.samplingStart||!job.operations?.dispatchedAt||!!job.operations?.samplingData?.length||(job.stages||[]).some(s=>s.name==='Sampling Preparation'&&s.status==='Completed')||(job.samples||[]).some(s=>s.dataComplete||!!s.preparedAt)||(job.coordinationTasks||[]).some(t=>t.completed);
+/** Who may change Job access: the person who created or sent the job, or a job coordinator (Create new jobs). */
+export const canManageJobAccess=(job:JobRecord,actor:Actor)=>actor.id===job.createdById||actor.id===job.operations?.dispatchedBy||hasAccess(actor,'createJob');
 /** Sampling data as submitted for review: samples, events, preparation and coordination. */
 export const dataSnapshot=(job:JobRecord)=>JSON.stringify({samples:job.samples||[],events:job.events||[],coordinationTasks:job.coordinationTasks||[],coordinationDetails:job.coordinationDetails||{},preparation:job.stages?.find(s=>s.name==='Sampling Preparation')?.status||'',source:job.samplingSource||''});
 export const latestData=(job:JobRecord)=>(operationsFor(job).samplingData||[]).at(-1);
@@ -237,6 +245,10 @@ function scopeChanged(previous:LabScopeVersion,samples:Omit<SampleScope,'contain
 export const scopeReview=(s:Pick<SampleScope,'pvtTests'|'chemicalTests'|'fluidType'>)=>needsReview([...s.pvtTests,...s.chemicalTests],s.fluidType);
 export type Command =
  | {type:'dispatch';engineer:string;driver:string;/** Supporting sampling employees besides the accountable engineer. */team?:string[]}
+ /** The accountable sampling employee confirms the job briefing and starts the sampling work. */
+ | {type:'start-job'}
+ /** Job access: which backup sampling employees may work on the sampling (the rest view only). */
+ | {type:'job-access';editors:string[];reason:string}
  | {type:'data-submit';note:string}
  | {type:'data-return';general:string;comments:ReviewComment[]}
  | {type:'data-approve'}
@@ -287,6 +299,29 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   next.assignedEngineerId=command.engineer;next.assignedDriverId=command.driver;next.responsibleId=command.engineer;
   next.teamWork={...job.teamWork,sampling:{...job.teamWork?.sampling,owner:command.engineer,acceptedAt:now},transport:{...job.teamWork?.transport,owner:command.driver}};
   o.dispatchedAt=now;o.dispatchedBy=actor.id;break;
+ }
+ case 'start-job':{
+  if(!o.dispatchedAt)throw Error('This job has not been sent to Sampling yet.');
+  if(!job.assignedEngineerId||actor.id!==job.assignedEngineerId)throw Error('Only the accountable sampling employee ('+(actor.employees.find(e=>e.id===job.assignedEngineerId)?.name||'not assigned')+') can start this job.');
+  if(o.samplingStart)throw Error('This job was already started on '+o.samplingStart.at.slice(0,10)+'.');
+  o.samplingStart={by:actor.id,at:now};
+  const d=new Date(now);const pad=(n:number)=>String(n).padStart(2,'0');
+  next.events=[...(job.events||[]),{date:`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,time:`${pad(d.getHours())}:${pad(d.getMinutes())}`,description:'Job started by '+(actor.employees.find(e=>e.id===actor.id)?.name||actor.id)+' (accountable). Sampling preparation begins.',createdBy:actor.id,createdAt:now,auto:true}];
+  break;
+ }
+ case 'job-access':{
+  if(!canManageJobAccess(job,actor))throw Error('Only the job coordinator can change who may work on this job.');
+  requireText(command.reason,'Reason for the access change');reason=command.reason;
+  const backups=samplingTeam(job).filter(id=>id!==job.assignedEngineerId);
+  for(const id of command.editors)if(!backups.includes(id))throw Error('Only backup sampling employees on this job can be given edit access.');
+  const before=o.samplingEditors||[];const editors=[...new Set(command.editors)];
+  if(JSON.stringify([...before].sort())===JSON.stringify([...editors].sort()))throw Error('No access change to save.');
+  o.samplingEditors=editors;
+  const nm=(id:string)=>actor.employees.find(e=>e.id===id)?.name||id;
+  const changes=[...editors.filter(id=>!before.includes(id)).map(id=>nm(id)+' can now work on the sampling'),...before.filter(id=>!editors.includes(id)).map(id=>nm(id)+' is now view only')];
+  const d=new Date(now);const pad=(n:number)=>String(n).padStart(2,'0');
+  next.events=[...(job.events||[]),{date:`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,time:`${pad(d.getHours())}:${pad(d.getMinutes())}`,description:'Job access changed by '+nm(actor.id)+': '+changes.join('; ')+'. Reason: '+command.reason.trim(),createdBy:actor.id,createdAt:now,auto:true}];
+  break;
  }
  case 'scope':{
   requireRole(actor,'analysis','scopeSelector');requireText(command.reason,'Scope confirmation / change reason');reason=command.reason;
@@ -683,7 +718,7 @@ export function pendingActions(job:JobRecord, actor:Actor) {
  const o=operationsFor(job), final=latest(o.finalReports);
  const roles=actorRoles(actor);const st=samplingStatus(job,roles);const early=['draft','preparation','data','returned'].includes(st.key)&&st.tab==='sampling';
  const actions=operationMilestones(job,roles).filter(m=>{
-  if(m.done||(m.owner!==actor.id&&!(m.id==='sampling'&&st.team&&samplingTeam(job).includes(actor.id))))return false;
+  if(m.done||(m.owner!==actor.id&&!(m.id==='sampling'&&st.team&&samplingWorkers(job).includes(actor.id))))return false;
   if(m.id==='overview')return !o.dispatchedAt&&hasAccess(actor,'createJob');
   if(m.id==='sampling')return !!o.dispatchedAt&&hasAccess(actor,'sampling');
   if(m.id==='sampling-report')return (!!o.dispatchedAt||legacyDispatch(job))&&!early&&st.key!=='report-approved'&&hasAccess(actor,'sampling');
