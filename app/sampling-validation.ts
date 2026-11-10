@@ -5,7 +5,7 @@ export type SamplingJob = { samplingSource?: string; samples?: SampleRecord[]; s
 export const preparesEquipment = (source = '') => source === 'Cased Hole (Bottomhole / Downhole Sampling)' || source === 'Open Hole – Field Sampling' || source === 'Open Hole (SPMC - Field Sampling)';
 const shippingFields = ['sampleBottleVolume', 'sampleVolume', 'fluidRemaining', 'finalPressure', 'finalTemperature'];
 const matchedFields = ['initialOpeningPressure', 'initialOpeningTemperature', 'receivingBottleOpeningPressure', 'receivingBottleOpeningTemperature', 'transferPressure', 'transferTemperature', 'transferDuration'];
-const productionFields = ['bhp', 'bht', 'whp', 'wht', 'chokeSize', 'stableSince', 'separatorPressure', 'separatorTemperature', 'oilRate', 'correctedBy', 'gasRate', 'waterRate', 'gasGravity', 'condensateGravity', 'oilLineTemperature', 'gasDifferentialPressure', 'gasPressure', 'gasTemperature', 'fbFactor', 'fpvFactor', 'cgr', 'wor', 'bsw', 'h2s', 'co2'];
+const productionFields = ['bhp', 'bht', 'whp', 'wht', 'chokeSize', 'stableSince', 'separatorPressure', 'separatorTemperature', 'oilRate', 'correctedBy', 'gasRate', 'waterRate', 'gasGravity', 'condensateGravity', 'oilLineTemperature', 'gasDifferentialPressure', 'gasPressure', 'gasTemperature', 'fbFactor', 'fpvFactor', 'cgr', 'gor', 'wor', 'bsw', 'h2s', 'co2'];
 /** Standard sample data sheet checks. Glass containers need only their own ID, never cylinder inventory fields. */
 export function standardSheetErrors(sample: SampleRecord): string[] {
   const f = sample.fieldData || {}, v = (key: string) => (f[key] || '').trim();
