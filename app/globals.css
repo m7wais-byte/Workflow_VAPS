@@ -3363,3 +3363,29 @@ main input[placeholder^="Search" i],main input[placeholder*="search" i],main .in
 .pgx-editor{grid-column:1/-1;margin-top:6px;padding:12px;border-radius:8px;background:#f8fbfa;border:1px solid var(--line)}
 .pg-panel{gap:12px}
 @media (max-width:760px){.pgx-glance{grid-template-columns:1fr}.pgx-row{grid-template-columns:24px minmax(0,1fr)}.pgx-row-side{grid-column:2;align-items:flex-start;text-align:left}.pgx-section-count{margin-left:0}}
+
+/* Sampling preparation: one Job summary card, then numbered steps with status chips */
+.prep-summary{border:1.5px solid #d9e4ee}
+.prep-summary-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:10px}
+.prep-summary-head h2{margin:4px 0 4px;font-family:Georgia,serif;font-size:20px;color:var(--navy);font-weight:600}
+.prep-summary-head p{margin:0;font-size:14px;color:#526971}
+.prep-summary .review-grid{gap:10px 12px;margin:8px 0}
+.prep-summary .review-grid>div{border:1px solid var(--line);border-radius:8px;background:#f8fbfb;padding:10px 12px}
+.prep-summary .review-grid dt{font-size:11px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;color:#5f7680}
+.prep-summary .review-grid dd{margin:3px 0 0;font-size:15px;color:var(--navy);font-weight:600}
+.prep-summary .review-plan{list-style:none;padding:0;margin:4px 0 0;display:grid;gap:6px}
+.prep-summary .review-plan li{border-left:3px solid var(--ok);padding:2px 0 2px 10px;font-weight:500}
+.prep-summary .crew-list{display:flex;flex-wrap:wrap;gap:6px 16px}
+.prep-summary .prep-instructions{background:#fff8e5!important;border-color:var(--todo-line)!important}
+.prep-step .panel-heading{align-items:flex-start}
+.prep-step-num{flex:none;display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:var(--navy);color:#fff;font-weight:800;font-size:15px}
+.prep-step .panel-heading h2 .section-state{margin-left:8px;font-family:var(--font-geist-sans),system-ui,sans-serif;vertical-align:middle}
+.readiness-action{border-left:4px solid var(--idle-line)}
+.readiness-action.is-pending{border-left-color:var(--warn-strong)}
+.readiness-action.is-done{border-left-color:var(--ok)}
+.readiness-action.is-done>summary .readiness-number{background:var(--ok-bg);color:var(--ok);border-color:var(--ok-line)}
+.readiness-action>summary>em.section-state{margin-left:auto;font-size:11.5px}
+.preparation-sample-toggle .section-state{margin-left:auto}
+@media (max-width:760px){.prep-summary-head{flex-direction:column}}
+.prep-step>.panel-heading{display:flex!important;grid-template-columns:none!important;align-items:flex-start;gap:12px}
+.prep-step>.panel-heading>div{flex:1;text-align:left}
