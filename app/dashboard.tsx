@@ -54,7 +54,7 @@ export function MyWork({ now, upcoming, waiting, blocked, blockedActions, alerts
       <ul>{visibleAlerts.map((a) => <li key={a.key} className={'alert-' + a.kind}>
         <div><strong>{a.headline}</strong> · <b className="mono">{a.jobNumber}</b> · {a.samples} · {a.scope}
           {a.kind === 'sampling' ? <small>Sent to Sampling by {name(a.by)} · {stamp(a.at)} · Laboratory scope is chosen after the sampling report is approved.</small> : <small>Destination {teamName(a.destination || '')} · {a.kind === 'scope' ? 'added' : a.kind === 'moved' ? 'reassigned' : 'assigned'} by {name(a.by)} · {stamp(a.at)} · Planning: {a.planner ? name(a.planner) : 'Unassigned (team lead not configured)'} · Assigned: {a.assignee ? (a.kind === 'scope' ? a.assignee : name(a.assignee)) : 'not yet'}</small>}</div>
-        <div className="alert-go"><button type="button" className="primary-button" onClick={() => onOpenTab(a.jobId, a.open.tab, a)}>{a.button}</button><button type="button" className="text-button" onClick={() => onReadAlert(a)}>Mark read</button></div>
+        <div className="alert-go"><button type="button" className="attention-button" onClick={() => onOpenTab(a.jobId, a.open.tab, a)}>{a.button}</button><button type="button" className="text-button" onClick={() => onReadAlert(a)}>Mark read</button></div>
       </li>)}</ul>
       {alerts.length > 3 && <button type="button" className="text-button" onClick={() => setAllAlerts(!allAlerts)}>{allAlerts ? 'Show fewer' : `Show all ${alerts.length}`}</button>}
     </section>}
@@ -69,11 +69,11 @@ export function MyWork({ now, upcoming, waiting, blocked, blockedActions, alerts
       {filter === 'now' && <><div className="inbox-th" role="row"><span role="columnheader">Job</span><span role="columnheader">Your task</span><span role="columnheader">Deadline</span><span role="columnheader">Action</span></div>
         {slice(lists.now).map((i) => <div key={i.key} className={'inbox-item ' + (i.kind === 'returned' ? 'is-returned' : i.overdue ? 'is-overdue' : '')} role="row"><div className="inbox-row">
           <div className="inbox-job" role="cell"><b>{i.jobNumber}</b><span>{i.client}</span>{flowOf(i.jobId) && <small className="inbox-stage">{flowOf(i.jobId)!.current}</small>}</div>
-          <div className="inbox-act" role="cell"><span className="ready-tag">Ready</span><span className={areaClass(i.area)}>{teamName(i.area)}</span>{i.kind === 'returned' && <span className="inbox-tag tag-returned">Returned</span>}{isNew(i) && <span className="inbox-tag tag-new">New</span>}<strong>{i.action}</strong>
+          <div className="inbox-act" role="cell"><span className="ready-tag">Needs action</span><span className={areaClass(i.area)}>{teamName(i.area)}</span>{i.kind === 'returned' && <span className="inbox-tag tag-returned">Returned</span>}{isNew(i) && <span className="inbox-tag tag-new">New</span>}<strong>{i.action}</strong>
             <span className="inbox-sub">{ident(i.test, i.sample, i.container) || i.status}{i.from ? ` · ${i.fromLabel || 'From'} ${name(i.from)}` : ''}</span>
             {i.comment && <span className={'inbox-note ' + (i.kind === 'returned' ? 'is-correction' : '')}>{i.kind === 'returned' ? 'Correction: ' : 'Note: '}{i.comment}</span>}</div>
           <div role="cell">{due(i.due, i.dueKind, i.overdue, i.jobDue)}</div>
-          <div className="inbox-go" role="cell"><button type="button" className="primary-button" onClick={() => onOpen(i)}>{i.button}</button></div>
+          <div className="inbox-go" role="cell"><button type="button" className="attention-button" onClick={() => onOpen(i)}>{i.button}</button></div>
         </div></div>)}
         {!lists.now.length && <p className="inbox-empty" role="status">{term ? 'No tasks match this search.' : upcoming.length || waiting.length ? 'Nothing needs your action right now. Your other work is in Coming up and Waiting.' : 'Nothing needs your action right now. New assignments, reviews and approvals appear here.'}</p>}</>}
       {filter === 'upcoming' && <>{slice(lists.upcoming).map((u) => <div key={u.key} className="inbox-item compact" role="row"><div className="inbox-row">
