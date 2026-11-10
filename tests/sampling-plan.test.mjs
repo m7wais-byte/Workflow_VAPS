@@ -103,3 +103,13 @@ test('Start job: only the accountable employee starts, once; Job access only by 
   assert.deepEqual(samplingWorkers(j), ['HUSSEINI', 'MOHSIN']);
   assert.match(j.events.at(-1).description, /Mohsin Al Dhuhli can now work on the sampling.*Reason: Ahmed on leave/);
 });
+
+test('an older job with some preparation ticked but no Start job still asks for Start job; completed preparation counts as started', async () => {
+  const { samplingStarted } = await bundle('app/operations-model.ts');
+  const ops = { dispatchedAt: '2026-11-01T08:00:00Z', dispatchedBy: 'SALIM' };
+  const old = { operations: ops, coordinationTasks: [{ id: '1', label: 'Contact the field focal point', completed: true }], samples: [{ id: '1.01', preparedAt: '2026-11-02T08:00:00Z', dataComplete: false }], stages: [{ name: 'Sampling Preparation', status: 'In Progress' }] };
+  assert.equal(samplingStarted(old), false);
+  assert.equal(samplingStarted({ ...old, stages: [{ name: 'Sampling Preparation', status: 'Completed' }] }), true);
+  assert.equal(samplingStarted({ ...old, operations: { ...ops, samplingData: [{ version: 1 }] } }), true);
+  assert.equal(samplingStarted({ ...old, operations: { ...ops, samplingStart: { by: 'HUSSEINI', at: '2026-11-03T08:00:00Z' } } }), true);
+});

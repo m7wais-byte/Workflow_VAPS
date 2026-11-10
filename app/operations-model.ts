@@ -81,8 +81,9 @@ export const isDraft=(job:JobRecord)=>job.status==='Draft'&&!job.operations?.dis
 export const samplingTeam=(job:JobRecord)=>[...new Set([job.assignedEngineerId||'',...(job.samplingTeamIds||[])].filter(Boolean))];
 /** Who may work on the sampling: the accountable employee plus backups given edit access in Job access. Other backups only view the job. */
 export const samplingWorkers=(job:JobRecord)=>{const team=samplingTeam(job);const editors=job.operations?.samplingEditors||[];return [...new Set([job.assignedEngineerId||'',...editors.filter(id=>team.includes(id))].filter(Boolean))];};
-/** Sampling work starts when the accountable employee presses Start job. Jobs sent before this step existed count as started. */
-export const samplingStarted=(job:JobRecord)=>!!job.operations?.samplingStart||!job.operations?.dispatchedAt||!!job.operations?.samplingData?.length||(job.stages||[]).some(s=>s.name==='Sampling Preparation'&&s.status==='Completed')||(job.samples||[]).some(s=>s.dataComplete||!!s.preparedAt)||(job.coordinationTasks||[]).some(t=>t.completed);
+/** Sampling work starts when the accountable employee presses Start job. */
+/** Jobs sent before Start job existed count as started only once preparation is completed or sampling data was submitted; anything earlier waits for Start job (entries already made are kept). */
+export const samplingStarted=(job:JobRecord)=>!!job.operations?.samplingStart||!job.operations?.dispatchedAt||!!job.operations?.samplingData?.length||(job.stages||[]).some(s=>s.name==='Sampling Preparation'&&s.status==='Completed');
 /** Who may change Job access: the person who created or sent the job, or a job coordinator (Create new jobs). */
 export const canManageJobAccess=(job:JobRecord,actor:Actor)=>actor.id===job.createdById||actor.id===job.operations?.dispatchedBy||hasAccess(actor,'createJob');
 /** Sampling data as submitted for review: samples, events, preparation and coordination. */
