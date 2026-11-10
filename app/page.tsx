@@ -380,14 +380,16 @@ const pressureUnits = ["psi", "psia", "psig", "bar", "barg", "kPa", "MPa"];
 const temperatureUnits = ["°C", "°F", "K"];
 const volumeUnits = ["cc", "mL", "L"];
 const depthUnits = ["m", "ft", "m MD", "m TVD", "ft MD", "ft TVD"];
-const durationUnits = ["min", "h", "days"];
-const flowPeriodUnits = ["h", "min", "days"];
+const durationUnits = ["min", "h"];
+const flowPeriodUnits = ["h", "min"];
 const chokeUnits = ["/64 in", "in", "mm", "% open"];
 const concentrationUnits = ["ppm", "mol %", "% vol", "mg/m³"];
 const gasRateUnits = ["MMscf/d", "Mscf/d", "scf/d", "Sm³/d", "m³/d", "MSm³/d"];
 const liquidRateUnits = ["STB/d", "bbl/d", "m³/d", "Sm³/d", "L/min"];
 const gasGravityUnits = ["air = 1"];
 const liquidGravityUnits = ["SG 60/60 °F", "°API", "kg/m³"];
+/** Sample nature codes (final list to be provided by the sampling team). */
+const sampleNatureOptions: [string, string][] = [["BHS", "Bottomhole (BHS)"], ["OHS", "Open-hole field sampling (OHS)"], ["OHT", "Open-hole lab transfer (OHT)"], ["WHS", "Wellhead (WHS)"], ["SEP", "Separator (SEP)"], ["STN", "Station (STN)"], ["OIL", "Oil"], ["GAS", "Gas"], ["WATER", "Water"], ["CONDENSATE", "Condensate"]];
 const gorUnits = ["scf/STB", "Sm³/Sm³", "m³/m³", "Mscf/STB"];
 const cgrUnits = ["STB/MMscf", "bbl/MMscf", "Sm³/MSm³", "m³/m³"];
 const worUnits = ["bbl/bbl", "STB/STB", "m³/m³"];
@@ -1230,35 +1232,47 @@ export default function Home() {
   }
 
   function standardDataSheetForm(sample: Sample): ReactNode {
+    const U = (label: string, field: string, units: string[], unitField = field + "Unit", placeholder?: string) => samplingUnitField(sample, label, field, unitField, units, { required: true, placeholder });
+    const T = (label: string, field: string, placeholder = "Value or N/A") => samplingTextField(sample, label, field, { required: true, placeholder });
+    const filled = (field: string) => Boolean((field === "depth" ? sample.depth : sample.fieldData[field] || "").trim());
+    const section = (num: string, title: string, hint: string, fields: string[], body: ReactNode, open = false) => {
+      const done = fields.filter(filled).length, st = done >= fields.length ? "completed" : done ? "in-progress" : "not-started";
+      return <details className={"sheet-section st-" + st} open={open || undefined}>
+        <summary><span className="sheet-num">{num}</span><span className="sheet-title"><strong>{title}</strong><small>{hint}</small></span><span className={"section-state st-" + st}>{st === "completed" ? "✓ Complete" : `${done} of ${fields.length} filled`}</span></summary>
+        <div className="sheet-body">{body}</div>
+      </details>;
+    };
+    const group = (title: string, body: ReactNode) => <div className="sheet-group"><h4>{title}</h4><div className="technical-field-grid">{body}</div></div>;
+    const natureValue = sample.fieldData.sampleNature || "";
+    const natureList = sampleNatureOptions.some(([code]) => code === natureValue) || !natureValue ? sampleNatureOptions : [[natureValue, natureValue] as [string, string], ...sampleNatureOptions];
     return <>
-      <div className="standard-sheet-toolbar"><div><strong>Standard Sample Data Sheet</strong><small>Complete every section. Where N/A is allowed, type <kbd>-</kbd> and move to the next field to enter N/A.</small></div><button type="button" className="outline-button" onClick={() => fillBlankConditionsAsNotApplicable(sample.id)}>Set blank condition fields to N/A</button></div>
-      <section className="data-section identification-section"><header><span>01</span><div><small>REQUIRED SAMPLE CONTEXT</small><h3>Identification</h3></div></header><div className="technical-field-grid">
+      <div className="standard-sheet-toolbar"><div><strong>Sample data sheet</strong><small>Fill every section; pick the unit next to each value. Type <kbd>-</kbd> in a field to enter N/A where it does not apply.</small></div><button type="button" className="outline-button" onClick={() => fillBlankConditionsAsNotApplicable(sample.id)}>Set blank fields to N/A</button></div>
+      {section("1", "Identification", "When, where and what was sampled", ["samplingDate", "samplingTime", "sampleNature", "depth", "flowPeriod", "formation", "perforations"], <div className="technical-field-grid">
         {samplingTextField(sample, "Sampling Date", "samplingDate", { required: true, type: "date" })}
         {samplingTextField(sample, "Sampling Time", "samplingTime", { required: true, type: "time" })}
-        {samplingTextField(sample, "Sample Nature", "sampleNature", { required: true, placeholder: "e.g. BHS, WHS, separator" })}
-        {samplingUnitField(sample, "Sampling Point / Depth", "depth", "depthUnit", depthUnits, { required: true, placeholder: "Depth, or point description" })}
-        {samplingUnitField(sample, "Flow Period", "flowPeriod", "flowPeriodUnit", flowPeriodUnits, { required: true })}
-        {samplingTextField(sample, "Formation", "formation", { required: true, placeholder: "Value or N/A" })}
-        {samplingTextField(sample, "Perforations", "perforations", { required: true, placeholder: "Value or N/A" })}
-      </div></section>
-      <details className="technical-data-section"><summary><div><span>02</span><strong>Shipping Conditions</strong><small>Sample volumes, remaining fluid, and final cylinder condition</small></div><b>⌄</b></summary><div className="technical-field-grid">
-        {samplingUnitField(sample, "Sample Cylinder Volume", "sampleBottleVolume", "sampleBottleVolumeUnit", volumeUnits, { required: true })}{samplingUnitField(sample, "Sample Volume", "sampleVolume", "sampleVolumeUnit", volumeUnits, { required: true })}{samplingUnitField(sample, "Fluid Remaining", "fluidRemaining", "fluidRemainingUnit", volumeUnits, { required: true })}
+        <label><span>Sample Nature *</span><select value={natureValue} onChange={(event) => updateSampleFieldData(sample.id, "sampleNature", event.target.value)}><option value="">Select sample nature</option>{natureList.map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select></label>
+        {U("Sampling Point / Depth", "depth", depthUnits, "depthUnit", "Depth, or point description")}
+        {U("Flow Period", "flowPeriod", flowPeriodUnits)}
+        {T("Formation", "formation")}
+        {U("Perforations", "perforations", depthUnits, "perforationsUnit", "e.g. 2500–2510 or N/A")}
+      </div>, true)}
+      {section("2", "Shipping conditions", "Cylinder and sample volumes and the final cylinder condition", ["sampleBottleVolume", "sampleVolume", "fluidRemaining", "gasCapCreated", "finalPressure", "finalTemperature"], <div className="technical-field-grid">
+        {U("Sample Cylinder Volume", "sampleBottleVolume", volumeUnits)}{U("Sample Volume", "sampleVolume", volumeUnits)}{U("Fluid Remaining", "fluidRemaining", volumeUnits)}
         {samplingSelectField(sample, "Gas Cap Created", "gasCapCreated", ["Yes", "No", "N/A"])}
-        {samplingUnitField(sample, "Final Pressure", "finalPressure", "finalPressureUnit", pressureUnits, { required: true })}{samplingUnitField(sample, "Final Temperature", "finalTemperature", "finalTemperatureUnit", temperatureUnits, { required: true })}
-      </div></details>
-      <details className="technical-data-section"><summary><div><span>03</span><strong>Matched / Transfer Conditions</strong><small>Opening and transfer conditions for the sample and receiving cylinder</small></div><b>⌄</b></summary><div className="technical-field-grid">
-        {samplingUnitField(sample, "Sample Opening Pressure", "initialOpeningPressure", "initialOpeningPressureUnit", pressureUnits, { required: true })}{samplingUnitField(sample, "Sample Opening Temperature", "initialOpeningTemperature", "initialOpeningTemperatureUnit", temperatureUnits, { required: true })}
-        {samplingUnitField(sample, "Receiving Cylinder Opening Pressure", "receivingBottleOpeningPressure", "receivingBottleOpeningPressureUnit", pressureUnits, { required: true })}{samplingUnitField(sample, "Receiving Cylinder Opening Temperature", "receivingBottleOpeningTemperature", "receivingBottleOpeningTemperatureUnit", temperatureUnits, { required: true })}
-        {samplingUnitField(sample, "Transfer Pressure", "transferPressure", "transferPressureUnit", pressureUnits, { required: true })}{samplingUnitField(sample, "Transfer Temperature", "transferTemperature", "transferTemperatureUnit", temperatureUnits, { required: true })}{samplingUnitField(sample, "Transfer Duration", "transferDuration", "transferDurationUnit", durationUnits, { required: true })}
-      </div></details>
-      <details className="technical-data-section"><summary><div><span>04</span><strong>Production Conditions During Sampling</strong><small>Enter measured values or N/A for every non-applicable condition</small></div><b>⌄</b></summary><div className="technical-field-grid">
-        {samplingUnitField(sample, "Bottomhole Pressure (BHP)", "bhp", "bhpUnit", pressureUnits, { required: true })}{samplingUnitField(sample, "Bottomhole Temperature (BHT)", "bht", "bhtUnit", temperatureUnits, { required: true })}{samplingUnitField(sample, "Wellhead Pressure (WHP)", "whp", "whpUnit", pressureUnits, { required: true })}{samplingUnitField(sample, "Wellhead Temperature (WHT)", "wht", "whtUnit", temperatureUnits, { required: true })}
-        {samplingUnitField(sample, "Choke Size", "chokeSize", "chokeSizeUnit", chokeUnits, { required: true })}{samplingTextField(sample, "Stable Since", "stableSince", { required: true, placeholder: "Date/time or N/A" })}{samplingUnitField(sample, "H₂S", "h2s", "h2sUnit", concentrationUnits, { required: true })}{samplingUnitField(sample, "CO₂", "co2", "co2Unit", concentrationUnits, { required: true })}
-        {samplingUnitField(sample, "Separator Pressure", "separatorPressure", "separatorPressureUnit", pressureUnits, { required: true })}{samplingUnitField(sample, "Separator Temperature", "separatorTemperature", "separatorTemperatureUnit", temperatureUnits, { required: true })}{samplingUnitField(sample, "Gas Rate (std)", "gasRate", "gasRateUnit", gasRateUnits, { required: true })}{samplingUnitField(sample, "Gas Gravity", "gasGravity", "gasGravityUnit", gasGravityUnits, { required: true })}
-        {samplingUnitField(sample, "Gas Differential Pressure", "gasDifferentialPressure", "gasDifferentialPressureUnit", pressureUnits, { required: true })}{samplingUnitField(sample, "Gas Pressure", "gasPressure", "gasPressureUnit", pressureUnits, { required: true })}{samplingUnitField(sample, "Gas Temperature", "gasTemperature", "gasTemperatureUnit", temperatureUnits, { required: true })}{samplingTextField(sample, "Fb Factor (dimensionless)", "fbFactor", { required: true, placeholder: "Value or N/A" })}
-        {samplingTextField(sample, "Fpv Factor (dimensionless)", "fpvFactor", { required: true, placeholder: "Value or N/A" })}{samplingUnitField(sample, "Oil Rate", "oilRate", "oilRateUnit", liquidRateUnits, { required: true })}{samplingTextField(sample, "Corrected By", "correctedBy", { required: true, placeholder: "Name/reference or N/A" })}{samplingUnitField(sample, "Condensate / Oil Gravity", "condensateGravity", "condensateGravityUnit", liquidGravityUnits, { required: true })}
-        {samplingUnitField(sample, "Oil Line Temperature", "oilLineTemperature", "oilLineTemperatureUnit", temperatureUnits, { required: true })}{samplingUnitField(sample, "Water Rate", "waterRate", "waterRateUnit", liquidRateUnits, { required: true })}{samplingUnitField(sample, "GOR", "gor", "gorUnit", gorUnits, { required: true })}{samplingUnitField(sample, "CGR", "cgr", "cgrUnit", cgrUnits, { required: true })}{samplingUnitField(sample, "WOR", "wor", "worUnit", worUnits, { required: true })}{samplingUnitField(sample, "BSW", "bsw", "bswUnit", bswUnits, { required: true })}
-      </div></details>
+        {U("Final Cylinder Pressure", "finalPressure", pressureUnits)}{U("Final Cylinder Temperature", "finalTemperature", temperatureUnits)}
+      </div>)}
+      {section("3", "Transfer conditions", "Opening and transfer conditions for the sample cylinder and the receiving cylinder", ["initialOpeningPressure", "initialOpeningTemperature", "receivingBottleOpeningPressure", "receivingBottleOpeningTemperature", "transferPressure", "transferTemperature", "transferDuration"], <>
+        {group("Sample cylinder (opening)", <>{U("Sample Opening Pressure", "initialOpeningPressure", pressureUnits)}{U("Sample Opening Temperature", "initialOpeningTemperature", temperatureUnits)}</>)}
+        {group("Receiving cylinder (opening)", <>{U("Receiving Cylinder Opening Pressure", "receivingBottleOpeningPressure", pressureUnits)}{U("Receiving Cylinder Opening Temperature", "receivingBottleOpeningTemperature", temperatureUnits)}</>)}
+        {group("Transfer", <>{U("Transfer Pressure", "transferPressure", pressureUnits)}{U("Transfer Temperature", "transferTemperature", temperatureUnits)}{U("Transfer Duration", "transferDuration", durationUnits)}</>)}
+      </>)}
+      {section("4", "Production conditions during sampling", "Measured values with units, or N/A where a condition does not apply", ["bhp", "bht", "whp", "wht", "chokeSize", "stableSince", "h2s", "co2", "separatorPressure", "separatorTemperature", "gasRate", "gasGravity", "gasDifferentialPressure", "gasPressure", "gasTemperature", "fbFactor", "fpvFactor", "oilRate", "correctedBy", "condensateGravity", "oilLineTemperature", "waterRate", "gor", "cgr", "wor", "bsw"], <>
+        {group("Well", <>{U("Bottomhole Pressure (BHP)", "bhp", pressureUnits)}{U("Bottomhole Temperature (BHT)", "bht", temperatureUnits)}{U("Wellhead Pressure (WHP)", "whp", pressureUnits)}{U("Wellhead Temperature (WHT)", "wht", temperatureUnits)}{U("Choke Size", "chokeSize", chokeUnits)}{T("Stable Since", "stableSince", "Date/time or N/A")}</>)}
+        {group("Gas composition", <>{U("H₂S", "h2s", concentrationUnits)}{U("CO₂", "co2", concentrationUnits)}</>)}
+        {group("Separator & gas", <>{U("Separator Pressure", "separatorPressure", pressureUnits)}{U("Separator Temperature", "separatorTemperature", temperatureUnits)}{U("Gas Rate (std)", "gasRate", gasRateUnits)}{U("Gas Gravity", "gasGravity", gasGravityUnits)}{U("Gas Differential Pressure", "gasDifferentialPressure", pressureUnits)}{U("Gas Pressure", "gasPressure", pressureUnits)}{U("Gas Temperature", "gasTemperature", temperatureUnits)}{T("Fb Factor (dimensionless)", "fbFactor")}{T("Fpv Factor (dimensionless)", "fpvFactor")}</>)}
+        {group("Oil & water", <>{U("Oil Rate", "oilRate", liquidRateUnits)}{T("Corrected By", "correctedBy", "Name/reference or N/A")}{U("Oil Gravity", "condensateGravity", liquidGravityUnits)}{U("Oil Line Temperature", "oilLineTemperature", temperatureUnits)}{U("Water Rate", "waterRate", liquidRateUnits)}</>)}
+        {group("Ratios", <>{U("GOR", "gor", gorUnits)}{U("CGR", "cgr", cgrUnits)}{U("WOR", "wor", worUnits)}{U("BSW", "bsw", bswUnits)}</>)}
+      </>)}
       <label className="sample-remarks"><span>Remarks</span><textarea rows={4} value={sample.notes} onChange={(event) => updateSampleFieldData(sample.id, "notes", event.target.value)} placeholder="Record the data source, sample condition, observations, or exceptions…" /></label>
     </>;
   }

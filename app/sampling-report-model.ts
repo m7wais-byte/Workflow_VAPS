@@ -172,7 +172,7 @@ function sheetFor(sample: ReportSample, title: string): Omit<SampleSheet, 'remar
   return {
     sampleId: sample.id, title,
     identification: {
-      left: [['Sample No:', orNR(sample.id)], [glass ? 'Container No:' : 'Cylinder No:', containerRef(sample)], ['Sampling Date:', dateShort(f.samplingDate)], ['Sampling Time:', orNR(f.samplingTime)], ['Sampling Point:', orNR(sample.depth)], ['Perforations:', orNR(f.perforations)]],
+      left: [['Sample No:', orNR(sample.id)], [glass ? 'Container No:' : 'Cylinder No:', containerRef(sample)], ['Sampling Date:', dateShort(f.samplingDate)], ['Sampling Time:', orNR(f.samplingTime)], ['Sampling Point:', withUnit(sample.depth, f.depthUnit)], ['Perforations:', withUnit(f.perforations, f.perforationsUnit)]],
       right: [['Sample Nature:', orNR(f.sampleNature)], ['Flow Period:', withUnit(f.flowPeriod, f.flowPeriodUnit)], ['Formation:', orNR(f.formation)], ...(sampler ? [['Sampler:', sampler] as Field] : [])],
     },
     shipping: {
@@ -188,7 +188,7 @@ function sheetFor(sample: ReportSample, title: string): Omit<SampleSheet, 'remar
       [['Sep Press:', withUnit(f.separatorPressure, f.separatorPressureUnit)], ['Sep Temp:', withUnit(f.separatorTemperature, f.separatorTemperatureUnit)], ['Gas Rate (std):', withUnit(f.gasRate, f.gasRateUnit)], ['Gas Gravity:', withUnit(f.gasGravity, f.gasGravityUnit && f.gasGravityUnit !== 'air = 1' ? f.gasGravityUnit : '')], ['Gas diff press:', withUnit(f.gasDifferentialPressure, f.gasDifferentialPressureUnit)], ['Gas Press:', withUnit(f.gasPressure, f.gasPressureUnit)], ['Gas Temp:', withUnit(f.gasTemperature, f.gasTemperatureUnit)], ['Fb factor:', orNR(f.fbFactor)], ['Fpv factor:', orNR(f.fpvFactor)]],
       // The data sheet records one "Oil Rate" without its condition basis, so it keeps its own label and the
       // std/sep-condition rows stay "Not recorded". Likewise BSW is recorded without a sampling point.
-      [['Oil Rate (std cond):', NOT_RECORDED], ['Corrected by:', orNR(f.correctedBy)], ['Oil rate (sep cond):', NOT_RECORDED], ['Oil Rate:', withUnit(f.oilRate, f.oilRateUnit)], ['Con. gravity:', withUnit(f.condensateGravity, f.condensateGravityUnit === 'SG 60/60 °F' ? '' : f.condensateGravityUnit)], ['Oil line temp:', withUnit(f.oilLineTemperature, f.oilLineTemperatureUnit)], ['Water rate:', withUnit(f.waterRate, f.waterRateUnit)], ['GOR:', withUnit(f.gor, f.gorUnit)], ['CGR:', withUnit(f.cgr, f.cgrUnit)], ['WOR:', withUnit(f.wor, f.worUnit)], ['BSW:', withUnit(f.bsw, f.bswUnit)]],
+      [['Oil Rate (std cond):', NOT_RECORDED], ['Corrected by:', orNR(f.correctedBy)], ['Oil rate (sep cond):', NOT_RECORDED], ['Oil Rate:', withUnit(f.oilRate, f.oilRateUnit)], [!f.condensateGravityUnit || f.condensateGravityUnit === 'SG 60/60 °F' ? 'Oil gravity 60/60:' : 'Oil gravity:', withUnit(f.condensateGravity, f.condensateGravityUnit === 'SG 60/60 °F' ? '' : f.condensateGravityUnit)], ['Oil line temp:', withUnit(f.oilLineTemperature, f.oilLineTemperatureUnit)], ['Water rate:', withUnit(f.waterRate, f.waterRateUnit)], ['GOR:', withUnit(f.gor, f.gorUnit)], ['CGR:', withUnit(f.cgr, f.cgrUnit)], ['WOR:', withUnit(f.wor, f.worUnit)], ['BSW:', withUnit(f.bsw, f.bswUnit)]],
     ],
   };
 }
