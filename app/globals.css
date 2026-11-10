@@ -3408,3 +3408,23 @@ main input[placeholder^="Search" i],main input[placeholder*="search" i],main .in
 .prep-focal a:hover{text-decoration:underline}
 .generic-sample-toggle{position:relative;padding-left:18px!important}
 .generic-sample-toggle::before{position:absolute;left:0;top:6px}
+
+/* Sample data sheet: four sections, each with its own fill progress */
+.sheet-section{border:1px solid var(--line);border-left:4px solid var(--idle-line);border-radius:10px;background:var(--paper);margin:10px 0;overflow:hidden}
+.sheet-section.st-in-progress{border-left-color:var(--warn-strong)}
+.sheet-section.st-completed{border-left-color:var(--ok)}
+.sheet-section>summary{display:flex;align-items:center;gap:12px;padding:12px 14px;cursor:pointer;list-style:none}
+.sheet-section>summary::-webkit-details-marker{display:none}
+.sheet-section[open]>summary{border-bottom:1px solid var(--line-2);background:#fbfcfc}
+.sheet-num{flex:none;display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--navy);color:#fff;font-weight:800;font-size:13px}
+.sheet-section.st-completed .sheet-num{background:var(--ok)}
+.sheet-title{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+.sheet-title strong{font-size:15px;color:var(--navy)}
+.sheet-title small{font-size:13px;color:var(--muted)}
+.sheet-section>summary::after{content:"▸";color:var(--muted);margin-left:4px}
+.sheet-section[open]>summary::after{content:"▾"}
+.sheet-body{padding:12px 14px 14px}
+.sheet-group{margin-top:10px}
+.sheet-group:first-child{margin-top:0}
+.sheet-group h4{margin:0 0 6px;font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:var(--teal-dark)}
+.sheet-group+.sheet-group{padding-top:10px;border-top:1px dashed var(--line)}
