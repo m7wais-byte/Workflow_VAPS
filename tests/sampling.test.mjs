@@ -28,8 +28,11 @@ test('only the accountable employee submits; supporting employees, drivers and o
  const s=step(j,{type:'data-submit',note:'All done'},'MOHSIN');
  assert.equal(latestData(s).status,'Submitted');assert.equal(latestData(s).submittedBy,'MOHSIN');assert.equal(samplingDataLocked(s),true);
  assert.throws(()=>step(s,{type:'data-submit',note:''},'MOHSIN'),/already waiting for review/);
- assert.ok(pendingActions(j,actor('HUSSEINI')).some(a=>a.id==='sampling'),'a supporting employee can help with data entry');
- assert.match(pendingActions(j,actor('HUSSEINI')).find(a=>a.id==='sampling').next,/Mohsin.*submits/);
+ assert.equal(pendingActions(j,actor('HUSSEINI')).some(a=>a.id==='sampling'),false,'a view-only backup cannot help');
+ const w=step(j,{type:'job-access',editors:['HUSSEINI'],reason:'Help with data entry'},'SALIM');
+ assert.ok(pendingActions(w,actor('HUSSEINI')).some(a=>a.id==='sampling'),'a backup given work access can help with data entry');
+ assert.match(pendingActions(w,actor('HUSSEINI')).find(a=>a.id==='sampling').next,/Mohsin.*submits/);
+ assert.throws(()=>step(w,{type:'data-submit',note:''},'HUSSEINI'),/Only the accountable sampling employee/,'work access never lets a backup submit');
 });
 
 test('submission catches missing preparation, containers and data sheets; bottles and glass both pass',()=>{
@@ -55,7 +58,8 @@ test('returning needs specific comments; returned work is distinct and resubmitt
  const r=step(s,{type:'data-return',general:'Opening pressures are missing.',comments:[comment('sample:1.01'),comment('preparation','Calibration status is not recorded.')]},'SALIM');
  assert.equal(latestData(r).status,'Returned');assert.equal(latestData(r).comments.length,2);assert.equal(samplingDataLocked(r),false,'returned data can be corrected');
  assert.equal(samplingStatus(r).key,'returned');assert.equal(samplingStatus(r).owner,'MOHSIN');
- assert.ok(pendingActions(r,actor('HUSSEINI')).some(a=>a.id==='sampling'),'supporting employee may help correct');
+ assert.equal(pendingActions(r,actor('HUSSEINI')).some(a=>a.id==='sampling'),false,'a view-only backup cannot correct');
+ assert.ok(pendingActions(step(r,{type:'job-access',editors:['HUSSEINI'],reason:'Help correct'},'SALIM'),actor('HUSSEINI')).some(a=>a.id==='sampling'),'a backup given work access may help correct');
  assert.throws(()=>step(r,{type:'data-submit',note:''},'HUSSEINI'),/Only the accountable/);
  const again=step(r,{type:'data-submit',note:'Corrected'},'MOHSIN');
  assert.equal(operationsFor(again).samplingData.length,2,'submission history is kept');assert.equal(operationsFor(again).samplingData[0].comments.length,2,'earlier comments are kept');

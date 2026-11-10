@@ -47,7 +47,9 @@ test('drafts stay with their creator; sent jobs reach every assigned sampling em
  assert.deepEqual(pendingActions(d,actor('SALIM')).map(a=>a.id),['overview']);
  assert.equal(pendingActions(d,actor('MOHSIN')).length,0,'an assignee gets nothing before sending');
  const job=sent(draft({samples:draft().samples.map(x=>({...x,dataComplete:false}))}));
- for(const id of ['MOHSIN','HUSSEINI'])assert.ok(pendingActions(job,actor(id)).some(a=>a.id==='sampling'),id+' receives the sampling work');
+ assert.ok(pendingActions(job,actor('MOHSIN')).some(a=>a.id==='sampling'),'the accountable employee receives the sampling work');
+ assert.equal(pendingActions(job,actor('HUSSEINI')).some(a=>a.id==='sampling'),false,'a backup is view only by default');
+ assert.ok(pendingActions(step(job,{type:'job-access',editors:['HUSSEINI'],reason:'Extra hands for sampling'},'SALIM'),actor('HUSSEINI')).some(a=>a.id==='sampling'),'a backup given work access receives the sampling work');
  assert.equal(pendingActions(job,actor('SHEREIQI')).some(a=>a.id==='sampling'),false,'the PVT Team Lead is not a sampler on this job');
  assert.equal(canSeeDraft(job,actor('MOHSIN')),true);
 });

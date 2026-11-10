@@ -79,3 +79,27 @@ test('open-hole field sampling with the general name still needs equipment prepa
   assert.equal(preparesEquipment('Open Hole – Field Sampling'), true);
   assert.equal(preparesEquipment('Open Hole – Lab Transfer'), false);
 });
+
+test('Start job: only the accountable employee starts, once; Job access only by the coordinator, with a reason', async () => {
+  const { initialDirectory } = await bundle('app/employee-directory.ts');
+  const { defaultAuthorization } = await bundle('app/authorization.ts');
+  const { applyOperation, samplingStarted, samplingWorkers } = await bundle('app/operations-model.ts');
+  const employees = initialDirectory().employees;
+  const actor = (id) => ({ id, employees, policy: defaultAuthorization(employees.map((e) => e.id)) });
+  const job = { id: 'OM-Q-26-050', jobNumber: 'OM-Q-26-050', clientCode: 'Q', clientName: 'OQ', fieldArea: 'F', dueDate: '', status: 'Job Created', currentStage: 'Sampling Preparation', nextAction: '', ownerId: 'SALIM', responsibleId: 'HUSSEINI', createdById: 'SALIM', createdAt: '2026-11-01T08:00:00Z', lastUpdatedById: 'SALIM', lastUpdatedAt: '2026-11-01T08:00:00Z', stages: [], samplingSource: 'Separator Sampling', samplingInstructions: 'Go', samples: [{ id: '1.01' }], events: [] };
+  let j = applyOperation(job, { type: 'dispatch', engineer: 'HUSSEINI', driver: 'ALI', team: ['MOHSIN'] }, actor('SALIM'));
+  assert.equal(samplingStarted(j), false);
+  assert.throws(() => applyOperation(j, { type: 'start-job' }, actor('MOHSIN')), /Only the accountable sampling employee/);
+  j = applyOperation(j, { type: 'start-job' }, actor('HUSSEINI'));
+  assert.equal(samplingStarted(j), true);
+  assert.match(j.events.at(-1).description, /Job started by Ahmed Al Husseini/);
+  assert.equal(j.events.at(-1).auto, true);
+  assert.throws(() => applyOperation(j, { type: 'start-job' }, actor('HUSSEINI')), /already started/);
+  assert.deepEqual(samplingWorkers(j), ['HUSSEINI'], 'backup is view only by default');
+  assert.throws(() => applyOperation(j, { type: 'job-access', editors: ['MOHSIN'], reason: 'x' }, actor('HUSSEINI')), /Only the job coordinator/);
+  assert.throws(() => applyOperation(j, { type: 'job-access', editors: ['MOHSIN'], reason: ' ' }, actor('SALIM')), /Reason for the access change is required/);
+  assert.throws(() => applyOperation(j, { type: 'job-access', editors: ['ALI'], reason: 'Driver help' }, actor('SALIM')), /Only backup sampling employees/);
+  j = applyOperation(j, { type: 'job-access', editors: ['MOHSIN'], reason: 'Ahmed on leave' }, actor('SALIM'));
+  assert.deepEqual(samplingWorkers(j), ['HUSSEINI', 'MOHSIN']);
+  assert.match(j.events.at(-1).description, /Mohsin Al Dhuhli can now work on the sampling.*Reason: Ahmed on leave/);
+});
