@@ -27,7 +27,7 @@ export function JobBriefing({ job, actor, onCommand, onStarted }: Props) {
         <p>{started ? <>Started{o.samplingStart ? <> by <strong>{name(o.samplingStart.by)}</strong> on {ukDateTime(o.samplingStart.at)}</> : ""}. Sampling work is in progress.</> : <>Sent to Sampling by <strong>{name(o.dispatchedBy)}</strong> on {ukDateTime(o.dispatchedAt)}. Waiting for <strong>{name(lead)}</strong> to start the job.</>}</p></div>
       <span className={"section-state " + (started ? "st-in-progress" : "st-not-started")}>{started ? "Started · in progress" : "Not started"}</span>
     </div>
-    <dl className="review-grid briefing-grid">
+    {(() => { const grid = <dl className="review-grid briefing-grid">
       {box("Field / well", [job.fieldArea, wells].filter(Boolean).join(" · "))}
       {box("Job date → due date", `${ukDate(job.dateReceived) || "Not recorded"} → ${ukDate(job.dueDate) || "Not recorded"}`)}
       {box("Client focal point", [job.clientFocalPoint, job.clientFocalPointContact, job.clientFocalPointEmail].filter(Boolean).join(" · "))}
@@ -36,7 +36,7 @@ export function JobBriefing({ job, actor, onCommand, onStarted }: Props) {
       {box("Job / request description", job.description, true)}
       {box("Sampling instructions", job.samplingInstructions, true)}
       <div className="full-field"><dt>Crew</dt><dd className="crew-list">{lead && <span className="crew-person">{name(lead)} <span className="crew-role accountable">Accountable</span></span>}{backups.map((id) => <span key={id} className="crew-person">{name(id)} <span className="crew-role">Backup · {workers.includes(id) ? "can work" : "view only"}</span></span>)}{job.assignedDriverId && <span className="crew-person">{name(job.assignedDriverId)} <span className="crew-role driver">Driver</span></span>}</dd></div>
-    </dl>
+    </dl>; return started ? <details className="briefing-details"><summary>Show job details</summary>{grid}</details> : grid; })()}
     {!started && accountable && <div className="briefing-start"><p><strong>What is needed now:</strong> read the briefing, then press <strong>Start job</strong>. The start is recorded in the Sequence of Events and the sampling preparation opens.</p><button type="button" className="attention-button start-job-button" onClick={start}><PlayCircle size={18} aria-hidden="true" /> Start job</button></div>}
     {!started && !accountable && <p className="briefing-note">Only {name(lead)} (accountable) can start this job.</p>}
     {viewOnly && <p className="briefing-note">You are a backup on this job with <strong>view-only</strong> access: you can follow the job, its instructions and the sampling data, but not change them. The job coordinator can give you work access in Job access.</p>}

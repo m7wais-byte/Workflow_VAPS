@@ -3276,3 +3276,28 @@ main input[placeholder^="Search" i],main input[placeholder*="search" i],main .in
 @media (max-width:760px){.job-briefing-head,.briefing-start,.job-access-save{flex-direction:column;align-items:stretch}.job-access-head .outline-button{margin-left:0}}
 .access-toggle label{flex-direction:row!important;font-size:14px;font-weight:600;color:var(--ink)}
 .access-toggle input[type=radio]{width:16px!important;height:16px!important;min-height:0!important;padding:0!important;margin:0!important;flex:none;accent-color:var(--teal);box-shadow:none!important}
+
+/* Job page: focused on the work. Progress opens in a side panel; other sections sit in a menu. */
+.job-toolbar{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px;margin:4px 0 16px}
+.job-toolbar>.outline-button,.job-sections-menu>.outline-button{display:inline-flex;align-items:center;gap:7px;min-height:38px;font-weight:650}
+.job-sections-menu{position:relative}
+.job-sections-list{position:absolute;z-index:30;top:calc(100% + 6px);left:0;min-width:280px;display:flex!important;flex-direction:column;gap:10px;padding:12px 14px;background:var(--paper);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 32px rgba(16,44,59,.16);margin:0!important;overflow:visible!important}
+.job-sections-list .ops-tab-group{display:flex;flex-direction:column;gap:2px;border:0!important;padding:0!important}
+.job-sections-list .ops-tab-label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 2px}
+.job-sections-list a{display:block;padding:7px 10px;border-radius:6px;color:var(--navy);text-decoration:none;font-size:14px;font-weight:600;border:0!important}
+.job-sections-list a:hover{background:var(--line-2)}
+.job-sections-list a[aria-current=page]{background:#e7eef6;color:#1d3a63}
+.section-bar{display:flex;align-items:center;gap:14px;margin:0 0 14px;padding:10px 14px;border:1px solid var(--line);border-radius:8px;background:var(--paper)}
+.section-bar a{color:var(--teal-dark);font-weight:700;text-decoration:none}
+.section-bar strong{color:var(--navy)}
+.side-drawer-backdrop{position:fixed;inset:0;z-index:80;background:rgba(16,44,59,.35)}
+.side-drawer{position:fixed;z-index:81;top:0;right:0;bottom:0;width:min(760px,100vw);overflow-y:auto;background:var(--canvas);box-shadow:-12px 0 40px rgba(16,44,59,.25);padding:0 20px 24px}
+.side-drawer-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 -20px 14px;padding:14px 20px;background:var(--paper);border-bottom:1px solid var(--line)}
+.side-drawer-head h2{margin:0;font-family:Georgia,serif;font-size:20px;color:var(--navy);font-weight:600}
+.job-edit-line{margin:4px 0 14px}
+@media (max-width:760px){.job-sections-list{position:static;min-width:0;margin-top:6px!important}.side-drawer{padding:0 14px 20px}.side-drawer-head{margin:0 -14px 12px;padding:12px 14px}}
+.job-sections-list,.job-sections-list .ops-tab-group{align-items:stretch!important;text-align:left!important}
+.job-sections-list a{text-align:left!important}
+.briefing-details{margin-top:6px}
+.briefing-details>summary{cursor:pointer;font-weight:700;color:var(--teal-dark);padding:6px 0}
+.briefing-details[open]>summary{margin-bottom:8px}
