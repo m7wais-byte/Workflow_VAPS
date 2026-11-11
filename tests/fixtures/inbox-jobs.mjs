@@ -29,7 +29,7 @@ export function buildInboxJobs({ applyOperation, employees, policy, roles, today
   const dispatch = (j, engineer = 'MOHSIN') => run(j, 'SALIM', { type: 'dispatch', engineer, driver: 'ALI' });
   const submitted = (j, engineer = 'MOHSIN') => run(dispatch(j, engineer), engineer, { type: 'data-submit', note: 'DEMO data submitted.' });
   const approvedData = (j, engineer = 'MOHSIN') => run(submitted(j, engineer), 'SALIM', { type: 'data-approve' });
-  const reportSubmitted = (j, engineer = 'MOHSIN') => { j = run(approvedData(j, engineer), engineer, { type: 'report-draft', kind: 'sampling', text: 'DEMO sampling report.', checker: '' }); return run(j, engineer, { type: 'report-action', kind: 'sampling', action: 'submit', comments: '' }); };
+  const reportSubmitted = (j, engineer = 'MOHSIN') => { j = run(approvedData(j, engineer), engineer, { type: 'report-draft', kind: 'sampling', text: 'DEMO sampling report.', checker: '' }); j = run(j, engineer, { type: 'report-action', kind: 'sampling', action: 'checking', comments: '' }); return run(j, 'SALIM', { type: 'report-action', kind: 'sampling', action: 'submit', comments: '' }); };
   const reportApproved = (j, engineer = 'MOHSIN') => run(reportSubmitted(j, engineer), 'SALIM', { type: 'report-action', kind: 'sampling', action: 'approve', comments: '' });
   const received = (j, engineer) => { j = run(reportApproved(j, engineer), 'ALI', { type: 'handover-send', sampleIds: j.samples.map((s) => s.id), notes: 'DEMO transfer.' }); return run(j, 'SHEREIQI', { type: 'handover-receive', notes: 'DEMO receipt.' }); };
   const conditions = { pressure: '', pressureUnit: 'psi', temperature: '', temperatureUnit: '°C', notes: '' };

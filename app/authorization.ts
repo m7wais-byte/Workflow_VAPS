@@ -73,6 +73,7 @@ export function withDemoRoles(saved: Responsibilities): Responsibilities {
 export const responsibilityLabels = {
   scopeSelector: 'Scope selection',
   samplingApproval: 'Sampling approval',
+  samplingReportChecker: 'Sampling report check & review',
   pvtSupervisor: 'PVT Supervisor',
   pvtTeamLead: 'PVT Team Lead',
   chemicalTeamLead: 'Chemistry Team Lead',
@@ -84,10 +85,10 @@ export const responsibilityLabels = {
 export type Responsibility = keyof typeof responsibilityLabels;
 export type Responsibilities = Record<Responsibility, string>;
 /** Permission each duty needs in order to act; shown as a warning, never granted automatically. */
-export const responsibilityPermission: Record<Responsibility, Permission> = { scopeSelector: 'analysis', samplingApproval: 'sampling', pvtSupervisor: 'analysis', pvtTeamLead: 'analysis', chemicalTeamLead: 'analysis', reporting: 'analysis', finalApproval: 'analysis', qcReviewer: 'analysis', labReceipt: 'analysis' };
+export const responsibilityPermission: Record<Responsibility, Permission> = { scopeSelector: 'analysis', samplingApproval: 'sampling', samplingReportChecker: 'sampling', pvtSupervisor: 'analysis', pvtTeamLead: 'analysis', chemicalTeamLead: 'analysis', reporting: 'analysis', finalApproval: 'analysis', qcReviewer: 'analysis', labReceipt: 'analysis' };
 export const responsibilitiesKey = 'vaps-responsibilities-v1';
 /** Initial setup and migration only. QC review and laboratory receipt stay unassigned until an administrator names someone. */
-export const defaultResponsibilities: Responsibilities = { scopeSelector: 'SALIM', samplingApproval: 'SALIM', pvtSupervisor: 'WILFRED', pvtTeamLead: 'SHEREIQI', chemicalTeamLead: 'BAHRI', reporting: 'SHEREIQI', finalApproval: 'WILFRED', qcReviewer: '', labReceipt: '' };
+export const defaultResponsibilities: Responsibilities = { scopeSelector: 'SALIM', samplingApproval: 'SALIM', samplingReportChecker: 'SALIM', pvtSupervisor: 'WILFRED', pvtTeamLead: 'SHEREIQI', chemicalTeamLead: 'BAHRI', reporting: 'SHEREIQI', finalApproval: 'WILFRED', qcReviewer: '', labReceipt: '' };
 /** Missing settings or keys added later receive defaults; a saved empty value stays empty. */
 export function readResponsibilities(raw: string | null): Responsibilities {
   if (raw === null) return { ...defaultResponsibilities };

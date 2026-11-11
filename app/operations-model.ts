@@ -628,7 +628,8 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   else if(command.kind==='sampling'&&old&&actor.id!==old.preparedBy)throw Error('Only the recorded preparer can edit this report version.');
   if(old&&!['Draft','Changes Requested'].includes(old.status))throw Error('Create a revision before editing a submitted report.');
   requireText(command.text,'Report summary');if(!reviewed){active(actor,command.checker);if(command.kind==='sampling'&&!actor.policy.sampling.includes(command.checker)&&command.checker!=='MA001')throw Error('The selected checker needs sampling permission.');}
-  const version:ReportVersion={version:old?.status==='Draft'?old.version:list.length+1,status:'Draft',text:command.text,preparedBy:actor.id,preparedAt:now,checker:command.kind==='final'?holder(actor,'reporting'):reviewed?'':command.checker,comments:'',snapshot:snapshot(command.kind),file:command.file,...(command.kind==='sampling'&&command.letterhead?{letterhead:command.letterhead}:{})};
+  // Reports from approved sampling data are checked by the 'Sampling report check & review' duty, then approved; no checker set means straight to approval.
+  const version:ReportVersion={version:old?.status==='Draft'?old.version:list.length+1,status:'Draft',text:command.text,preparedBy:actor.id,preparedAt:now,checker:command.kind==='final'?holder(actor,'reporting'):reviewed?(holder(actor,'samplingReportChecker')||''):command.checker,comments:'',snapshot:snapshot(command.kind),file:command.file,...(command.kind==='sampling'&&command.letterhead?{letterhead:command.letterhead}:{})};
   if(old?.status==='Draft')list[list.length-1]=version;else list.push(version);break;
  }
  case 'report-action':{
@@ -638,7 +639,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   if(!r)throw Error('Save a report draft first.');
   if(command.action==='checking'){
    if(command.kind!=='sampling'||actor.id!==r.preparedBy||r.status!=='Draft')throw Error('Only the preparer can submit a draft for checking.');
-   if(dataReviewRequired(job))throw Error('Reports from approved sampling data go directly to the sampling approver. Use Submit for approval.');
+   if(dataReviewRequired(job)&&!r.checker)throw Error('No sampling report checker is configured, so this report goes directly to the sampling approver. Use Submit for approval.');
    if(!job.samples?.length||job.samples.some(s=>!s.dataComplete))throw Error('Complete all sample data sheets first.');
    r.snapshot=snapshot(command.kind);r.status='Checking';r.submittedAt=now;if(command.letterhead)r.letterhead=command.letterhead;
   } else if(command.action==='submit'){

@@ -170,7 +170,8 @@ test('the workflow saves the letterhead with the draft, refreshes it on submissi
   j = step(j, { type: 'data-submit', note: '' }, 'MOHSIN'); j = step(j, { type: 'data-approve' }, 'SALIM');
   j = step(j, { type: 'report-draft', kind: 'sampling', text: 'v1', checker: '', letterhead: lh('Rig draft') }, 'MOHSIN');
   assert.equal(ops.latest(j.operations.samplingReports).letterhead.installation, 'Rig draft');
-  j = step(j, { type: 'report-action', kind: 'sampling', action: 'submit', comments: '', letterhead: lh('Rig submit') }, 'MOHSIN');
+  j = step(j, { type: 'report-action', kind: 'sampling', action: 'checking', comments: '', letterhead: lh('Rig check') }, 'MOHSIN');
+  j = step(j, { type: 'report-action', kind: 'sampling', action: 'submit', comments: '', letterhead: lh('Rig submit') }, 'SALIM');
   assert.equal(ops.latest(j.operations.samplingReports).letterhead.installation, 'Rig submit');
   j = step(j, { type: 'report-action', kind: 'sampling', action: 'approve', comments: '', letterhead: lh('Rig approve') }, 'SALIM');
   const approved = ops.latest(j.operations.samplingReports);

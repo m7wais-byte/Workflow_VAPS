@@ -57,7 +57,8 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
   if (upTo === 'data-submitted') return j;
   j = run(j, 'SALIM', { type: 'data-approve' }, tick());
   j = run(j, engineer, { type: 'report-draft', kind: 'sampling', text: 'DEMO sampling report. Samples collected under stable flow; fictional values.', checker: '' }, tick());
-  j = run(j, engineer, { type: 'report-action', kind: 'sampling', action: 'submit', comments: '' }, tick());
+  j = run(j, engineer, { type: 'report-action', kind: 'sampling', action: 'checking', comments: '' }, tick());
+  j = run(j, 'SALIM', { type: 'report-action', kind: 'sampling', action: 'submit', comments: '' }, tick());
   return run(j, 'SALIM', { type: 'report-action', kind: 'sampling', action: 'approve', comments: '' }, tick());
  };
  const handover = (j: JobRecord, driver: string, tick: () => string) => {
