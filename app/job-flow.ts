@@ -1,7 +1,7 @@
 /**
  * One workflow status for every view: Dashboard, job page, My work and the client progress view.
  *
- * Built only from saved records (dispatch, sampling data reviews, sampling-report versions, handover, released laboratory
+ * Built only from saved records (dispatch, sampling data reviews, sampling-report versions, released laboratory
  * scope, activities and final-report versions). It never adds a mandatory stage the workflow does not have, and an uploaded
  * file never counts as an approval: a test is complete only when QC approved, a report only when approved.
  */
@@ -121,12 +121,6 @@ function samplingSection(job: JobRecord, roles: Responsibilities): FlowSection {
 function laboratorySection(job: JobRecord, roles: Responsibilities): FlowSection {
   const o = operationsFor(job), approved = samplingApproved(job), notes: string[] = [];
   const intake: FlowStep[] = [];
-  const h = o.handover, receiver = roles.labReceipt || undefined;
-  intake.push({ id: 'lab:receipt', label: 'Samples received at laboratory', team: h ? 'Laboratory receipt' : 'Driver',
-    ...(h?.receivedAt ? { state: 'completed', detail: 'Receipt confirmed', at: h.receivedAt }
-      : h ? (receiver ? { state: 'in-progress', detail: 'In transit · awaiting receipt confirmation', owner: receiver } : { state: 'blocked', setting: true, detail: 'Laboratory receipt not configured' })
-      : approved ? { state: 'in-progress', detail: 'Awaiting dispatch to the laboratory', owner: job.assignedDriverId || job.assignedEngineerId || undefined }
-      : { state: 'not-started', detail: 'After the sampling report is approved' }) } as FlowStep);
   const selector = roles.scopeSelector || undefined, draftScope = latestLabScope(job)?.status === 'Draft';
   intake.push({ id: 'lab:scope', label: 'Laboratory scope released', team: 'Scope selection',
     ...(o.scopeConfirmedAt ? { state: 'completed', detail: 'Released', at: o.scopeConfirmedAt }
@@ -137,7 +131,7 @@ function laboratorySection(job: JobRecord, roles: Responsibilities): FlowSection
     intake.push({ id: 'lab:additions', label: 'Additional work confirmed', team: 'Scope selection', additional: true,
       ...(open.length ? { state: 'in-progress', detail: `${open.length} request${open.length === 1 ? '' : 's'} awaiting confirmation`, owner: selector } : { state: 'completed', detail: `${o.additions.length} request${o.additions.length === 1 ? '' : 's'} confirmed`, at: o.additions.map((a) => a.confirmedAt || '').sort().at(-1) }) } as FlowStep);
   }
-  const groups: FlowGroup[] = [group({ id: 'lab:intake', label: 'Receipt & scope', kind: 'steps', steps: intake })];
+  const groups: FlowGroup[] = [group({ id: 'lab:intake', label: 'Scope', kind: 'steps', steps: intake })];
   const required = o.activities.filter((a) => a.required);
   const additionalScope = new Set(o.scope.filter((s) => s.source === 'Additional work').map((s) => s.id));
   const isAdditional = (a: ActivityRecord) => additionalScope.has(a.scopeId) || a.scopeId.startsWith('addval:');
@@ -166,8 +160,8 @@ function laboratorySection(job: JobRecord, roles: Responsibilities): FlowSection
   if (required.some((a) => a.external)) notes.push('Includes work performed by a third-party laboratory and reviewed internally.');
   const s = section('laboratory', 'Laboratory', groups, notes);
   s.pendingScope = pendingScope;
-  // Never complete while required work, Validation planning or receipt is outstanding.
-  if (s.state === 'completed' && (pendingScope || !allWorkDone(job) || !h?.receivedAt)) s.state = 'in-progress';
+  // Never complete while required work, Validation planning is outstanding.
+  if (s.state === 'completed' && (pendingScope || !allWorkDone(job))) s.state = 'in-progress';
   if (pendingScope) s.summary += ' · tests to be confirmed';
   return s;
 }
