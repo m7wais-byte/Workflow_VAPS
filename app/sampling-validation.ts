@@ -14,7 +14,7 @@ export function standardSheetErrors(sample: SampleRecord): string[] {
   if (missing.length) errors.push(`Identification: complete ${missing.join(', ')}.`);
   if (!containerComplete(sample)) errors.push(isGlass(sample) ? 'Shipping Conditions: the glass container ID is required.' : 'Shipping Conditions: Cylinder Type and Cylinder Number are required.');
   if (shippingFields.some((key) => !v(key))) errors.push('Shipping Conditions: enter every value or record N/A where it does not apply.');
-  if (matchedFields.some((key) => !v(key))) errors.push('Matched / Transfer Conditions: enter every value or record N/A.');
+  if (matchedFields.some((key) => !v(key))) errors.push('Transfer Conditions: enter every value or record N/A.');
   if (productionFields.some((key) => !v(key))) errors.push('Production Conditions: enter every value or record N/A.');
   return errors;
 }
