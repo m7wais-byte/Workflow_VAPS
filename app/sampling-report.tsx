@@ -69,15 +69,15 @@ export const samplingReportCss = `
 .sr-head .sr-head-logo{display:flex;align-items:center;height:16mm;border-right:0.8pt solid var(--sr-line);padding-right:3mm}
 .sr-head .sr-head-logo img{max-height:15mm;max-width:27mm}
 .sr-doc .sr-page .sr-head-logo strong{font-size:13pt;color:var(--sr-navy)}
-.sr-hc{display:grid;grid-template-columns:1fr 1fr 1.25fr;grid-template-rows:8mm 8mm;column-gap:3mm;min-width:0}
-.sr-hc div{display:flex;flex-direction:column;justify-content:center;min-width:0}
-.sr-doc .sr-page .sr-hc b{font-size:5.6pt;font-weight:700;letter-spacing:.25mm;text-transform:uppercase;color:var(--sr-muted);line-height:2.6mm}
-.sr-doc .sr-page .sr-hc span{font-size:8pt;font-weight:700;color:var(--sr-navy);line-height:3.8mm;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sr-hc{display:grid;grid-template-columns:1fr 1fr 1.2fr;grid-template-rows:6.5mm 6.5mm;column-gap:4mm;align-content:center;min-width:0}
+.sr-hc div{display:flex;align-items:center;gap:1.5mm;min-width:0;font-size:8pt;line-height:4.4mm}
+.sr-doc .sr-page .sr-hc b{flex:none;font-weight:400;color:var(--sr-muted)}
+.sr-doc .sr-page .sr-hc span{font-weight:700;color:var(--sr-navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sr-head-client{display:flex;align-items:center;justify-content:flex-end;height:16mm}
 .sr-head-client img{max-height:13mm;max-width:22mm}
 .sr-body{height:214mm;margin-top:3mm;overflow:hidden}
 .sr-doc .sr-page .sr-foot{position:absolute;left:20mm;right:20mm;bottom:19mm;display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);column-gap:3mm;align-items:center;border-top:0.6pt solid var(--sr-line);padding-top:1.6mm;font-size:7pt;color:var(--sr-muted)}
-.sr-doc .sr-page .sr-foot b{font-size:7.5pt;font-weight:700;letter-spacing:.2mm;color:var(--sr-navy)}
+.sr-doc .sr-page .sr-foot b{font-size:7.5pt;font-weight:700;color:var(--sr-navy)}
 .sr-foot span:last-child{text-align:right}
 .sr-doc .sr-page .sr-tagline{position:absolute;left:20mm;bottom:6.2mm;font-size:5.8pt;font-style:italic;letter-spacing:.5mm;text-transform:uppercase;color:var(--sr-blue)}
 .sr-doc .sr-page .sr-web{position:absolute;right:12mm;bottom:3mm;font-size:7.5pt;font-weight:700;letter-spacing:.2mm;color:#fff}
@@ -93,22 +93,20 @@ export const samplingReportCss = `
 .sr-brand-client{justify-content:flex-end}
 .sr-brand img{max-height:22mm;max-width:34mm;flex:none}
 .sr-doc .sr-page .sr-brand strong{display:block;border-left:1pt solid var(--sr-green);padding:1.5mm 0 1.5mm 5mm;font-size:11pt;font-weight:700;color:var(--sr-navy);line-height:1.3;max-width:47mm;overflow-wrap:anywhere}
-.sr-cover-title{margin:34mm 0 0;padding-left:6mm;border-left:2mm solid var(--sr-green)}
+.sr-cover-title{margin:26mm 0 0;padding-left:6mm;border-left:2mm solid var(--sr-green)}
 .sr-doc .sr-page .sr-cover-title h1{font-size:30pt;line-height:1.12;font-weight:700;color:var(--sr-navy);margin:0}
-.sr-cover-facts{display:grid;grid-template-columns:1fr 1fr 1fr;gap:3mm;margin:14mm 0 0}
-.sr-cover-facts div{background:var(--sr-tint);border-top:1.2pt solid var(--sr-blue);border-radius:0 0 1.5mm 1.5mm;padding:2.6mm 3.5mm;min-height:15mm;min-width:0}
-.sr-cover-facts .wide{grid-column:span 2}
-.sr-doc .sr-page .sr-cover-facts dt{font-size:6pt;font-weight:700;letter-spacing:.4mm;text-transform:uppercase;color:var(--sr-muted);margin-bottom:1.4mm}
-.sr-doc .sr-page .sr-cover-facts dd{margin:0;font-size:10pt;font-weight:700;color:var(--sr-navy);line-height:1.25;overflow-wrap:anywhere}
-.sr-approval{position:absolute;left:20mm;right:20mm;top:196mm;display:grid;grid-template-columns:1fr 1fr;gap:4mm}
-.sr-approval>div{border:0.6pt solid var(--sr-line);border-left:1.4mm solid var(--sr-blue);border-radius:1.5mm;padding:3mm 4mm;min-height:24mm;display:grid;grid-template-columns:1fr auto;column-gap:3mm;align-content:start}
-.sr-approval>div+div{border-left-color:var(--sr-green)}
-.sr-doc .sr-page .sr-approval small{grid-column:1/-1;font-size:6pt;font-weight:700;letter-spacing:.4mm;text-transform:uppercase;color:var(--sr-muted);margin-bottom:1.6mm}
-.sr-doc .sr-page .sr-approval strong{font-size:10pt;color:var(--sr-navy);line-height:1.25;overflow-wrap:anywhere}
-.sr-doc .sr-page .sr-approval i{font-style:normal;font-size:8pt;color:var(--sr-ink);text-align:right;white-space:nowrap}
-.sr-doc .sr-page .sr-approval span{grid-column:1/-1;font-size:8pt;color:var(--sr-muted);margin-top:.8mm;overflow-wrap:anywhere}
-.sr-doc .sr-page .sr-approval em{font-size:9pt;color:var(--sr-muted);font-style:italic}
-.sr-notice{position:absolute;left:20mm;right:20mm;top:225mm;font-size:7pt;line-height:1.35;color:var(--sr-muted);font-style:italic}
+.sr-facts,.sr-approval{width:170mm;border-collapse:collapse;table-layout:fixed;font-size:9.5pt}
+.sr-facts{margin-top:16mm}
+.sr-facts th,.sr-facts td,.sr-approval th,.sr-approval td{border:0.6pt solid var(--sr-line);padding:2mm 3mm;height:10mm;text-align:left;vertical-align:middle;line-height:1.3;overflow-wrap:anywhere}
+.sr-doc .sr-page .sr-facts th,.sr-doc .sr-page .sr-approval tbody th{width:24mm;background:var(--sr-tint);font-weight:700;color:var(--sr-navy)}
+.sr-doc .sr-page .sr-facts td{font-weight:400;color:var(--sr-ink)}
+.sr-facts td:nth-child(2){width:74mm}
+.sr-approval{position:absolute;left:20mm;top:190mm}
+.sr-doc .sr-page .sr-approval thead th{height:8mm;background:var(--sr-navy);border-color:var(--sr-navy);border-bottom:1.4pt solid var(--sr-green);color:#fff;font-size:8.5pt;font-weight:700}
+.sr-approval thead th:first-child,.sr-approval tbody th{width:32mm}
+.sr-approval th:last-child,.sr-approval td:last-child{width:30mm}
+.sr-doc .sr-page .sr-approval em{color:var(--sr-muted);font-style:italic}
+.sr-notice{position:absolute;left:20mm;right:20mm;top:226mm;font-size:7pt;line-height:1.35;color:var(--sr-muted);font-style:italic}
 /* Index */
 .sr-index{margin:14mm 0 0}
 .sr-index>div{display:grid;grid-template-columns:9mm 1fr 24mm;align-items:center;column-gap:5mm;height:13mm;border-bottom:0.6pt solid var(--sr-line)}
@@ -123,7 +121,7 @@ export const samplingReportCss = `
 .sr-bar::before{content:"";width:26mm;height:1.2pt;background:var(--sr-blue)}
 .sr-bar::after{content:"";width:10mm;height:1.2pt;background:var(--sr-green)}
 /* Tables */
-.sr-doc .sr-page .sr-well{font-size:7.5pt;font-weight:700;letter-spacing:.2mm;color:var(--sr-muted);height:9mm;display:flex;align-items:center;gap:3mm}
+.sr-doc .sr-page .sr-well{font-size:8pt;font-weight:400;color:var(--sr-muted);height:9mm;display:flex;align-items:center;gap:3mm}
 .sr-doc .sr-page .sr-well span{font-weight:700;color:var(--sr-navy)}
 .sr-events-well{height:7mm;align-items:flex-start}
 .sr-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8.5pt}
@@ -140,7 +138,7 @@ export const samplingReportCss = `
 .sr-empty{font-size:8.5pt;font-style:italic;color:var(--sr-muted);padding:3mm 0}
 /* Sample data sheet */
 .sr-doc .sr-page .sr-sheet-title{font-size:15pt;font-weight:700;margin:0;height:15mm;display:flex;align-items:center;color:var(--sr-navy)}
-.sr-doc .sr-page .sr-sec{height:5.4mm;margin:.8mm 0 .8mm;padding:0 2.4mm;font-size:8pt;font-weight:700;letter-spacing:.25mm;text-transform:uppercase;color:#fff;border-radius:.8mm;display:flex;align-items:center}
+.sr-doc .sr-page .sr-sec{height:5.4mm;margin:.8mm 0 .8mm;padding:0 2.4mm;font-size:8.5pt;font-weight:700;color:#fff;border-radius:.8mm;display:flex;align-items:center}
 .sr-sec.b{background:var(--sr-blue)}.sr-sec.g{background:var(--sr-green)}
 .sr-pairs{display:grid;grid-template-columns:1fr 1fr;column-gap:4mm;font-size:7.6pt;padding:0 1mm}
 .sr-col{display:flex;flex-direction:column}
@@ -179,7 +177,7 @@ const Rows = ({ fields }: { fields: Field[] }) => <div className="sr-col">{field
 
 function Header({ m }: { m: SamplingReportModel }) {
   const h = m.header, i = m.input;
-  const cell = (label: string, value: string) => <div><b>{label}</b><span>{value}</span></div>;
+  const cell = (label: string, value: string) => <div><b>{label}:</b><span>{value}</span></div>;
   return <header className="sr-head">
     <div className="sr-head-logo">{i.company.logo ? <img src={assetUrl(i.company.logo)} alt={i.company.displayName} /> : <strong>{i.company.displayName}</strong>}</div>
     <div className="sr-hc">{cell('Client', h.client)}{cell('Job No', h.jobNo)}{cell('Date', h.date)}{cell('Field', h.field)}{cell('Well', h.well)}{cell('Installation', h.installation)}</div>
@@ -231,25 +229,26 @@ export function SamplingReportDocument({ input }: { input: SamplingReportInput }
           <div className="sr-brand sr-brand-client">{input.clientLogo && <img src={assetUrl(input.clientLogo)} alt="" />}<strong>{c.clientTitle}</strong></div>
         </div>
         <div className="sr-cover-title"><h1>Sampling and<br />Analysis Report</h1></div>
-        <dl className="sr-cover-facts">
-          <div><dt>Job No</dt><dd>{m.header.jobNo}</dd></div><div><dt>Field</dt><dd>{m.header.field}</dd></div><div><dt>Well</dt><dd>{c.well}</dd></div>
-          <div className="wide"><dt>Test</dt><dd>{c.test}</dd></div><div><dt>Date</dt><dd>{c.date}</dd></div>
-        </dl>
-        <div className="sr-approval">
-          <div><small>Prepared by</small><strong>{c.prepared.name}</strong><i>{c.prepared.date}</i><span>{c.prepared.title}</span></div>
-          <div><small>Approved by</small>{c.approval ? <><strong>{c.approval.name}</strong><i>{c.approval.date}</i><span>{c.approval.title}</span></> : <em>Pending approval</em>}</div>
-        </div>
+        <table className="sr-facts"><tbody>
+          <tr><th>Client</th><td>{c.clientTitle}</td><th>Job No</th><td>{m.header.jobNo}</td></tr>
+          <tr><th>Field</th><td>{m.header.field}</td><th>Well</th><td>{c.well}</td></tr>
+          <tr><th>Test</th><td>{c.test}</td><th>Date</th><td>{c.date}</td></tr>
+        </tbody></table>
+        <table className="sr-approval"><thead><tr><th /><th>Name</th><th>Position</th><th>Date</th></tr></thead><tbody>
+          <tr><th>Prepared by</th><td>{c.prepared.name}</td><td>{c.prepared.title}</td><td>{c.prepared.date}</td></tr>
+          <tr><th>Approved by</th>{c.approval ? <><td>{c.approval.name}</td><td>{c.approval.title}</td><td>{c.approval.date}</td></> : <td colSpan={3}><em>Pending approval</em></td>}</tr>
+        </tbody></table>
         {input.notice && <p className="sr-notice">{input.notice}</p>}
         <Footer m={m} n={1} />
       </section>;
       let body: ReactNode = null;
       if (page.kind === 'index') body = <><h1 className="sr-h1">Index</h1><div className="sr-index">{m.index.map(e => <div key={e.no}><b>{e.no}</b><span>{e.title}</span><i>{e.pages === '–' ? '' : `Page ${e.pages}`}</i></div>)}</div></>;
       if (page.kind === 'summary') body = <><h2 className="sr-h2">Summary{page.continued ? ' (continued)' : ''}</h2><div className="sr-summary">{page.paragraphs.map((p, i) => <p key={i}>{p}</p>)}</div>{page.last && <div className="sr-bar" aria-hidden="true" />}</>;
-      if (page.kind === 'listing') body = <><h1 className="sr-h1">Sample Listing{page.continued ? ' (continued)' : ''}</h1><div className="sr-well">WELL: <span>{m.header.well}</span></div>
+      if (page.kind === 'listing') body = <><h1 className="sr-h1">Sample Listing{page.continued ? ' (continued)' : ''}</h1><div className="sr-well">Well: <span>{m.header.well}</span></div>
         <table className="sr-table"><thead><tr><th className="b">Sample No:</th><th className="g">Sample Date:</th><th className="b">Sample Time:</th><th className="g">Sample Nature</th><th className="b">Sample Point:</th><th className="g">Cylinder Type/No:</th></tr></thead>
           <tbody>{page.rows.map((r, i) => <tr key={r.sampleNo + i}><td>{r.sampleNo}</td><td>{r.date}</td><td>{r.time}</td><td>{r.nature}</td><td>{r.point}</td><td>{r.bottle}</td></tr>)}</tbody></table>
         {!page.rows.length && <p className="sr-empty">No samples are recorded for this job.</p>}</>;
-      if (page.kind === 'events') body = <><h1 className="sr-h1">Sequence Of Events{page.continued ? ' (continued)' : ''}</h1><div className="sr-well sr-events-well">WELL: <span>{m.header.well}</span></div>
+      if (page.kind === 'events') body = <><h1 className="sr-h1">Sequence Of Events{page.continued ? ' (continued)' : ''}</h1><div className="sr-well sr-events-well">Well: <span>{m.header.well}</span></div>
         <table className="sr-table sr-events"><colgroup><col style={{ width: '18%' }} /><col style={{ width: '17%' }} /><col /></colgroup><thead><tr><th className="b">Date</th><th className="g">Time</th><th className="b">Event</th></tr></thead>
           <tbody>{page.rows.map((r, i) => <tr key={i}><td>{r.date}</td><td>{r.time}</td><td>{r.event}</td></tr>)}</tbody></table>
         {!page.rows.length && <p className="sr-empty">No sequence-of-events entries were recorded.</p>}</>;
