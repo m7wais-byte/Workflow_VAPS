@@ -52,7 +52,7 @@ const activities: Record<string, string> = {
   'Cased Hole (Bottomhole / Downhole Sampling)': 'cased hole bottomhole sampling',
   'Wellhead Sampling': 'wellhead sampling', 'Separator Sampling': 'separator sampling', 'Station Sampling': 'station sampling',
 };
-/** "Four Type A", "Two Type A and One glass container" — grouped by the recorded type, in first-seen order. */
+/** "Four PDS", "Two PDS and One glass container" — grouped by the recorded type, in first-seen order. */
 function grouped(names: string[]): string {
   const counts = new Map<string, number>();
   for (const name of names) counts.set(name, (counts.get(name) || 0) + 1);

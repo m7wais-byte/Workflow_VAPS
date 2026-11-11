@@ -16,7 +16,7 @@ export function containerComplete(sample: ContainerFields): boolean {
   return isGlass(sample) ? !!containerId(sample) : !!sample.bottle && !!containerId(sample);
 }
 export const containerNoun = (sample: ContainerFields) => isGlass(sample) ? 'Glass container' : 'Cylinder';
-/** Type and identifier for display, e.g. "Type A · 1234" or "Glass container · G-07". */
+/** Type and identifier for display, e.g. "PDS · 1234" or "Glass container · G-07". */
 export function containerLabel(sample: ContainerFields, missing = 'Not recorded'): string {
   if (isGlass(sample)) return containerId(sample) ? 'Glass container · ' + containerId(sample) : missing;
   return [sample.bottle, sample.bottleSerial].filter(Boolean).join(' · ') || missing;
