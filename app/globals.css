@@ -3612,3 +3612,11 @@ main .cyl-filters select,main .cyl-filters input{background:var(--paper)!importa
 .scope-conditions.needs-decision{border-color:#e0a54c}
 @media (max-width:640px){.phase-strip{grid-template-columns:1fr}}
 .lab-scope .panel-heading h2 .scope-count{display:inline-block;width:auto;max-width:max-content;margin-top:0}
+
+/* Pre-job checklist: tick box on each row */
+.readiness-check{width:20px;height:20px;flex:none;accent-color:#07998d;cursor:pointer}
+.readiness-check:disabled{cursor:not-allowed;opacity:.55}
+/* Separator sampling conditions, entered once per set */
+.set-conditions{display:grid}
+.set-conditions>.sheet-section{margin:0;border-color:#9ccfc9;background:#f6fbfa}
+.set-conditions-note{margin:0;padding:10px 14px;border:1px dashed var(--line-strong);border-radius:10px;color:var(--muted);font-size:.9375rem}

@@ -20,7 +20,7 @@ export type LabPlan = {
 export type LabItem = { key: string; label: string; kind: "validation" | "test"; assignee?: string; requested: boolean; progress: LabTestProgress };
 
 /** Single unified validation checklist, in the defined lab order. */
-export const validationStepNames = ["Sample Transfer", "Opening Pressure", "Restoration", "Water Check", "Agitation", "Charging", "Flash", "PV", "Direct Density", "Recombination"] as const;
+export const validationStepNames = ["Sample Transfer", "Opening Pressure", "Restoration", "Water Check", "Agitation", "Charging", "Flash", "GC", "PV", "Direct Density", "Recombination"] as const;
 
 export const scopeTestGroups = [
   { name: "Black Oil", tests: ["Validation", "Recombination", "DL", "Sep Test", "Viscosity"] },
@@ -29,6 +29,9 @@ export const scopeTestGroups = [
   { name: "Specialised Analysis", tests: ["SARA", "Pour Point", "Wax Content", "Asphaltene Content", "WAT", "Sulphur Content", "Sulphur Asphaltene", "EOR"] },
 ];
 export const scopeTestOptions = scopeTestGroups.flatMap((group) => group.tests.map((test) => `${group.name} — ${test}`));
+
+/** Team that performs a Validation step: GC (gas chromatography) is Chemistry work, every other step is PVT. */
+export const validationStream = (step: string): "PVT" | "Chemical" => step === "GC" ? "Chemical" : "PVT";
 
 export const validationKey = (step: string) => "validation:" + step;
 export const isValidationTest = (test: string) => test === "Validation" || test.endsWith(" — Validation");

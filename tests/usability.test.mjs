@@ -35,7 +35,7 @@ test('Both scope reaches each team lead once, as linked work items; no duplicate
  const j=released();
  assert.deepEqual(acts(j).map(a=>[a.sampleId,a.stream]),[['1.01','PVT'],['1.02','PVT'],['1.02','Chemical']]);
  const pvt=view([j],'SHEREIQI').alerts,chem=view([j],'BAHRI').alerts;
- assert.equal(pvt.length,1);assert.equal(pvt[0].headline,'New PVT scope added');assert.equal(pvt[0].destination,'Both');assert.match(pvt[0].samples,/Sample 1\.01 · PDS · B-1\.01; Sample 1\.02 · Glass container · G-07/);assert.equal(pvt[0].planner,'SHEREIQI');assert.equal(pvt[0].button,'Assign 2');
+ assert.equal(pvt.length,1);assert.equal(pvt[0].headline,'New PVT scope added');assert.equal(pvt[0].destination,'Both');assert.match(pvt[0].samples,/Sample 1\.01 · PDS · B-1\.01; Sample 1\.02 · Glass bottle · G-07/);assert.equal(pvt[0].planner,'SHEREIQI');assert.equal(pvt[0].button,'Assign 2');
  assert.equal(chem.length,1);assert.equal(chem[0].headline,'New Chemistry scope added');assert.equal(chem[0].scope,'Others — Water Analysis');
  for(const id of ['NASSER','YAQEEN','WILFRED','MOHSIN'])assert.equal(view([j],id).alerts.length,0,id+' gets no scope alert');
  assert.deepEqual(view([j],'SHEREIQI').alerts.map(a=>a.key),pvt.map(a=>a.key),'alert keys are stable across refresh');
