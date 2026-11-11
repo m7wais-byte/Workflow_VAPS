@@ -10,7 +10,7 @@ export const NOT_RECORDED = 'Not recorded';
 export type ReportSample = ContainerFields & { id: string; sampler?: string; samplerSerial?: string; depth?: string; notes?: string; fieldData?: Record<string, string> };
 export type ReportEvent = { date?: string; time?: string; description?: string };
 export type ReportPerson = { name: string; title?: string };
-export type ReportCompany = { name: string; displayName: string; logo: string; address: string; country: string };
+export type ReportCompany = { name: string; displayName: string; logo: string; address: string; country: string; /** Contact details from Settings → Company; shown on the report only when filled in. */ email?: string; phone?: string; website?: string };
 /**
  * Report details that live outside the job's sample evidence. Saved with each sampling report version
  * (on draft and submission, frozen at approval) so later edits to the job, client, company or employee
