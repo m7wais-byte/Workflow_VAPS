@@ -136,17 +136,6 @@ export const samplingReportCss = `
 .sr-events td:nth-child(2){font-weight:700}
 .sr-events th:last-child,.sr-events td:last-child{text-align:left;padding-left:3mm}
 .sr-empty{font-size:8.5pt;font-style:italic;color:var(--sr-muted);padding:3mm 0}
-/* Generic document text (other reports on this template) */
-.sr-text{font-size:9pt;line-height:4.6mm;margin:0;padding:0 1mm;overflow-wrap:anywhere}
-.sr-note{font-size:7.5pt;line-height:4mm;color:var(--sr-muted);font-style:italic;margin:1.5mm 0 0;padding:0 1mm}
-.sr-facts.compact{margin-top:0;font-size:8.5pt}
-.sr-facts.compact th,.sr-facts.compact td{height:8mm;padding:1mm 2.5mm}
-.sr-table.sr-left{font-size:8pt}
-.sr-table.sr-left td{text-align:left;vertical-align:top}
-.sr-table.sr-left th{text-align:left}
-.sr-doc .sr-page .sr-facts.sr-kv th{width:48mm}
-.sr-approval.inline{position:static;margin-top:1mm;font-size:8.5pt}
-.sr-approval.inline th,.sr-approval.inline td{height:8mm;padding:1mm 2.5mm}
 /* Sample data sheet */
 .sr-doc .sr-page .sr-sheet-title{font-size:15pt;font-weight:700;margin:0;height:15mm;display:flex;align-items:center;color:var(--sr-navy)}
 .sr-doc .sr-page .sr-sec{height:5.4mm;margin:.8mm 0 .8mm;padding:0 2.4mm;font-size:8.5pt;font-weight:700;color:#fff;border-radius:.8mm;display:flex;align-items:center}
@@ -181,48 +170,31 @@ export const samplingReportCss = `
 const TAGLINE = 'Excellence in solutions.';
 /** Blue and green sweep along the bottom of every page (an image, so the preview, print and PDF copy match). */
 const WAVE = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="2100" height="170" viewBox="0 0 210 17" preserveAspectRatio="none"><path d="M0 15.2C70 16.6 140 12.4 210 1.6V0C140 10.6 70 15.4 0 14.2Z" fill="#0a9a3c"/><path d="M0 17V15.2C70 16.6 140 12.4 210 1.6V17Z" fill="#1f6fb5"/><path d="M96 17C140 15.6 180 11.4 210 6.4V17Z" fill="#0d3b6e"/></svg>');
+const website = (m: SamplingReportModel) => (m.input.company.website || '').replace(/^https?:\/\//i, '').replace(/\/+$/, '');
 
 const Value = ({ v }: { v: string }) => v === NOT_RECORDED ? <span className="sr-nr">{v}</span> : <span>{v}</span>;
 const Rows = ({ fields }: { fields: Field[] }) => <div className="sr-col">{fields.map(([label, value], i) => <div className="sr-row" key={label + i}><b>{label}</b><Value v={value} /></div>)}</div>;
 
-/** What the shared page frame needs: letterhead logos, up to six header details and the footer reference. */
-export type ReportFrame = { company: ReportCompany; clientLogo?: string; cells: [string, string][]; reference: string };
-const frameOf = (m: SamplingReportModel): ReportFrame => ({ company: m.input.company, clientLogo: m.input.clientLogo,
-  cells: [['Client', m.header.client], ['Job No', m.header.jobNo], ['Date', m.header.date], ['Field', m.header.field], ['Well', m.header.well], ['Installation', m.header.installation]],
-  reference: `${m.input.jobNumber}${m.input.version ? ` · Version ${m.input.version}` : ''} · ${m.input.approved ? 'Approved' : m.input.status}` });
-const site = (c: ReportCompany) => (c.website || '').replace(/^https?:\/\//i, '').replace(/\/+$/, '');
-
-function PageHeader({ f }: { f: ReportFrame }) {
+function Header({ m }: { m: SamplingReportModel }) {
+  const h = m.header, i = m.input;
+  const cell = (label: string, value: string) => <div><b>{label}:</b><span>{value}</span></div>;
   return <header className="sr-head">
-    <div className="sr-head-logo">{f.company.logo ? <img src={assetUrl(f.company.logo)} alt={f.company.displayName} /> : <strong>{f.company.displayName}</strong>}</div>
-    <div className="sr-hc">{f.cells.map(([label, value]) => <div key={label}><b>{label}:</b><span>{value}</span></div>)}</div>
-    <div className="sr-head-client">{f.clientLogo && <img src={assetUrl(f.clientLogo)} alt="" />}</div>
+    <div className="sr-head-logo">{i.company.logo ? <img src={assetUrl(i.company.logo)} alt={i.company.displayName} /> : <strong>{i.company.displayName}</strong>}</div>
+    <div className="sr-hc">{cell('Client', h.client)}{cell('Job No', h.jobNo)}{cell('Date', h.date)}{cell('Field', h.field)}{cell('Well', h.well)}{cell('Installation', h.installation)}</div>
+    <div className="sr-head-client">{i.clientLogo && <img src={assetUrl(i.clientLogo)} alt="" />}</div>
   </header>;
 }
-/** Frame shared by every page: top accent, bottom wave, footer line, tagline and website. */
-function PageFooter({ f, page }: { f: ReportFrame; page: string }) {
+/** Page frame shared by every page: top accent, bottom wave, footer line, tagline and website. */
+function Footer({ m, n }: { m: SamplingReportModel; n: number }) {
+  const status = m.input.approved ? 'Approved' : m.input.status;
   return <>
     <div className="sr-top" aria-hidden="true" />
     <img className="sr-wave" src={WAVE} alt="" />
-    <footer className="sr-foot"><span>{f.reference}</span><b>{f.company.displayName || 'VAPS'} Confidential</b><span>{page}</span></footer>
+    <footer className="sr-foot"><span>{m.input.jobNumber}{m.input.version ? ` · Version ${m.input.version}` : ''} · {status}</span><b>{m.input.company.displayName || 'VAPS'} Confidential</b><span>{n > 1 ? `Page ${n} of ${m.totalPages}` : ''}</span></footer>
     <span className="sr-tagline">{TAGLINE}</span>
-    {site(f.company) && <span className="sr-web">{site(f.company)}</span>}
+    {website(m) && <span className="sr-web">{website(m)}</span>}
   </>;
 }
-const Header = ({ m }: { m: SamplingReportModel }) => <PageHeader f={frameOf(m)} />;
-const Footer = ({ m, n }: { m: SamplingReportModel; n: number }) => <PageFooter f={frameOf(m)} page={n > 1 ? `Page ${n} of ${m.totalPages}` : ''} />;
-
-/** Wrapper for any report built on this template; it carries the stylesheet so the preview, print and PDF copy match. */
-export function ReportDocument({ children }: { children: ReactNode }) {
-  return <div className="sr-doc"><style>{samplingReportCss}</style>{children}</div>;
-}
-/** One A4 page of the shared template: logo header, 214 mm body, footer with page number. */
-export function ReportPage({ frame, n, total, draft, children }: { frame: ReportFrame; n: number; total: number; draft?: boolean; children: ReactNode }) {
-  return <section className="sr-page">{draft && <div className="sr-draft" aria-hidden="true">DRAFT — NOT APPROVED</div>}<PageHeader f={frame} /><div className="sr-body">{children}</div><PageFooter f={frame} page={`Page ${n} of ${total}`} /></section>;
-}
-/** Company logo source for a client record, for report letterheads. */
-export const reportClientLogo = (ctx: ReportContext, job: { clientCode?: string; clientName: string }) => { const c = findClient({ jobNumber: '', ...job }, ctx); return c ? clientLogoSource(c) || undefined : undefined; };
-
 function Sheet({ s }: { s: SampleSheet }) {
   return <>
     <h1 className="sr-sheet-title">{s.title}</h1>

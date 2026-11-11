@@ -1,10 +1,9 @@
 'use client';
 import { useRef, useState } from 'react';
-import { AlertCircle, ChevronDown, Download, Lock, Plus, Printer, Trash2 } from 'lucide-react';
-import { ReportDocument, ReportPage, reportClientLogo, downloadSamplingReportPdf, exportSamplingReportPdf, type ReportContext, type ReportFrame } from './sampling-report';
+import { AlertCircle, ChevronDown, Download, Lock, Plus, Trash2 } from 'lucide-react';
 import type { JobRecord } from './page';
 import type { Employee } from './employee-directory';
-import { useUnsaved, defaultCompany } from './settings-pages';
+import { useUnsaved } from './settings-pages';
 import { isValidationTest } from './lab-work';
 import { containerLabel, containerNoun } from './sample-container';
 import { PersonOptions, OverlapNotice } from './person-picker';
@@ -52,7 +51,7 @@ function missing(e: ScopeEntry, routing?: Actor['routing'], released?: LabScopeV
 }
 
 /** Per-sample laboratory scope: fluid type → team → Validation → tests → other tests, released by the scope selector. */
-export function LabScope({ job, actor, run, reportContext }: { job: JobRecord; actor: Actor; run: Run; /** Company letterhead and client logos for the printable scope. */reportContext?: ReportContext }) {
+export function LabScope({ job, actor, run }: { job: JobRecord; actor: Actor; run: Run }) {
   const o = operationsFor(job); const versions = o.labScopes || []; const last = versions.at(-1); const released = [...versions].reverse().find((v) => v.status === 'Released');
   const roles = actorRoles(actor); const routing = actor.routing; const name = (id?: string) => actor.employees.find((e) => e.id === id)?.name || 'Not assigned';
   const selector = holder(actor, 'scopeSelector'); const canEdit = !!selector && actor.id === selector && hasAccess(actor, 'analysis');
@@ -69,7 +68,7 @@ export function LabScope({ job, actor, run, reportContext }: { job: JobRecord; a
   const update = (id: string, change: Partial<ScopeEntry>) => { setReview(false); setSamples((list) => list.map((s) => s.sampleId === id ? { ...s, ...change } : s)); };
   const start = (from?: LabScopeVersion) => { const list = entries(from); setSamples(list); setConditions(from?.conditions || o.conditions); setReason(''); setReview(false); setEditing(true); const f = list.find((e) => missing(e, actor.routing, released).length)?.sampleId || list[0]?.sampleId; setOpen(f ? [f] : []); };
   const providers = [...new Set([...o.activities.map((a) => a.external?.provider || ''), ...samples.flatMap((s) => [...Object.values(s.execution || {}), ...(s.customTests || []).map((c) => c.execution)].map((x) => x?.provider || ''))].map((p) => p.trim()).filter(Boolean))].sort();
-  const versionList = versions.length > 0 && <div className="scope-versions"><h3>Scope versions</h3>{[...versions].reverse().map((v) => <ScopeDocument key={v.version + v.status} version={v} employees={actor.employees} context={reportContext} clientCode={job.clientCode} />)}</div>;
+  const versionList = versions.length > 0 && <div className="scope-versions"><h3>Scope versions</h3>{[...versions].reverse().map((v) => <ScopeDocument key={v.version + v.status} version={v} employees={actor.employees} />)}</div>;
   if (legacyScoped) return <section className="panel ops-panel"><h2>Laboratory scope</h2><p>This job’s scope was confirmed in the earlier workflow and stays as recorded below. Further work is added as an additional-work request.</p><ValidationRequest job={job} actor={actor} run={run} /></section>;
   if (!samplingApproved(job)) return <section className="panel ops-panel"><h2>Laboratory scope</h2><p className="locked-note"><AlertCircle size={16} /> The detailed laboratory scope is selected per sample after the sampling report is approved. Sampling report: {latest(o.samplingReports)?.status || (job.report?.reportStatus ? 'legacy ' + job.report.reportStatus : 'not started')}.</p><p>Scope selection: {name(selector)}{!selector && ' (not configured — ask an administrator)'}.</p>{versionList}</section>;
   const toggleOpen = (id: string) => setOpen((list) => list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
@@ -270,56 +269,23 @@ function ValidationRequest({ job, actor, run }: { job: JobRecord; actor: Actor; 
   </div>;
 }
 
-/** Rough printed height of one scope table row in mm, erring high so a page never overflows (column widths as in the table below). */
-const scopeRowHeight = (cells: string[]) => Math.max(8.4, Math.max(...cells.map((c, i) => Math.ceil((c.length * 1.15) / [7, 15, 9, 8, 15, 15, 16][i]) || 1)) * 3.7 + 2.6);
-const textLines = (value: string, perLine = 95) => value.split('\n').reduce((n, line) => n + Math.max(1, Math.ceil(line.length / perLine)), 0);
-
-/**
- * Printable scope document rendered only from a stored version, so later edits never alter an issued copy.
- * It uses the same A4 template as the Sampling and Analysis Report (logo header, footer, tables).
- */
-export function ScopeDocument({ version: v, employees, context, clientCode }: { version: LabScopeVersion; employees: Employee[]; /** Company letterhead and client logos. */context?: ReportContext; clientCode?: string }) {
-  const ref = useRef<HTMLDivElement>(null); const [busy, setBusy] = useState<'' | 'save' | 'print'>(''), [error, setError] = useState('');
+/** Printable scope document rendered only from a stored version, so later edits never alter an issued copy. */
+export function ScopeDocument({ version: v, employees }: { version: LabScopeVersion; employees: Employee[] }) {
+  const ref = useRef<HTMLElement>(null); const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const name = (id?: string) => employees.find((e) => e.id === id)?.name || id || 'Not recorded'; const draft = v.status !== 'Released';
   const date = (value?: string) => ukDateTime(value) || '—';
-  const file = `${v.job.jobNumber}-laboratory-scope-v${v.version}${draft ? '-DRAFT' : ''}`;
-  const run = async (kind: 'save' | 'print') => { const el = ref.current?.querySelector<HTMLElement>('.sr-doc'); if (!el || busy) return; setBusy(kind); try { await (kind === 'save' ? downloadSamplingReportPdf(el, file) : exportSamplingReportPdf(el, file)); setError(''); } catch { setError(kind === 'save' ? 'Could not generate the PDF. The saved scope remains available.' : 'Could not open the print view. The saved scope remains available.'); } finally { setBusy(''); } };
+  const exportPDF = async () => { if (!ref.current) return; setBusy(true); try { const html2pdf = (await import('html2pdf.js')).default; await html2pdf().set({ margin: 12, filename: `${v.job.jobNumber}-laboratory-scope-v${v.version}${draft ? '-DRAFT' : ''}.pdf`, html2canvas: { scale: 2, backgroundColor: '#ffffff' }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } }).from(ref.current).save(); setError(''); } catch { setError('Could not generate the PDF. The saved scope remains available.'); } finally { setBusy(false); } };
   const unclassified = (test: string) => !v.routing[test];
   const ext = (s: SampleScope, t: string) => s.execution?.[t]?.by === 'Third-party' ? ' (External · ' + s.execution[t].provider + ')' : '';
   const tests = (s: SampleScope, key: 'pvtTests' | 'chemicalTests', st: Stream) => [...s[key].filter((t) => !isValidationTest(t)).map((t) => shortTest(t) + (unclassified(t) ? ' *' : '') + ext(s, t)), ...(s.customTests || []).filter((c) => streamsOf(c.team).includes(st)).map((c) => c.name + ' (other' + (c.execution?.by === 'Third-party' ? ' · External · ' + c.execution.provider : '') + ')')].join(', ') || '—';
-  const rows = v.samples.map((s) => [s.sampleId, s.containerType === 'Glass container' ? s.containerLabel : 'Cylinder · ' + s.containerLabel, s.excluded ? '—' : s.fluidType ? s.fluidType + (s.fluidType === 'Other' && s.fluidDescription ? ' · ' + s.fluidDescription : '') : 'Not recorded', s.excluded ? '—' : entryValidation(s) ? 'Yes' : 'No', s.excluded ? 'Excluded' : tests(s, 'pvtTests', 'PVT'), s.excluded ? '—' : tests(s, 'chemicalTests', 'Chemical'), s.excluded ? 'Excluded: ' + s.exclusionReason : [s.notes, s.fluidNotes].filter(Boolean).join(' · ') || '—']);
-  const conditions = [v.conditions.pressure && `Reservoir pressure ${v.conditions.pressure} ${v.conditions.pressureUnit}`, v.conditions.temperature && `Reservoir temperature ${v.conditions.temperature} ${v.conditions.temperatureUnit}`].filter(Boolean).join(' · ');
-  const hasConditions = !!(conditions || v.conditions.notes);
-  const noteUnclassified = v.samples.some((s) => [...s.pvtTests, ...s.chemicalTests].some(unclassified)), noteValidation = v.samples.some((s) => entryValidation(s));
-  // Page budget in mm (body is 214 mm): title 12, details table 19, section heading 9, table head 10.
-  const conditionsHeight = hasConditions ? 9 + (conditions ? 4.6 : 0) + (v.conditions.notes ? textLines(v.conditions.notes) * 4.6 : 0) + 2 : 0;
-  const tailHeight = (noteUnclassified ? 6 : 0) + (noteValidation ? 6 : 0) + (v.reason ? 9 + textLines(v.reason) * 4.6 + 2 : 0) + 9 + (draft ? 12 : 28);
-  const pages: string[][][] = [[]]; let left = 214 - 12 - 19 - conditionsHeight - 9 - 10;
-  for (const row of rows) { const h = scopeRowHeight(row); if (h > left && pages[pages.length - 1].length) { pages.push([]); left = 214 - 12 - 10; } pages[pages.length - 1].push(row); left -= h; }
-  const tailOwnPage = tailHeight > left; const total = pages.length + (tailOwnPage ? 1 : 0);
-  const company = context?.company || defaultCompany;
-  const frame: ReportFrame = { company, clientLogo: context ? reportClientLogo(context, { clientCode, clientName: v.job.clientName }) : undefined, reference: `${v.job.jobNumber} · Scope version ${v.version} · ${draft ? 'Draft' : 'Approved'}`,
-    cells: [['Client', v.job.clientName || 'Not recorded'], ['Job No', v.job.jobNumber], ['Version', String(v.version)], ['Field', v.job.fieldArea || 'Not recorded'], ['Well', v.job.well || 'Not recorded'], ['Status', draft ? 'Draft' : 'Approved']] };
-  const table = (list: string[][]) => <table className="sr-table sr-left"><colgroup><col style={{ width: '9%' }} /><col style={{ width: '17%' }} /><col style={{ width: '11%' }} /><col style={{ width: '11%' }} /><col style={{ width: '17%' }} /><col style={{ width: '17%' }} /><col style={{ width: '18%' }} /></colgroup><thead><tr><th>Sample</th><th>Container</th><th>Fluid</th><th>Validation</th><th>PVT tests</th><th>Chemistry tests</th><th>Scope notes</th></tr></thead><tbody>{list.map((r) => <tr key={r[0]}>{r.map((c, i) => <td key={i}>{c}</td>)}</tr>)}</tbody></table>;
-  const tail = <>
-    {noteUnclassified && <p className="sr-note">* Unclassified in Settings when this version was saved; team chosen by the scope selector.</p>}
-    {noteValidation && <p className="sr-note">Validation: the PVT Team Lead selects the applicable steps; none is assumed mandatory.</p>}
-    {v.reason && <><h2 className="sr-h2">{v.version > 1 ? 'Revision reason' : 'Release note'}</h2><p className="sr-text" style={{ whiteSpace: 'pre-wrap' }}>{v.reason}</p></>}
-    <h2 className="sr-h2">Approval</h2>
-    {draft ? <p className="sr-text"><strong>Not approved.</strong> Prepared by {name(v.preparedBy)} on {date(v.savedAt)}. This draft has no approval or signature.</p>
-      : <table className="sr-facts compact sr-kv"><tbody><tr><th>Approved and released by</th><td>{name(v.releasedBy)} · Scope selection</td></tr><tr><th>Date and time</th><td>{date(v.releasedAt)}</td></tr><tr><th>Method</th><td>Electronic release recorded in VAPS (no handwritten signature)</td></tr></tbody></table>}
-  </>;
-  return <details className="ops-report-preview"><summary>Version {v.version} · {draft ? 'Draft (not approved)' : 'Released ' + date(v.releasedAt)}</summary>
-    <div className="sr-preview-actions"><button type="button" className="primary-button" disabled={!!busy} onClick={() => run('save')}><Download size={14} /> {busy === 'save' ? 'Saving…' : draft ? 'Save draft PDF' : 'Save PDF'}</button><button type="button" className="outline-button" disabled={!!busy} onClick={() => run('print')}><Printer size={14} /> {busy === 'print' ? 'Preparing…' : 'Print'}</button></div>{error && <p role="alert">{error}</p>}
-    <div className="sr-preview" ref={ref}><ReportDocument>
-      {pages.map((list, i) => <ReportPage key={i} frame={frame} n={i + 1} total={total} draft={draft}>
-        <h1 className="sr-h1">Laboratory Scope of Work{i > 0 ? ' (continued)' : ''}</h1>
-        {i === 0 && <table className="sr-facts compact"><tbody><tr><th>Sampling</th><td>{v.job.samplingSource || 'Not recorded'}</td><th>Issue date</th><td>{draft ? 'Not issued (draft saved ' + date(v.savedAt) + ')' : date(v.releasedAt)}</td></tr></tbody></table>}
-        {i === 0 && hasConditions && <><h2 className="sr-h2">Conditions and general notes</h2>{conditions && <p className="sr-text">{conditions}</p>}{v.conditions.notes && <p className="sr-text" style={{ whiteSpace: 'pre-wrap' }}>{v.conditions.notes}</p>}</>}
-        {i === 0 && <h2 className="sr-h2">Samples and selected tests</h2>}
-        {table(list)}
-        {i === pages.length - 1 && !tailOwnPage && tail}
-      </ReportPage>)}
-      {tailOwnPage && <ReportPage frame={frame} n={total} total={total} draft={draft}><h1 className="sr-h1">Laboratory Scope of Work (continued)</h1>{tail}</ReportPage>}
-    </ReportDocument></div></details>;
+  return <details className="ops-report-preview"><summary>Version {v.version} · {draft ? 'Draft (not approved)' : 'Released ' + date(v.releasedAt)}</summary><button type="button" className="outline-button" disabled={busy} onClick={exportPDF}><Download size={14} /> {busy ? 'Preparing PDF…' : draft ? 'Download draft PDF' : 'Download approved scope PDF'}</button>{error && <p role="alert">{error}</p>}
+    <article className={'ops-report-document scope-document' + (draft ? ' is-draft' : '')} ref={ref}>{draft && <div className="draft-mark" aria-hidden="true">DRAFT — NOT APPROVED</div>}
+      <header><h1>Laboratory scope of work</h1><strong>{v.job.jobNumber} · Version {v.version} · {draft ? 'DRAFT' : 'APPROVED'}</strong><p>{v.job.clientName} · {[v.job.fieldArea, v.job.well].filter(Boolean).join(' · ')}</p><p>{v.job.samplingSource}</p><p>Issue date: {draft ? 'Not issued (draft saved ' + date(v.savedAt) + ')' : date(v.releasedAt)}</p></header>
+      {(v.conditions.pressure || v.conditions.temperature || v.conditions.notes) && <><h2>Conditions and general notes</h2><p>{[v.conditions.pressure && `Reservoir pressure ${v.conditions.pressure} ${v.conditions.pressureUnit}`, v.conditions.temperature && `Reservoir temperature ${v.conditions.temperature} ${v.conditions.temperatureUnit}`].filter(Boolean).join(' · ')}</p>{v.conditions.notes && <p>{v.conditions.notes}</p>}</>}
+      <h2>Samples and selected tests</h2><table><colgroup><col style={{ width: '9%' }} /><col style={{ width: '17%' }} /><col style={{ width: '12%' }} /><col style={{ width: '9%' }} /><col style={{ width: '17%' }} /><col style={{ width: '17%' }} /><col style={{ width: '19%' }} /></colgroup><thead><tr><th>Sample</th><th>Container</th><th>Fluid</th><th>Validation</th><th>PVT tests</th><th>Chemistry tests</th><th>Scope notes</th></tr></thead><tbody>{v.samples.map((s) => <tr key={s.sampleId}><td>{s.sampleId}</td><td>{s.containerType === 'Glass container' ? s.containerLabel : 'Cylinder · ' + s.containerLabel}</td><td>{s.excluded ? '—' : s.fluidType ? s.fluidType + (s.fluidType === 'Other' && s.fluidDescription ? ' · ' + s.fluidDescription : '') : 'Not recorded'}</td><td>{s.excluded ? '—' : entryValidation(s) ? 'Yes' : 'No'}</td><td>{s.excluded ? 'Excluded' : tests(s, 'pvtTests', 'PVT')}</td><td>{s.excluded ? '—' : tests(s, 'chemicalTests', 'Chemical')}</td><td>{s.excluded ? 'Excluded: ' + s.exclusionReason : [s.notes, s.fluidNotes].filter(Boolean).join(' · ') || '—'}</td></tr>)}</tbody></table>
+      {v.samples.some((s) => [...s.pvtTests, ...s.chemicalTests].some(unclassified)) && <p><small>* Unclassified in Settings when this version was saved; team chosen by the scope selector.</small></p>}
+      {v.samples.some((s) => entryValidation(s)) && <p><small>Validation: the PVT Team Lead selects the applicable steps; none is assumed mandatory.</small></p>}
+      {v.reason && <><h2>{v.version > 1 ? 'Revision reason' : 'Release note'}</h2><p>{v.reason}</p></>}
+      <h2>Approval</h2>{draft ? <p><strong>Not approved.</strong> Prepared by {name(v.preparedBy)} on {date(v.savedAt)}. This draft has no approval or signature.</p> : <dl><dt>Approved and released by</dt><dd>{name(v.releasedBy)} · Scope selection</dd><dt>Date and time</dt><dd>{date(v.releasedAt)}</dd><dt>Method</dt><dd>Electronic release recorded in VAPS (no handwritten signature)</dd></dl>}
+    </article></details>;
 }
