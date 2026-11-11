@@ -7,8 +7,11 @@ import type { TestRouting } from './test-routing';
  * the stored identity of every selection; this module only decides which cards to show and maps a card to its IDs.
  * Validation is never a card: it is requested with the per-sample "Validation required?" control.
  */
-export type FluidType = 'Black Oil' | 'Gas Condensate' | 'Water' | 'Chemical' | 'OBM' | 'Other';
-export const fluidTypes: FluidType[] = ['Black Oil', 'Gas Condensate', 'Water', 'Chemical', 'OBM', 'Other'];
+export type FluidType = 'Black Oil' | 'Gas Condensate' | 'Water' | 'Chemistry' | 'STO' | 'OBM' | 'Other';
+export const fluidTypes: FluidType[] = ['Black Oil', 'Gas Condensate', 'Water', 'Chemistry', 'STO', 'OBM', 'Other'];
+/** Older records saved the fluid type "Chemical"; it is read as Chemistry and rewritten only on the next save. */
+export type StoredFluidType = FluidType | 'Chemical';
+export const normalizeFluid = (f?: StoredFluidType): FluidType | undefined => (f === 'Chemical' ? 'Chemistry' : f);
 export type TeamChoice = 'PVT' | 'Chemical' | 'Both';
 /** Catalogue group names that carry a fluid-specific method. */
 export const fluidGroup: Record<'Black Oil' | 'Gas Condensate', string> = { 'Black Oil': 'Black Oil', 'Gas Condensate': 'Gas Condensates (GC)' };
@@ -25,7 +28,7 @@ const fluidIds = (group: string) => catalogueTests().filter((t) => t.group === g
  * General and specialised analysis are Required tests; "Other tests" cards (EOR and tests added there in Settings) are shown
  * in step 5 of the scope, where the scope owner chooses the team.
  */
-export function testCards(fluid?: FluidType): TestCard[] {
+export function testCards(fluid?: StoredFluidType): TestCard[] {
   const groups = fluid === 'Black Oil' || fluid === 'Gas Condensate' ? [fluidGroup[fluid]] : [fluidGroup['Black Oil'], fluidGroup['Gas Condensate']];
   const cards = new Map<string, TestCard>();
   for (const group of groups) for (const id of fluidIds(group)) {
@@ -36,7 +39,7 @@ export function testCards(fluid?: FluidType): TestCard[] {
   return [...cards.values(), ...general('General analysis'), ...general('Specialised analysis'), ...general('Other tests')];
 }
 /** Saved catalogue selections that the chosen fluid type does not list (kept, flagged for review, never deleted automatically). */
-export function needsReview(ids: string[], fluid?: FluidType): string[] {
+export function needsReview(ids: string[], fluid?: StoredFluidType): string[] {
   if (!fluid) return [];
   const shown = new Set(testCards(fluid).flatMap((c) => c.ids));
   return [...new Set(ids)].filter((id) => !isValidationTest(id) && !shown.has(id));

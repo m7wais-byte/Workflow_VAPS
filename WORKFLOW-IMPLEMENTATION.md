@@ -342,6 +342,13 @@ Verification: TypeScript and lint passed (existing warnings only); 191 tests pas
 - **Chemistry**: team, work and role labels read "Chemistry" (`teamName` in `app/team-name.ts`). The stored stream value stays `'Chemical'` so saved records keep working; test names are unchanged.
 - **Later**: OneDrive job folders (`<Job ID>/01 Sampling`, `<Job ID>/02 Lab/PVT`, `<Job ID>/02 Lab/Chemistry`) need Microsoft 365 sign-in and an app registration, and are not part of this round.
 
+## Laboratory scope in two phases (Nov 2026)
+
+- **Phase 1 · Validation** (Scope tab, scope selector): every sample is shown with its count at the top. Per sample: fluid type (Black Oil, Gas Condensate, Water, Chemistry, STO, OBM, Other) → responsible team → Validation required Yes/No. Yes opens the step panel (pre-filled with the standard sequence for the sampling type; untick what is not needed). No sends the sample straight to Phase 2. Reservoir pressure and temperature are required when any sample has Validation. Release creates the chosen steps as Unassigned PVT work for the PVT Team Lead to assign; the lead may still add or remove unstarted steps.
+- **Phase 2 · Detailed tests**: a sample opens when it needs no Validation or all its Validation stages are completed. The scope selector gets a My work task to confirm with the client focal point, then marks each sample Selected / Not selected for further study and selects the tests (existing test cards, custom tests and third-party execution). The job cannot finish until every sample in scope has a Phase 2 decision.
+- Request additional work is no longer shown on the Scope tab; older requests stay listed read-only. Older fluid type "Chemical" reads as Chemistry. Jobs scoped in one step before phases keep their single-phase view.
+- Pending (next steps): Ahmed's assignment table with time needed, "Finished" per stage with one shared job workbook, workbook review/QC, and the interim report.
+
 ## Sample handover step removed
 
 Decision (Mohammed Al Awaisi): there is no recorded sample handover between Sampling and the Laboratory. Earlier sections that describe physical handover, driver handover actions, the `labReceipt` duty or receipt gating are superseded by this section.

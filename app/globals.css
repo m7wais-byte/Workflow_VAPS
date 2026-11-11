@@ -3563,3 +3563,25 @@ main .cyl-filters select,main .cyl-filters input{background:var(--paper)!importa
 .report-panel .rp-preview-head h3{margin:0}
 .report-panel .rv-card h3 .section-state{text-transform:none;letter-spacing:0;font-size:12px}
 .report-panel .review-timeline{margin:10px 0}
+
+/* Laboratory scope phases: Phase 1 Validation → Phase 2 detailed tests (Nov 2026) */
+.scope-count{display:inline-block;width:auto;font-size:13px;font-weight:600;color:var(--muted);margin-left:6px;padding:2px 9px;border:1px solid var(--line);border-radius:999px;background:#fff;vertical-align:middle}
+.phase-strip{list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 14px;padding:0}
+.phase-strip li{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:#fff}
+.phase-strip li>span{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;border:2px solid var(--line);font-weight:700;color:var(--muted);flex:none}
+.phase-strip li div{display:flex;flex-direction:column;min-width:0}
+.phase-strip li strong{color:var(--navy);font-size:14px}
+.phase-strip li small{color:var(--muted);font-size:12.5px}
+.phase-strip li.current{border-color:var(--teal);box-shadow:inset 3px 0 0 var(--teal)}
+.phase-strip li.current>span{border-color:var(--teal);color:var(--teal)}
+.phase-strip li.done{background:var(--mint)}
+.phase-strip li.done>span{background:var(--teal);border-color:var(--teal);color:#fff}
+.phase-strip li.locked{opacity:.75;background:#fafbfb}
+.validation-panel{margin-top:8px;padding:10px 12px;border:1px solid #a9c6de;border-radius:8px;background:#f5f9fc;display:flex;flex-direction:column;gap:8px}
+.validation-panel-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px}
+.validation-panel-head strong{color:#25577f;font-size:13.5px}
+.validation-panel .test-chip .step-no{display:inline-grid;place-items:center;min-width:18px;height:18px;border-radius:50%;background:#e4edf4;color:#25577f;font-size:11px;font-weight:700}
+.validation-panel .test-chip.active .step-no{background:#fff;color:var(--teal-dark)}
+.scope-conditions.needs-decision{border-color:#e0a54c}
+@media (max-width:640px){.phase-strip{grid-template-columns:1fr}}
+.lab-scope .panel-heading h2 .scope-count{display:inline-block;width:auto;max-width:max-content;margin-top:0}

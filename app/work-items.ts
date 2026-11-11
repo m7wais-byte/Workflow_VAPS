@@ -1,5 +1,5 @@
 import type { JobRecord } from './page';
-import { samplingWorkers, samplingStarted, jobFinished, jobCylinderSerials, operationsFor, samplingStatus, latestData, latest, labStatus, isDraft, canSeeDraft, samplingTeam, samplingApproved, finalReady, testsAwaitingQcApproval, assignmentEngineers, actorRoles, hasAccess, streamLead, additionalWorkPending, unplannedValidation, type Actor, type ActivityRecord, type Stream } from './operations-model';
+import { phase2Undecided, phase2Ready, samplingWorkers, samplingStarted, jobFinished, jobCylinderSerials, operationsFor, samplingStatus, latestData, latest, labStatus, isDraft, canSeeDraft, samplingTeam, samplingApproved, finalReady, testsAwaitingQcApproval, assignmentEngineers, actorRoles, hasAccess, streamLead, additionalWorkPending, unplannedValidation, type Actor, type ActivityRecord, type Stream } from './operations-model';
 import { containerLabel } from './sample-container';
 import { addDays as addDaysIso } from './local-date';
 import type { Responsibilities } from './authorization';
@@ -137,6 +137,9 @@ export function workItems(jobs: JobRecord[], actor: Actor, today: string) {
     // Laboratory scope
     if (samplingApproved(job) && roles.scopeSelector === me && hasAccess(actor, 'analysis')) {
       if (!o.scopeConfirmedAt) add({ ...base, role: 'Scope selection', button: 'Define scope', key: `scope:${job.id}`, kind: 'task', action: 'Define and release laboratory scope', status: st.label, due: job.dueDate || undefined, from: report?.approvedBy, fromLabel: 'Report approved by', events: [], open: { tab: 'scope' } });
+      // Phase 2: samples with no Validation, or whose Validation is complete, wait for the further-study decision.
+      const ready = phase2Undecided(job).filter((id) => phase2Ready(job, id));
+      if (ready.length) add({ ...base, role: 'Scope selection', button: 'Select Phase 2 scope', key: `phase2:${job.id}`, kind: 'task', action: `Confirm with the client focal point${job.clientFocalPoint ? ' (' + job.clientFocalPoint + ')' : ''} which samples go to further study, then select their tests · Sample ${ready.join(', ')}`, status: 'Phase 2 · detailed tests', due: job.dueDate || undefined, events: [], open: { tab: 'scope' } });
       const pending = o.additions.filter((a) => !a.confirmedAt).length;
       if (pending) add({ ...base, role: 'Scope selection', button: 'Confirm requests', key: `additions:${job.id}`, kind: 'review', action: `Confirm ${pending} additional-work request(s)`, status: 'Additional work requested', events: [], open: { tab: 'scope' } });
     }

@@ -189,8 +189,8 @@ test('outsourced work without a coordinator: draft allowed, team-lead task and b
  j=step(j,{type:'external-dispatch',id:w.id,sentOn:'2026-11-02',expectedReturn:'',notes:''},'YAQEEN');assert.equal(externalStage(acts(j).find(a=>a.id===w.id)),'Sent to third party · Awaiting results');
 });
 
-test('Water, Chemical and OBM are saved as fluid types and custom fluids keep their description',()=>{
- for(const fluidType of ['Water','Chemical','OBM','Other']){
+test('Water, Chemistry, STO, OBM (and older Chemical) are saved as fluid types and custom fluids keep their description',()=>{
+ for(const fluidType of ['Water','Chemistry','STO','Chemical','OBM','Other']){
   const j=release(approved(),[e('1.01',{fluidType,fluidDescription:fluidType==='Other'?'Custom brine':'',destination:'Chemical',chemicalTests:['Others — Water Analysis']}),e('1.02',{excluded:true,exclusionReason:'n/a'}),e('1.03',{excluded:true,exclusionReason:'n/a'})]);
   assert.equal(operationsFor(j).labScopes.at(-1).samples[0].fluidType,fluidType);
  }
