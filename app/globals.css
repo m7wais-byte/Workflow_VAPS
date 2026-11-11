@@ -2609,6 +2609,33 @@ main,.workspace-content,.settings-workspace .panel {min-width:0;}
 .plan-step-grid small{color:var(--muted)}
 .plan-exec{display:flex;flex-wrap:wrap;gap:6px}.plan-exec select,.plan-exec input{font-size:12.5px;padding:5px 7px;border:1px solid var(--line);border-radius:6px;min-width:0;flex:1 1 120px}
 .confirm-dup{padding:8px 10px;border:1px solid #e0a54c;border-radius:8px;background:#fff8ec}
+/* Validation assignment table: one row per step with engineer, due date and note. */
+.validation-planning .plan-list>li{padding:16px 18px}
+.plan-status b{font-weight:700;color:var(--ink)}.plan-status em{font-style:normal}
+.assign-table{margin-top:12px;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff}
+.assign-head,.assign-row{display:grid;grid-template-columns:34px minmax(150px,1.1fr) minmax(170px,1.2fr) 170px minmax(180px,1.6fr) 40px;gap:8px 14px;align-items:center;padding:10px 14px}
+.assign-head{background:#f1f6f7;color:#4d636d;font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding-top:9px;padding-bottom:9px}
+.assign-row{border-top:1px solid var(--line);font-size:14px}
+.assign-row.is-open{box-shadow:inset 3px 0 0 #e0a54c}.assign-row.is-new{background:#f3faf8}
+.assign-row.is-read{grid-template-columns:34px minmax(150px,1.1fr) minmax(150px,1.2fr) 110px minmax(160px,1.6fr) 150px}
+.assign-table .step-no{margin-right:0}
+.assign-step{display:flex;flex-direction:column;gap:2px;min-width:0}.assign-step small{color:var(--muted);font-size:12px}
+.ops-panel .assign-row select,.ops-panel .assign-row input:not([type=checkbox]){min-height:38px;padding:7px 10px;font-size:14px}
+.assign-row input:disabled,.assign-row select:disabled{background:#f4f7f8;color:#8a9aa2}
+.assign-row .uk-date-input{width:100%}
+.ops-panel .link-button{align-self:flex-start;border:0;background:none;padding:0;color:var(--teal-dark);font-size:12px;text-decoration:underline;cursor:pointer}
+.assign-remove{display:flex;justify-content:center}
+.ops-panel .icon-remove{display:grid;place-items:center;width:34px;height:34px;border:1px solid transparent;border-radius:7px;background:none;color:#8a9aa2}
+.ops-panel .icon-remove:hover,.ops-panel .icon-remove:focus-visible{color:#b3261e;border-color:#f0c4c0;background:#fdf3f2}
+.assign-lock{color:#8a9aa2;display:grid;place-items:center}
+.assign-extra{grid-column:2 / -1;display:flex;flex-direction:column;gap:8px}.assign-extra .overlap-note{margin:0}
+.ops-panel .assign-extra .inline-date{flex-direction:row;align-items:center;gap:8px;margin:0;font-size:12.5px;flex:1 1 240px}
+.assign-add{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:4px;font-size:13px;color:#4d636d}
+.ops-panel .add-chip{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border:1px dashed #9db9bd;border-radius:999px;background:#fff;color:var(--teal-dark);font-size:13px;font-weight:600}
+.ops-panel .add-chip:hover{background:var(--mint);border-style:solid}
+.ops-panel .assign-footer{align-items:center;margin-top:6px}.assign-footer small{margin-right:auto}
+.assign-empty{margin:8px 0 0}
+@media(max-width:900px){.assign-head{display:none}.assign-row,.assign-row.is-read{grid-template-columns:34px 1fr 40px}.assign-row>select,.assign-row>.uk-date-input,.assign-row>input,.assign-row>span[data-label]{grid-column:2 / -1}.assign-row>span[data-label]::before{content:attr(data-label) ": ";color:var(--muted);font-size:12px}.assign-row .assign-step{grid-column:2}.assign-row .assign-remove{grid-column:3;grid-row:1}}
 .external-panel{margin:10px 0;padding:12px;border:1px solid #e6d6b8;border-radius:8px;background:#fdf9f1}
 .external-panel h4{margin:0 0 6px;color:#7a5313}
 .external-step{margin-top:10px;padding-top:10px;border-top:1px dashed #e6d6b8;display:flex;flex-direction:column;gap:8px}

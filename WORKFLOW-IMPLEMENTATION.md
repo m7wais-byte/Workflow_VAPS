@@ -359,3 +359,14 @@ Decision (Mohammed Al Awaisi): there is no recorded sample handover between Samp
 - Driver assignment at dispatch is unchanged, but the driver has no workflow action.
 - Saved `operations.handover` records on existing jobs are kept in the data and no longer read. Old `#workflow/<job>/handover` links open the job overview.
 
+
+
+## Validation assignment table (11 November 2026)
+
+Model rules, permissions and stored records are unchanged; only the PVT Team Lead's Validation panel on the Lab work tab (`app/lab-planning.tsx`) is redesigned.
+
+- **One table per sample** replaces the read-only step list and the separate "Edit plan" form: each row is a Validation step with Engineer, Due date and Note, saved together with one **Save changes** button (`validation-plan` when the step list changed, then one `schedule` per changed assignment).
+- **Remove / add:** an untouched step has a remove button; a step already assigned or started shows a lock and is kept. Catalogue steps not in the plan are offered as "Add a step" chips. Restoration still requires reservoir pressure/temperature when added, and a Validation Recombination next to a separately requested Recombination test still needs confirmation.
+- **Planned start is not asked:** a new assignment starts today (an existing start date is kept); only the due date is entered. Due date and note are enabled once an engineer is chosen. The advisory schedule-overlap notice appears on changed rows.
+- **Third-party** execution is a per-row link ("Send to third-party lab") with provider and expected return; the engineer is then the internal coordinator.
+- Other viewers see the same table read-only with status. The "Awaiting your assignment" list below is unchanged.
