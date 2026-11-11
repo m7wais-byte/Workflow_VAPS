@@ -1245,7 +1245,7 @@ export default function Home() {
 
 
   function standardDataSheetForm(sample: Sample): ReactNode {
-    const U = (label: string, field: string, units: string[], unitField = field + "Unit", placeholder?: string) => samplingUnitField(sample, label, field, unitField, units, { required: true, placeholder, na: field !== "depth" });
+    const U = (label: string, field: string, units: string[], unitField = field + "Unit", placeholder?: string) => samplingUnitField(sample, label, field, unitField, units, { required: true, placeholder, na: true });
     const T = (label: string, field: string, placeholder = "Value") => samplingTextField(sample, label, field, { required: true, placeholder, na: true });
     const filled = (field: string) => Boolean((field === "depth" ? sample.depth : sample.fieldData[field] || "").trim());
     const section = (num: string, title: string, hint: string, fields: string[], body: ReactNode, open = false) => {
