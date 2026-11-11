@@ -10,7 +10,7 @@ const {initialDirectory}=await bundle('app/employee-directory.ts');
 
 const employees=initialDirectory().employees,policy=defaultAuthorization(employees.map(e=>e.id));
 const routing={'Black Oil — DL':'PVT','Others — Water Analysis':'Chemical'};
-const roles={...defaultResponsibilities,qcReviewer:'RANJITH',labReceipt:'SHEREIQI'};
+const roles={...defaultResponsibilities,qcReviewer:'RANJITH'};
 const teams={PVT:['NASSER'],Chemical:['YAQEEN']};
 const actor=(id,extra={})=>({id,employees,policy,roles,routing,teams,...extra});
 let tick=0;const at=()=>new Date(Date.UTC(2026,10,1,8,0,tick++)).toISOString();const today='2026-11-01';
@@ -42,14 +42,10 @@ test('the dashboard follows the whole journey with one next responsible person a
  j=step(j,{type:'report-draft',kind:'sampling',text:'Summary',checker:''},'MOHSIN');assert.deepEqual(acts(j,'MOHSIN'),['Submit sampling report for approval']);
  j=step(step(j,{type:'report-action',kind:'sampling',action:'checking',comments:''},'MOHSIN'),{type:'report-action',kind:'sampling',action:'submit',comments:''},'SALIM');assert.deepEqual(acts(j,'SALIM'),['Review sampling report']);
  j=step(j,{type:'report-action',kind:'sampling',action:'approve',comments:''},'SALIM');
- assert.deepEqual(acts(j,'SALIM'),['Define and release laboratory scope']);assert.deepEqual(acts(j,'ALI'),['Hand over samples/containers to the laboratory']);
+ assert.deepEqual(acts(j,'SALIM'),['Define and release laboratory scope']);assert.deepEqual(acts(j,'ALI'),[],'no sample handover step for the driver');
  j=step(j,{type:'lab-scope',action:'release',reason:'',conditions:{pressure:'',pressureUnit:'psi',temperature:'',temperatureUnit:'°C',notes:''},samples:[{sampleId:'1.01',destination:'PVT',pvtTests:['Black Oil — DL'],chemicalTests:[],notes:'',excluded:false,exclusionReason:'',fluidType:'Black Oil'},{sampleId:'1.02',destination:'Chemical',pvtTests:[],chemicalTests:['Others — Water Analysis'],notes:'',excluded:false,exclusionReason:'',fluidType:'Black Oil'}]},'SALIM');
  assert.deepEqual(acts(j,'SHEREIQI'),['Assign 1 PVT test(s)']);assert.deepEqual(acts(j,'BAHRI'),['Assign 1 Chemistry test(s)']);assert.deepEqual(acts(j,'WILFRED'),[],'the supervisor gets no lead actions');
  assert.ok(items(j,'SHEREIQI',{teams:{PVT:[],Chemical:[]}}).actions.some(i=>i.key.startsWith('assign:')),'lead can assign themselves with no additional members');
- j=step(j,{type:'handover-send',sampleIds:['1.01','1.02'],notes:''},'ALI');
- assert.ok(acts(j,'SHEREIQI').includes('Confirm samples/containers received'));assert.equal(items(j,'ALI').waiting[0].waitingOn,'Ahmed Al Shereiqi');
- assert.equal(items(j,'SALIM',{roles:{...roles,labReceipt:''}}).blocked.find(b=>b.setting==='labReceipt').jobs[0],'OM-P-26-401');
- j=step(j,{type:'handover-receive',notes:''},'SHEREIQI');
  const pvt=operationsFor(j).activities.find(a=>a.stream==='PVT'),chem=operationsFor(j).activities.find(a=>a.stream==='Chemical');
  j=step(j,{type:'schedule',id:pvt.id,owner:'NASSER',start:'2026-10-28',due:'2026-10-31',conditions:'',notes:'Use cell 2.'},'SHEREIQI');
  const n=items(j,'NASSER').actions[0];assert.equal(n.action,'Start test and submit workbook');assert.equal(n.test,'Black Oil — DL');assert.equal(n.sample,'1.01');assert.equal(n.container,'PDS · B-1.01');assert.equal(n.from,'SHEREIQI');assert.equal(n.comment,'Use cell 2.');assert.equal(n.overdue,true);

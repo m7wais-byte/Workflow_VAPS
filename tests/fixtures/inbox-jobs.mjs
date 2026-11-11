@@ -1,7 +1,7 @@
 // 27 fictional jobs (DEMO) for the My work inbox tests and screenshots. Every job is advanced with the real
 // workflow commands, so each is a state the app can reach on its own. QC review is deliberately unassigned
 // to exercise the "blocked by a missing setting" state.
-export const inboxRoles = (defaults) => ({ ...defaults, labReceipt: 'SHEREIQI', qcReviewer: '' });
+export const inboxRoles = (defaults) => ({ ...defaults, qcReviewer: '' });
 export const inboxTeams = { PVT: ['NASSER', 'RANJITH', 'AHAD'], Chemical: ['YAQEEN'] };
 export const inboxRouting = { 'Black Oil — DL': 'PVT', 'Black Oil — Sep Test': 'PVT', 'Gas Condensates (GC) — CVD': 'PVT', 'Others — Water Analysis': 'Chemical' };
 
@@ -31,7 +31,7 @@ export function buildInboxJobs({ applyOperation, employees, policy, roles, today
   const approvedData = (j, engineer = 'MOHSIN') => run(submitted(j, engineer), 'SALIM', { type: 'data-approve' });
   const reportSubmitted = (j, engineer = 'MOHSIN') => { j = run(approvedData(j, engineer), engineer, { type: 'report-draft', kind: 'sampling', text: 'DEMO sampling report.', checker: '' }); j = run(j, engineer, { type: 'report-action', kind: 'sampling', action: 'checking', comments: '' }); return run(j, 'SALIM', { type: 'report-action', kind: 'sampling', action: 'submit', comments: '' }); };
   const reportApproved = (j, engineer = 'MOHSIN') => run(reportSubmitted(j, engineer), 'SALIM', { type: 'report-action', kind: 'sampling', action: 'approve', comments: '' });
-  const received = (j, engineer) => { j = run(reportApproved(j, engineer), 'ALI', { type: 'handover-send', sampleIds: j.samples.map((s) => s.id), notes: 'DEMO transfer.' }); return run(j, 'SHEREIQI', { type: 'handover-receive', notes: 'DEMO receipt.' }); };
+  const received = (j, engineer) => reportApproved(j, engineer);
   const conditions = { pressure: '', pressureUnit: 'psi', temperature: '', temperatureUnit: '°C', notes: '' };
   const scoped = (j, items, engineer) => run(received(j, engineer), 'SALIM', { type: 'scope', reason: 'DEMO original request.', conditions, items });
   const act = (j, title, sampleId) => j.operations.activities.find((a) => a.title === title && a.sampleId === sampleId).id;
@@ -55,7 +55,7 @@ export function buildInboxJobs({ applyOperation, employees, policy, roles, today
   jobs.push(reportSubmitted(job(7, { due: -1 }), 'HUSSEINI'));
   jobs.push(run(reportSubmitted(job(8, { due: 5 })), 'SALIM', { type: 'report-action', kind: 'sampling', action: 'return', comments: 'Add the separator conditions to the summary table.' }));
   jobs.push(reportApproved(job(9, { due: 12 })));
-  jobs.push(run(reportApproved(job(10, { due: 8 })), 'ALI', { type: 'handover-send', sampleIds: ['1.01'], notes: 'DEMO transfer.' }));
+  jobs.push(reportApproved(job(10, { due: 8 })));
   let j = scoped(job(11, { due: 15 }), [pvt('Black Oil — DL', ['1.01']), chem(['1.01'])]);
   jobs.push(run(j, 'SHEREIQI', { type: 'request-addition', title: 'Black Oil — Sep Test', reason: 'DEMO client asked for a separator test.' }));
   jobs.push(scoped(job(12, { due: 11 }), [pvt('Black Oil — DL', ['1.01']), chem(['1.01'])]));

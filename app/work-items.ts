@@ -10,11 +10,11 @@ import { ukDate } from './uk-format';
 
 /**
  * Personal dashboard items, derived from the same workflow states the Jobs, Sampling and PVT Lab pages use
- * (samplingStatus, labStatus, report and handover records). No separate status engine.
+ * (samplingStatus, labStatus and report records). No separate status engine.
  */
 export type ItemKind = 'returned' | 'review' | 'assignment' | 'task';
 /** Which part of the work a row belongs to: shown as a tag so PVT, Chemical and Sampling work are never confused. */
-export type Area = 'Sampling' | 'PVT' | 'Chemical' | 'Scope' | 'Transport' | 'Receipt' | 'Final report' | 'Job setup' | 'QC';
+export type Area = 'Sampling' | 'PVT' | 'Chemical' | 'Scope' | 'Final report' | 'Job setup' | 'QC';
 /** The deadline a row shows: a test's own due date, or the overall job due date when the task has none of its own. */
 export type DueKind = 'Test due' | 'Job due';
 export type WorkItem = {
@@ -25,7 +25,7 @@ export type WorkItem = {
   /** Short name for the button that opens this action. */button: string;
   open: { tab: string } | { editor: 'type' | 'bottomhole' | 'report' | 'job'; sample?: string };
 };
-export type Setting = 'teams' | 'labReceipt' | 'qcReviewer' | 'samplingApproval' | 'scopeSelector' | 'routing' | 'finalApproval' | 'pvtTeamLead' | 'chemicalTeamLead';
+export type Setting = 'teams' | 'qcReviewer' | 'samplingApproval' | 'scopeSelector' | 'routing' | 'finalApproval' | 'pvtTeamLead' | 'chemicalTeamLead';
 export type WaitingItem = {
   key: string; jobId: string; jobNumber: string; client: string; what: string; waitingOn: string; since?: string; open: { tab: string };
   /** Headline when "Waiting on {waitingOn}" does not read well, e.g. work this employee returned. */label?: string;
@@ -78,9 +78,9 @@ export const sortItems = (items: WorkItem[], isNew: (i: WorkItem) => boolean) =>
   const score = (i: WorkItem) => i.overdue ? 0 : i.dueToday ? 1 : i.kind === 'returned' ? 2 : i.kind === 'review' ? 3 : 4;
   return score(a) - score(b) || (a.due || '9999').localeCompare(b.due || '9999') || Number(isNew(b)) - Number(isNew(a)) || a.jobNumber.localeCompare(b.jobNumber);
 });
-const areaOf = (key: string, stream?: Stream): Area => key.startsWith('draft:') ? 'Job setup' : /^(sampling|data-review|report-prep|report-review|report-fix):/.test(key) ? 'Sampling' : /^(scope|additions):/.test(key) ? 'Scope' : key.startsWith('handover:') ? 'Transport' : key.startsWith('receipt:') ? 'Receipt' : /^final/.test(key) ? 'Final report' : key.startsWith('qc:') ? 'QC' : stream || 'PVT';
+const areaOf = (key: string, stream?: Stream): Area => key.startsWith('draft:') ? 'Job setup' : /^(sampling|data-review|report-prep|report-review|report-fix):/.test(key) ? 'Sampling' : /^(scope|additions):/.test(key) ? 'Scope' : /^final/.test(key) ? 'Final report' : key.startsWith('qc:') ? 'QC' : stream || 'PVT';
 /** Short employee responsibility labels, from configured duties. */
-export const dutyLabel: Record<string, string> = { scopeSelector: 'Scope selection', samplingApproval: 'Sampling approval', pvtSupervisor: 'PVT Supervisor', pvtTeamLead: 'PVT Team Lead', chemicalTeamLead: 'Chemistry Team Lead', reporting: 'Final report preparation', finalApproval: 'Final report approval', qcReviewer: 'QC review', labReceipt: 'Laboratory receipt' };
+export const dutyLabel: Record<string, string> = { scopeSelector: 'Scope selection', samplingApproval: 'Sampling approval', pvtSupervisor: 'PVT Supervisor', pvtTeamLead: 'PVT Team Lead', chemicalTeamLead: 'Chemistry Team Lead', reporting: 'Final report preparation', finalApproval: 'Final report approval', qcReviewer: 'QC review' };
 
 export function workItems(jobs: JobRecord[], actor: Actor, today: string) {
   const roles = actorRoles(actor), me = actor.id, name = (id?: string) => actor.employees.find((e) => e.id === id)?.name || 'Not assigned';
@@ -142,13 +142,6 @@ export function workItems(jobs: JobRecord[], actor: Actor, today: string) {
       if (ready.length) add({ ...base, role: 'Scope selection', button: 'Select Phase 2 scope', key: `phase2:${job.id}`, kind: 'task', action: `Confirm with the client focal point${job.clientFocalPoint ? ' (' + job.clientFocalPoint + ')' : ''} which samples go to further study, then select their tests · Sample ${ready.join(', ')}`, status: 'Phase 2 · detailed tests', due: job.dueDate || undefined, events: [], open: { tab: 'scope' } });
       const pending = o.additions.filter((a) => !a.confirmedAt).length;
       if (pending) add({ ...base, role: 'Scope selection', button: 'Confirm requests', key: `additions:${job.id}`, kind: 'review', action: `Confirm ${pending} additional-work request(s)`, status: 'Additional work requested', events: [], open: { tab: 'scope' } });
-    }
-    // Handover and receipt
-    if (samplingApproved(job) && !o.handover && job.assignedDriverId === me) add({ ...base, role: 'Driver', button: 'Hand over samples', key: `handover:${job.id}`, kind: 'task', action: 'Hand over samples/containers to the laboratory', status: 'Sampling report approved · awaiting transport', due: job.dueDate || undefined, events: [], open: { tab: 'handover' } });
-    if (o.handover && !o.handover.receivedAt) {
-      if (roles.labReceipt === me && hasAccess(actor, 'analysis')) add({ ...base, role: 'Laboratory receipt', button: 'Confirm receipt', key: `receipt:${job.id}`, kind: 'task', action: 'Confirm samples/containers received', status: 'In transit', from: o.handover.sentBy, fromLabel: 'Sent by', events: [], open: { tab: 'handover' } });
-      if (o.handover.sentBy === me) wait({ ...base, key: `w-receipt:${job.id}`, what: 'Samples/containers sent', waitingOn: roles.labReceipt ? name(roles.labReceipt) : 'Laboratory receipt (not configured)', blocked: roles.labReceipt ? undefined : 'labReceipt', since: o.handover.sentAt, open: { tab: 'handover' } });
-      if (!roles.labReceipt) block('labReceipt', 'Samples/containers in transit cannot be confirmed as received.', job);
     }
     // Laboratory tests
     const lab = o.activities.filter((a) => a.required);
@@ -218,18 +211,16 @@ export function workItems(jobs: JobRecord[], actor: Actor, today: string) {
       if (waiting.length) add({ ...base, area: 'Sampling', role: me === lead ? 'Accountable sampling employee' : 'Backup sampling employee', button: 'Open cylinders', key: `cyl-clean:${job.id}`, kind: 'task', action: `Collect, clean and check ${waiting.length} cylinder${waiting.length === 1 ? '' : 's'}: ${waiting.join(', ')}`, status: 'Returned · needs cleaning', from: o.cylindersReleased.by, fromLabel: 'Released by', events: [], open: { tab: 'cylinders' } });
     }
     // Laboratory heads-up while the job is in sampling: general job details only, because the laboratory scope is chosen after the sampling report is approved.
-    const labDuty = ([roles.scopeSelector, roles.labReceipt, roles.pvtTeamLead, roles.chemicalTeamLead] as (string | undefined)[]).includes(me);
+    const labDuty = ([roles.scopeSelector, roles.pvtTeamLead, roles.chemicalTeamLead] as (string | undefined)[]).includes(me);
     if (dispatched && !approved && labDuty && hasAccess(actor, 'analysis') && !team.includes(me) && o.dispatchedBy !== me) {
       const plan = legacyPlan(job), where = [job.fieldArea, job.wells?.filter(Boolean).join(', ') || job.well].filter(Boolean).join(' / ');
       const key = `heads-up:${job.id}:${o.dispatchedAt}`;
       alert({ key, kind: 'sampling', jobId: job.id, jobNumber: job.jobNumber, headline: `Job in sampling · ${job.clientName}`, samples: where || 'Location not recorded', scope: plan.map((r) => `${r.source} (${rowSummary(r)})`).join(', ') + (job.dueDate ? ` · job due ${ukDate(job.dueDate)}` : ''), by: o.dispatchedBy || job.createdById, at: o.dispatchedAt!, planner: '', button: 'View job', open: { tab: 'overview' }, keys: [key] });
     }
     if (dispatched && !approved) {
-      if (job.assignedDriverId === me) soon({ key: `soon-transport:${job.id}`, area: 'Transport', role: 'Driver', what: 'Transport samples/containers to the laboratory', after: 'After the sampling report is approved', open: { tab: 'handover' } });
       if (roles.samplingApproval === me && hasAccess(actor, 'sampling') && st.owner !== me && st.key !== 'returned') soon({ key: `soon-sampling-approval:${job.id}`, area: 'Sampling', role: 'Sampling approval', what: st.key === 'report-generation' ? 'Approve the sampling report' : 'Review the sampling data, then approve the report', after: st.key === 'report-generation' ? `After ${name(lead)} submits the report` : `After ${name(lead)} submits the sampling data`, open: { tab: 'sampling-report' } });
       if (roles.scopeSelector === me && hasAccess(actor, 'analysis')) soon({ key: `soon-scope:${job.id}`, area: 'Scope', role: 'Scope selection', what: 'Define and release the laboratory scope', after: 'After the sampling report is approved', open: { tab: 'scope' } });
     }
-    if (approved && !o.handover && roles.labReceipt === me && hasAccess(actor, 'analysis')) soon({ key: `soon-receipt:${job.id}`, area: 'Receipt', role: 'Laboratory receipt', what: 'Confirm samples/containers received', after: `After ${job.assignedDriverId ? name(job.assignedDriverId) : 'the driver'} sends them`, open: { tab: 'handover' } });
     for (const stream of ['PVT', 'Chemical'] as const) {
       if (roles[streamLead(stream)] !== me || !hasAccess(actor, 'analysis')) continue;
       const working = openLab.filter((a) => a.stream === stream && a.owner && ['Scheduled', 'In Progress', 'Changes Requested'].includes(a.status));
@@ -302,7 +293,7 @@ const stateRank: Record<InboxState, number> = { action: 0, blocked: 1, waiting: 
 
 /**
  * Groups workItems() output by job. Rows exist only for jobs this employee acts on, waits on, or currently holds a stage
- * responsibility for (sampling team until sampling approval, driver until receipt, owner of an unfinished test); never company-wide.
+ * responsibility for (sampling team until sampling approval, owner of an unfinished test); never company-wide.
  */
 export function inboxRows(work: ReturnType<typeof workItems>, jobs: JobRecord[], actor: Actor, today: string, opts: { isNew: (i: WorkItem) => boolean; isClosed: (job: JobRecord) => boolean; stage: (job: JobRecord) => string }): InboxRow[] {
   const me = actor.id, rows = new Map<string, InboxRow>();
@@ -321,9 +312,8 @@ export function inboxRows(work: ReturnType<typeof workItems>, jobs: JobRecord[],
     // Current responsibility only: ownership, dispatch and finished assignments stay in the job's history, not in this list.
     const o = operationsFor(job), sampled = samplingApproved(job);
     const sampling = !sampled && !!o.dispatchedAt && samplingTeam(job).includes(me);
-    const transport = sampled && job.assignedDriverId === me && !o.handover?.receivedAt;
     const testing = o.activities.some((a) => a.required && a.owner === me && a.status !== 'Completed');
-    if (sampling || transport || testing) row(job);
+    if (sampling || testing) row(job);
   }
   for (const r of rows.values()) {
     r.blocked = work.blocked.filter((b) => b.jobs.includes(r.jobNumber));

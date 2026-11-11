@@ -62,10 +62,6 @@ test('Nasser sees only his own tests, with identifiers, several actions in one r
 });
 
 test('future steps never appear as actions',()=>{
- assert.ok(!row(view('ALI').rows,107)?.actions.length,'no handover before the sampling report is approved');
- assert.equal(row(view('ALI').rows,109).actions[0].button,'Hand over samples');
- assert.ok(!row(view('SHEREIQI').rows,109)?.actions.length,'no receipt before the samples are sent');
- assert.equal(row(view('SHEREIQI').rows,110).actions[0].button,'Confirm receipt');
  assert.ok(!view('NASSER').rows.some(r=>r.jobNumber==='OM-P-26-112'),'no test work before assignment');
  assert.ok(!view('WILFRED').rows.some(r=>r.actions.length),'no final approval before a final report exists');
 });
@@ -101,14 +97,13 @@ test('company overview has its own permission; defaults apply only when the sett
 
 test('All my jobs counts current involvement only; history and access stay with the job',()=>{
  const nums=id=>view(id).rows.map(r=>r.jobNumber.slice(-3)).sort();
- assert.deepEqual(nums('ALI'),['102','103','104','105','106','107','108','109','110'],'driver: Coming up from dispatch, then actionable until the samples are received');
- assert.deepEqual(view('ALI').w.upcoming.map(u=>u.jobNumber.slice(-3)).sort(),['102','103','104','105','106','107','108'],'transport waits in Coming up until the sampling report is approved');
+ assert.deepEqual(nums('ALI'),[],'driver: no sample handover step, so no inbox rows');
  assert.ok(view('ALI').w.actions.every(i=>!/^soon/.test(i.key)));
  assert.deepEqual(nums('MOHSIN'),['102','103','105','106','108'],'engineer: until sampling is approved');
  assert.deepEqual(nums('RANJITH'),['120'],'test owner: while the test is unfinished');
  assert.deepEqual(nums('YAQEEN'),['120']);
  const received=jobs.find(j=>j.jobNumber==='OM-P-26-112');
- assert.equal(received.assignedDriverId,'ALI');assert.equal(received.operations.dispatchedBy,'SALIM');assert.equal(received.operations.handover.sentBy,'ALI','history is kept in the job');
+ assert.equal(received.assignedDriverId,'ALI');assert.equal(received.operations.dispatchedBy,'SALIM');
  assert.equal(canSeeDraft(received,actor('ALI')),true,'access to the job itself is unchanged');
  assert.equal(view('NASSER').rows.length,13,'unfinished tests keep the job for the lab employee');
 });
