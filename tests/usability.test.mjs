@@ -13,7 +13,7 @@ const {handoff}=await bundle('app/team-workflow.ts');
 
 const employees=initialDirectory().employees,policy=defaultAuthorization(employees.map(e=>e.id));
 const routing={'Black Oil — DL':'PVT','Others — Water Analysis':'Chemical','Black Oil — Validation':'PVT'};
-const roles={...defaultResponsibilities,qcReviewer:'AHAD',labReceipt:'SHEREIQI'};
+const roles={...defaultResponsibilities,qcReviewer:'AHAD'};
 const teams={PVT:['NASSER','RANJITH'],Chemical:['YAQEEN']};
 const actor=(id,extra={})=>({id,employees,policy,roles,routing,teams,...extra});
 let tick=0;const at=()=>new Date(Date.UTC(2026,10,1,6,0,tick++)).toISOString();const today='2026-11-01';
@@ -23,7 +23,7 @@ const base=(source='Wellhead Sampling')=>({id:'OM-P-26-501',jobNumber:'OM-P-26-5
 const conditions={pressure:'2100',pressureUnit:'psi',temperature:'88',temperatureUnit:'°C',notes:''};
 const entry=(sampleId,destination,pvtTests=[],chemicalTests=[])=>({sampleId,destination,pvtTests,chemicalTests,notes:'',excluded:false,exclusionReason:'',fluidType:'Black Oil'});
 function approved(source){let j=step(base(source),{type:'dispatch',engineer:'MOHSIN',driver:'ALI'},'SALIM');j=step(j,{type:'data-submit',note:''},'MOHSIN');j=step(j,{type:'data-approve'},'SALIM');j=step(j,{type:'report-draft',kind:'sampling',text:'S',checker:''},'MOHSIN');j=step(step(j,{type:'report-action',kind:'sampling',action:'checking',comments:''},'MOHSIN'),{type:'report-action',kind:'sampling',action:'submit',comments:''},'SALIM');return step(j,{type:'report-action',kind:'sampling',action:'approve',comments:''},'SALIM');}
-const received=j=>step(step(j,{type:'handover-send',sampleIds:['1.01','1.02'],notes:''},'ALI'),{type:'handover-receive',notes:''},'SHEREIQI');
+const received=j=>j;
 const released=()=>step(received(approved()),{type:'lab-scope',action:'release',reason:'',conditions,samples:[entry('1.01','PVT',['Black Oil — DL']),entry('1.02','Both',['Black Oil — DL'],['Others — Water Analysis'])]},'SALIM');
 const file=n=>({id:'f'+n+tick,name:`wb-${n}.xlsx`,size:10,type:''});
 const assign=(j,a,owner,start='2026-10-30',due='2026-11-03')=>step(j,{type:'schedule',id:a.id,owner,start,due,conditions:'',notes:''},a.stream==='PVT'?'SHEREIQI':'BAHRI');
@@ -99,11 +99,11 @@ test('each row shows its own task deadline; overdue and due-today work outranks 
  assert.deepEqual([...jobsNeedingAction(w)],['OM-P-26-501'],'one action count for My work and Jobs');
 });
 
-test('an unrelated employee does not see the job; reviewers, approvers and drivers see what is coming up',()=>{
+test('an unrelated employee does not see the job; reviewers and approvers see what is coming up',()=>{
  const j=step(base(),{type:'dispatch',engineer:'MOHSIN',driver:'HUMAID'},'SALIM');
  const rows=id=>{const w=view([j],id);return inboxRows(w,[j],actor(id),today,{isNew:()=>false,isClosed:()=>false,stage:()=>''});};
- for(const id of ['NASSER','YAQEEN','RANJITH','AHAD','ALI','HUSSEINI'])assert.equal(rows(id).length,0,id+' has no responsibility here');
- assert.ok(view([j],'HUMAID').upcoming.some(u=>u.area==='Transport'));assert.equal(view([j],'HUMAID').actions.length,0);
+ for(const id of ['NASSER','YAQEEN','RANJITH','AHAD','ALI','HUSSEINI','HUMAID'])assert.equal(rows(id).length,0,id+' has no responsibility here');
+ assert.equal(view([j],'HUMAID').upcoming.length+view([j],'HUMAID').actions.length,0,'no sample handover step for the driver');
  assert.ok(view([j],'SALIM').upcoming.some(u=>u.role==='Sampling approval'));
  const done=released();assert.ok(view([done],'WILFRED').upcoming.some(u=>u.role==='Final report approval'));assert.equal(view([done],'WILFRED').actions.length,0,'no approve button before its prerequisites');
  assert.ok(view([done],'AHAD').upcoming.some(u=>u.role==='QC review'));

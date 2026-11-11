@@ -10,7 +10,6 @@ const roleNotes: Partial<Record<Responsibility, string>> = {
   chemicalTeamLead: 'Receives chemical work from the approved scope, assigns tests, reviews workbooks.',
   finalApproval: 'Approves and signs the final report.',
   qcReviewer: 'QC approval is separate from team-lead workbook approval and final approval. Team-lead-approved workbooks wait here until a reviewer is assigned.',
-  labReceipt: 'Confirms that samples and containers physically arrived at the laboratory. Receipt is blocked until assigned.',
 };
 type Person = { id: string; name: string; role: string; departmentId: string; active: boolean };
 /** Who carries each workflow duty. Assigning a duty never grants a permission. */
@@ -87,7 +86,7 @@ export function AuthorizationSettings({ policy, employees, onSave, error, depart
       })}</tr>)}</tbody></table></div>
     {error && <p role="alert">{error}</p>}
     <footer><button className="text-button" type="button" disabled={!changed} onClick={() => { setDraft(policy); setSaved(false); }}>Cancel changes</button><button type="button" className="primary-button" disabled={!changed || !!error} onClick={() => { if (onSave(draft)) setSaved(true); }}>Save Changes</button><span role="status">{saved && !changed ? 'Authorization saved.' : changed ? 'Unsaved changes' : ''}</span></footer>
-    {drivers.length > 0 && <p className="authorization-note"><strong>Driver access:</strong> there is no shared Driver permission profile; permissions are set per employee. {drivers.map(d => d.name).join(', ')} received only “{permissionLabels.jobDetails}”. Sample transport and handover are allowed by the job’s driver assignment, not by sampling access.</p>}
+    {drivers.length > 0 && <p className="authorization-note"><strong>Driver access:</strong> there is no shared Driver permission profile; permissions are set per employee. {drivers.map(d => d.name).join(', ')} received only “{permissionLabels.jobDetails}”.</p>}
     <p className="authorization-note">Local demo: permissions apply to employee profiles in this browser. They do not secure shared data or synchronize to other devices.</p>
   </section></>;
 }

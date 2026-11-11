@@ -22,10 +22,9 @@ export function bookings(jobs: JobRecord[], employeeId: string): Booking[] {
     }
     const start = job.dateReceived || '', end = job.dueDate || '';
     if (!iso.test(start) || !iso.test(end) || end < start) continue;
-    // Sampling work is open until the sampling data is approved; transport until the samples are handed over.
+    // Sampling work is open until the sampling data is approved.
     const samplingOpen = (o.samplingData || []).at(-1)?.status !== 'Approved' && !o.samplingReports.some((r) => r.status === 'Approved');
     if (samplingOpen && samplingTeam(job).includes(employeeId)) list.push({ key: 'sampling:' + job.id, jobId: job.id, jobNumber: job.jobNumber, task: job.assignedEngineerId === employeeId ? 'Sampling (accountable)' : 'Sampling (supporting)', start, end, jobDates: true });
-    if (!o.handover && job.assignedDriverId === employeeId) list.push({ key: 'driver:' + job.id, jobId: job.id, jobNumber: job.jobNumber, task: 'Sample transport (driver)', start, end, jobDates: true });
   }
   return list;
 }

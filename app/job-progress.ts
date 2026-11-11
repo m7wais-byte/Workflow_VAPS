@@ -144,14 +144,9 @@ export function jobProgressView(job: JobRecord, opts: Options): ProgressView {
       : row({ key: 'sampling', label: mode === 'unknown' ? 'Sampling type to be confirmed' : method, group: 'sampling', status: samplingStatus,
           detail: [jobLocation(job), samples ? plural(samples, 'sample') : ''].filter(Boolean).join(' · ') || undefined, actual: isoDay(approval?.at), attention: attentionOf([prep, data, st('sampling:data-review'), st('sampling:report'), approval]) });
     const stageRows = [first.key];
-    // Physical receipt at the laboratory applies whenever laboratory work is planned or released.
+    // Laboratory rows apply whenever laboratory work is planned or released.
     const required = o.activities.filter((a) => a.required), toPlan = unplannedValidation(job);
     const labApplies = !o.scopeConfirmedAt || required.length > 0 || toPlan.length > 0;
-    if (labApplies) {
-      const receipt = st('lab:receipt'), h = o.handover;
-      const status: ProgressStatus = receipt?.state === 'completed' ? 'completed' : h ? 'in-progress' : 'not-started';
-      stageRows.push(row({ key: 'receipt', label: 'Samples received at laboratory', group: mode === 'delivered' ? 'receipt' : 'sampling', status, detail: status === 'in-progress' ? 'In transit to the laboratory' : undefined, actual: isoDay(h?.receivedAt), attention: attentionOf([receipt]) }).key);
-    }
     const sRows = rows.filter((r) => stageRows.includes(r.key));
     const sStatus = combineProgress(sRows.map((r) => r.status));
     stages.push({ id: mode === 'delivered' ? 'receipt' : 'sampling', label: mode === 'delivered' ? 'Sample receipt' : mode === 'unknown' ? 'Sampling / sample receipt' : 'Sampling', status: sStatus, current: false,
@@ -248,7 +243,7 @@ function describeNow(live: ProgressRow[]): string {
       parts.push(`${progressGroupLabel[g]} testing: ${[inProg ? activities(inProg) + ' in progress' : '', review ? activities(review) + ' under review' : ''].filter(Boolean).join(', ')}`);
     } else for (const r of list) {
       const state = r.status === 'under-review' ? 'under review' : 'in progress';
-      parts.push(r.key === 'receipt' ? 'Samples in transit to the laboratory' : r.key === 'sampling' ? `Sampling ${state}` : r.key === 'transfer' ? `Sample transfer ${state}` : r.status === 'under-review' ? `${r.label} under review` : `${r.label} in preparation`);
+      parts.push(r.key === 'sampling' ? `Sampling ${state}` : r.key === 'transfer' ? `Sample transfer ${state}` : r.status === 'under-review' ? `${r.label} under review` : `${r.label} in preparation`);
     }
   }
   return parts.join(' · ');
@@ -287,8 +282,7 @@ export function sentenceFor(stages: ProgressStage[], rows: ProgressRow[], expect
   const s = stages.find((x) => x.id === 'sampling' || x.id === 'receipt');
   if (s) {
     const first = rows.find((r) => r.key === s.rows[0]);
-    const receipt = rows.find((r) => r.key === 'receipt');
-    if (first) out.push(phrase(s.id === 'sampling' ? 'Sampling' : 'Sample transfer', first.status, [first]) + (first.status === 'completed' && receipt && receipt.status !== 'completed' ? (receipt.status === 'in-progress' ? ' and the samples are in transit to the laboratory' : '') : '') + '.');
+    if (first) out.push(phrase(s.id === 'sampling' ? 'Sampling' : 'Sample transfer', first.status, [first]) + '.');
   }
   const lab = stages.find((x) => x.id === 'lab');
   if (lab) {

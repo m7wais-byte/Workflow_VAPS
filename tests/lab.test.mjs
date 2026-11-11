@@ -10,7 +10,7 @@ const {readLabTeams}=await bundle('app/lab-teams.ts');
 
 const employees=initialDirectory().employees,policy=defaultAuthorization(employees.map(e=>e.id));
 const routing={'Black Oil — DL':'PVT','Others — Water Analysis':'Chemical','Specialised Analysis — SARA':'Both'};
-const roles={...defaultResponsibilities,qcReviewer:'RANJITH',labReceipt:'SHEREIQI'};
+const roles={...defaultResponsibilities,qcReviewer:'RANJITH'};
 const teams={PVT:['NASSER','AHAD'],Chemical:['YAQEEN']};
 const actor=(id,extra={})=>({id,employees,policy,roles,routing,teams,...extra});
 let tick=0;const at=()=>new Date(Date.UTC(2026,9,30,8,0,tick++)).toISOString();
@@ -99,10 +99,7 @@ test('QC needs team-lead approval and a valid reviewer, records the exact versio
 });
 
 test('final reporting waits for every QC approval; Ahmed prepares and Wilfred approves separately',()=>{
- let j=released();j=step(j,{type:'handover-send',sampleIds:['1.01','1.02','1.03','1.04'],notes:''},'ALI');
- assert.throws(()=>step(j,{type:'handover-receive',notes:''},'SHEREIQI',{roles:{...roles,labReceipt:''}}),/Laboratory receipt is not configured/);
- assert.throws(()=>step(j,{type:'handover-receive',notes:''},'SALIM'),/not assigned/,'the scope selector is not the receipt owner');
- j=step(j,{type:'handover-receive',notes:'All received'},'SHEREIQI');assert.equal(operationsFor(j).handover.receivedBy,'SHEREIQI');
+ let j=released();
  const all=()=>operationsFor(j).activities;
  for(const a of all()){const lead=a.stream==='PVT'?'SHEREIQI':'BAHRI',owner=a.stream==='PVT'?'NASSER':'YAQEEN';j=submit(assign(j,a,owner,lead),a,owner);j=approve(j,a,lead);}
  assert.equal(qcPending(j),true);assert.equal(finalReady(j),false);
@@ -118,8 +115,7 @@ test('final reporting waits for every QC approval; Ahmed prepares and Wilfred ap
  assert.equal(operationComplete(j),true);assert.equal(operationsFor(j).finalReports.at(-1).approvedBy,'WILFRED');assert.equal(samplingApproved(j),true);
 });
 
-test('settings: receipt starts unassigned, team defaults and saved settings are validated; completed history stays complete',()=>{
- assert.equal(defaultResponsibilities.labReceipt,'');assert.equal(readResponsibilities(JSON.stringify({scopeSelector:'SALIM'})).labReceipt,'');
+test('settings: team defaults and saved settings are validated; completed history stays complete',()=>{
  const roster = {PVT:['SHEREIQI','NASSER','RANJITH','YAQEEN'],Chemical:['BAHRI','AHAD']};
  assert.deepEqual(readLabTeams(null,[...roster.PVT,...roster.Chemical,'MOHSIN','HUSSEINI']),roster);
  assert.deepEqual(readLabTeams(null,['NASSER']),{PVT:['NASSER'],Chemical:[]});

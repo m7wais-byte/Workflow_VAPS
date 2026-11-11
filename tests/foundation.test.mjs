@@ -75,24 +75,19 @@ test('Humaid is added once without duplicates and receives job details only',()=
  const removed={...migrated,jobDetails:migrated.jobDetails.filter(id=>id!=='HUMAID'),sampling:[...migrated.sampling,'HUMAID']};assert.deepEqual(migrateDriverAccess(removed,ids),removed,'later administrator edits are kept');
  for(const [key,list] of Object.entries(defaultAuthorization(ids)))assert.equal(list.includes('HUMAID'),key==='jobDetails',key);
 });
-test('Humaid can transport and hand over samples, but not edit sampling data, run lab work or approve',()=>{
+test('Humaid is a driver only: cannot edit sampling data, run lab work or approve',()=>{
  const d=initialDirectory();store.set(directoryKey,JSON.stringify(d));store.set(authorizationKey,JSON.stringify(defaultAuthorization(d.employees.map(e=>e.id))));
  assert.equal(eligibleForTeam('HUMAID','transport'),true);assert.equal(eligibleForTeam('HUMAID','sampling'),false);assert.equal(eligibleForTeam('HUMAID','analysis'),false);assert.equal(eligibleForTeam('ALI','transport'),true);
  let j=approvedSampling(fixture(),'HUMAID');
  assert.throws(()=>step(j,{type:'report-draft',kind:'sampling',text:'x',checker:'HUSSEINI'},'HUMAID'));
  assert.throws(()=>step(j,{type:'report-action',kind:'sampling',action:'approve',comments:''},'HUMAID'));
- j=step(j,{type:'handover-send',sampleIds:['S1','S2'],notes:'Loaded'},'HUMAID');assert.equal(j.operations.handover.sentBy,'HUMAID');
- assert.throws(()=>step(j,{type:'handover-receive',notes:''},'HUMAID'));
  j=scoped();assert.throws(()=>step(j,schedule(j.operations.activities[0]),'HUMAID'));assert.throws(()=>step(j,{type:'request-addition',title:'x',reason:'y'},'HUMAID'));
- const other=approvedSampling(fixture(),'ALI');assert.throws(()=>step(other,{type:'handover-send',sampleIds:['S1','S2'],notes:''},'HUMAID'),'only the assigned driver');
 });
-test('legacy bottles and glass containers pass handover, validation and labels',()=>{
+test('legacy bottles and glass containers pass validation and labels',()=>{
  const legacy={bottle:'PDS',bottleSerial:'B1'},glass={containerType:'Glass container',containerId:'G-07',bottle:'',bottleSerial:''};
  assert.equal(containerId(legacy),'B1');assert.equal(containerComplete(legacy),true);assert.equal(containerLabel(legacy),'PDS · B1');
  assert.equal(containerId(glass),'G-07');assert.equal(containerComplete(glass),true,'no bottle type or serial needed');assert.equal(containerLabel(glass),'Glass container · G-07');
  assert.equal(containerComplete({containerType:'Glass container',containerId:' '}),false);assert.equal(containerComplete({bottleSerial:'B1'}),false,'bottles still need a type');
- let j=approvedSampling(fixture());j=step(j,{type:'handover-send',sampleIds:['S1','S2'],notes:''},'ALI');
- assert.deepEqual(j.operations.handover.bottles,{S1:'B1',S2:'G-07'});assert.deepEqual(j.operations.handover.containerTypes,{S1:'Bottle',S2:'Glass container'});
- // A glass container without its ID is now caught when the sampling data is submitted, before any report or handover.
+ // A glass container without its ID is now caught when the sampling data is submitted, before any report.
  assert.throws(()=>approvedSampling(fixture([{id:'S1',bottle:'PDS',bottleSerial:'B1',dataComplete:true,fieldData:{}},{id:'S2',containerType:'Glass container',containerId:'',dataComplete:true,fieldData:{}}])),/record the container for sample S2/);
 });
