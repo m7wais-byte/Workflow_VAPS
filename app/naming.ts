@@ -1,3 +1,4 @@
+import { migrateFieldData } from "./sample-defaults";
 // General equipment names used across the app. Older saved records (tool and brand names) are converted on load,
 // so a job saved before the rename reads the same as a new one.
 
@@ -48,7 +49,7 @@ export function migrateJobNames<T extends Named>(job: T): T {
     samplingSource: renameSource(job.samplingSource),
     ...(job.samplingSources ? { samplingSources: job.samplingSources.map(renameSource) } : {}),
     ...(job.samplingPlan ? { samplingPlan: job.samplingPlan.map((row) => ({ ...row, source: renameSource(row.source) })) } : {}),
-    ...(job.samples ? { samples: job.samples.map((s) => ({ ...s, ...(s.sampler !== undefined ? { sampler: renameSampler(s.sampler) } : {}), ...(s.bottle !== undefined ? { bottle: renameCylinderType(s.bottle) } : {}), ...(s.samplingSource !== undefined ? { samplingSource: renameSource(s.samplingSource) } : {}), ...(s.fieldData?.sampleNature && natureRename[s.fieldData.sampleNature] ? { fieldData: { ...s.fieldData, sampleNature: natureRename[s.fieldData.sampleNature] } } : {}) })) } : {}),
+    ...(job.samples ? { samples: job.samples.map((s) => ({ ...s, ...(s.sampler !== undefined ? { sampler: renameSampler(s.sampler) } : {}), ...(s.bottle !== undefined ? { bottle: renameCylinderType(s.bottle) } : {}), ...(s.samplingSource !== undefined ? { samplingSource: renameSource(s.samplingSource) } : {}), ...(s.fieldData ? { fieldData: migrateFieldData(s.fieldData.sampleNature && natureRename[s.fieldData.sampleNature] ? { ...s.fieldData, sampleNature: natureRename[s.fieldData.sampleNature] } : s.fieldData) } : {}) })) } : {}),
   };
   if (job.samplingSource === undefined) delete next.samplingSource;
   return JSON.stringify(next) === json ? job : next;

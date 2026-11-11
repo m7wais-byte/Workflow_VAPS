@@ -3,7 +3,7 @@
  * Pure functions only, so the in-app preview, the PDF export and the tests share one mapping.
  * Values are shown as recorded (units are never converted); missing values read "Not recorded".
  */
-import { containerId, isGlass, type ContainerFields } from './sample-container';
+import { containerId, containerNoun, isAtmospheric, type ContainerFields } from './sample-container';
 
 export const NOT_RECORDED = 'Not recorded';
 
@@ -124,7 +124,8 @@ export function sheetTitle(source?: string): string {
   return 'Sample Data Sheet';
 }
 export const testLabel = (source?: string, other?: string) => text(source) === 'Other' && text(other) ? `Other – ${text(other)}` : orNR(source);
-export const containerRef = (s: ContainerFields) => isGlass(s) ? (containerId(s) ? `Glass ${containerId(s)}` : NOT_RECORDED) : [text(s.bottle), text(s.bottleSerial)].filter(Boolean).join(' ') || NOT_RECORDED;
+/** Glass bottles and IATA cans carry no serial: they are referenced by type and volume (older glass containers by their ID). */
+export const containerRef = (s: ContainerFields) => isAtmospheric(s) ? (containerId(s) ? `Glass ${containerId(s)}` : text(s.containerVolume) ? `${containerNoun(s)} ${text(s.containerVolume)}` : NOT_RECORDED) : [text(s.bottle), text(s.bottleSerial)].filter(Boolean).join(' ') || NOT_RECORDED;
 
 // ---------- text wrapping estimates (used only for page breaks) ----------
 /** Greedy word wrap by character count, for page-break estimates; the last line of each recorded paragraph ends with "\n". */
@@ -165,23 +166,25 @@ function chunk<T>(items: T[], height: (item: T) => number, budget: number): T[][
   return pages;
 }
 
+/** The selected sampling point; sheets saved before point and depth were separate inputs keep their combined entry. */
+const samplingPointText = (s: ReportSample) => text(s.fieldData?.samplingPoint) || withUnit(s.depth, s.fieldData?.depthUnit);
 function sheetFor(sample: ReportSample, title: string): Omit<SampleSheet, 'remarks' | 'remarksContinue'> {
   const f = sample.fieldData || {};
-  const glass = isGlass(sample);
+  const glass = isAtmospheric(sample);
   const sampler = text(sample.sampler) ? [text(sample.sampler), text(sample.samplerSerial)].filter(Boolean).join(' ') : '';
   return {
     sampleId: sample.id, title,
     identification: {
-      left: [['Sample No:', orNR(sample.id)], [glass ? 'Container No:' : 'Cylinder No:', containerRef(sample)], ['Sampling Date:', dateShort(f.samplingDate)], ['Sampling Time:', orNR(f.samplingTime)], ['Sampling Point:', withUnit(sample.depth, f.depthUnit)], ['Perforations:', withUnit(f.perforations, f.perforationsUnit)]],
-      right: [['Sample Nature:', orNR(f.sampleNature)], ['Flow Period:', withUnit(f.flowPeriod, f.flowPeriodUnit)], ['Formation:', orNR(f.formation)], ...(sampler ? [['Sampler:', sampler] as Field] : [])],
+      left: [['Sample No:', orNR(sample.id)], [glass ? 'Container No:' : 'Cylinder No:', containerRef(sample)], ['Sampling Date:', dateShort(f.samplingDate)], ['Sampling Time:', orNR(f.samplingTime)], ['Sampling Point:', samplingPointText(sample)], ['Perforations:', withUnit(f.perforations, f.perforationsUnit)]],
+      right: [['Sample Nature:', orNR(f.sampleNature)], ['Flow Period:', withUnit(f.flowPeriod, f.flowPeriodUnit)], ['Formation:', orNR(f.formation)], ...(text(f.samplingPoint) ? [['Depth:', withUnit(sample.depth, f.depthUnit)] as Field] : []), ...(sampler ? [['Sampler:', sampler] as Field] : [])],
     },
     shipping: {
-      left: [[glass ? 'Container Type:' : 'Sample Cylinder Type:', glass ? 'Glass container' : orNR(sample.bottle)], [glass ? 'Container Volume:' : 'Sample Cylinder Volume:', withUnit(f.sampleBottleVolume, f.sampleBottleVolumeUnit)], ['Sample Volume:', withUnit(f.sampleVolume, f.sampleVolumeUnit)]],
+      left: [[glass ? 'Container Type:' : 'Sample Cylinder Type:', glass ? containerNoun(sample) : orNR(sample.bottle)], [glass ? 'Container Volume:' : 'Sample Cylinder Volume:', withUnit(f.sampleBottleVolume, f.sampleBottleVolumeUnit)], ['Sample Volume:', withUnit(f.sampleVolume, f.sampleVolumeUnit)]],
       right: [['Gas Cap Created:', orNR(f.gasCapCreated)], ['Fluid Remaining:', withUnit(f.fluidRemaining, f.fluidRemainingUnit)], ['Final Pressure:', pressureAt(f, 'finalPressure', 'finalTemperature')]],
     },
     matched: {
-      left: [['Opening Pressure:', pressureAt(f, 'initialOpeningPressure', 'initialOpeningTemperature')], ['Transfer Pressure:', pressureAt(f, 'transferPressure', 'transferTemperature')]],
-      right: [['Opening Pressure:', pressureAt(f, 'receivingBottleOpeningPressure', 'receivingBottleOpeningTemperature')], ['Transfer Duration:', withUnit(f.transferDuration, f.transferDurationUnit)]],
+      left: [['Opening P @ Res. Temp:', pressureAt(f, 'openingPressureReservoir', 'openingTemperatureReservoir')], ['Transfer Pressure:', pressureAt(f, 'transferPressure', 'transferTemperature')]],
+      right: [['Opening P @ Ambient:', pressureAt(f, f.openingPressureAmbient === undefined ? 'initialOpeningPressure' : 'openingPressureAmbient', f.openingPressureAmbient === undefined ? 'initialOpeningTemperature' : 'openingTemperatureAmbient')], ['Transfer Duration:', withUnit(f.transferDuration, f.transferDurationUnit)]],
     },
     production: [
       [['BHP:', withUnit(f.bhp, f.bhpUnit)], ['BHT:', withUnit(f.bht, f.bhtUnit)], ['At Depth:', NOT_RECORDED], ['WHP:', withUnit(f.whp, f.whpUnit)], ['WHT:', withUnit(f.wht, f.whtUnit)], ['Choke Size:', withUnit(f.chokeSize, f.chokeSizeUnit)], ['Stable Since:', orNR(f.stableSince)], ['H2S:', withUnit(f.h2s, f.h2sUnit)], ['CO2:', withUnit(f.co2, f.co2Unit)]],
@@ -223,7 +226,7 @@ export function buildSamplingReport(input: SamplingReportInput): SamplingReportM
 
   // Sample listing
   const L = LAYOUT.listing;
-  const listing: ListingRow[] = samples.map(s => ({ sampleNo: orNR(s.id), date: dateTable(s.fieldData?.samplingDate), time: orNR(s.fieldData?.samplingTime), nature: orNR(s.fieldData?.sampleNature), point: orNR(s.depth), bottle: containerRef(s) }));
+  const listing: ListingRow[] = samples.map(s => ({ sampleNo: orNR(s.id), date: dateTable(s.fieldData?.samplingDate), time: orNR(s.fieldData?.samplingTime), nature: orNR(s.fieldData?.sampleNature), point: text(s.fieldData?.samplingPoint) || orNR(s.depth), bottle: containerRef(s) }));
   const listingStart = next();
   chunk(listing, r => Math.max(L.min, Math.max(...Object.values(r).map(v => lines(v, L.chars))) * L.line + L.pad), LAYOUT.body - L.title - L.well - L.head)
     .forEach((rows, i) => pages.push({ kind: 'listing', number: next(), rows, continued: i > 0 }));

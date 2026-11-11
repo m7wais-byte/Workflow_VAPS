@@ -10,6 +10,7 @@ import { PersonOptions, OverlapNotice } from './person-picker';
 import { operationsFor, holder, hasAccess, validationCatalogue, selectableValidationSteps, validationScopes, separateRecombination, externalStage, labStatus, streamLead, type Actor, type Command, type ActivityRecord, type ScopeRecord, type ExecutionChoice } from './operations-model';
 import { DateInput, ukDate } from "./uk-date";
 import { teamName } from './team-name';
+import { validationStream } from './lab-work';
 
 type Run = (c: Command | Command[]) => boolean;
 const touched = (a: ActivityRecord) => a.status !== 'Unassigned' || !!a.owner || a.files.length > 0 || (a.history || []).length > 0;
@@ -31,8 +32,10 @@ export function ValidationPlanning({ job, actor, run }: { job: JobRecord; actor:
   const open = records.filter((r) => r.validationRequest && !r.plannedAt).length;
   return <section className="panel ops-panel validation-planning" id="validation-planning"><div className="section-head"><h2>Validation — assign steps</h2>{open > 0 && <span className="status-pill flow-waiting">{open} awaiting planning</span>}</div>
     <p>{isLead ? 'Assign each Validation step to an engineer with a start date, a due date and a note. Remove a step that is not needed, or add one that was not selected in the scope.' : `Assigned by ${lead ? name(lead) + ' (PVT Team Lead)' : 'the PVT Team Lead (not configured)'}.`} The usual order is shown for guidance only; no step blocks another.</p>
-    <ul className="plan-list">{records.map((r) => { const steps = o.activities.filter((a) => a.scopeId === r.id && a.kind === 'validation').sort((x, y) => order(x.title) - order(y.title));
-      return <li key={r.id} className={r.validationRequest && !r.plannedAt ? 'needs-plan' : ''}><SamplePlan key={steps.map((a) => [a.title, a.owner, a.due, a.notes, a.status, a.external?.provider].join('|')).join(';')} actor={actor} job={job} record={r} steps={steps} run={run} isLead={isLead} /></li>; })}</ul>
+    <ul className="plan-list">{records.map((r) => { const all = o.activities.filter((a) => a.scopeId === r.id && a.kind === 'validation').sort((x, y) => order(x.title) - order(y.title));
+      // Chemistry steps (GC) are assigned by the Chemistry Team Lead in Laboratory activities; they are listed here for reference only.
+      const steps = all.filter((a) => a.stream === 'PVT'), chemistry = all.filter((a) => a.stream !== 'PVT');
+      return <li key={r.id} className={r.validationRequest && !r.plannedAt ? 'needs-plan' : ''}><SamplePlan key={steps.map((a) => [a.title, a.owner, a.due, a.notes, a.status, a.external?.provider].join('|')).join(';')} actor={actor} job={job} record={r} steps={steps} run={run} isLead={isLead} />{chemistry.map((a) => <p className="filter-note" key={a.id}><strong>{a.title}</strong> · Chemistry step, assigned by {name(holder(actor, 'chemicalTeamLead'))} (Chemistry Team Lead) · {a.owner ? name(a.owner) + ' · ' : ''}{labStatus(a)}</p>)}</li>; })}</ul>
   </section>;
 }
 
@@ -49,7 +52,7 @@ function SamplePlan({ actor, job, record, steps, run, isLead }: { actor: Actor; 
   // Choosing an engineer proposes today as the start; the lead moves it when the engineer is busy until later.
   const change = (t: string, c: Partial<Row>) => setRows((list) => { const next = { ...row(t), ...c }; if (next.owner && !next.start) next.start = today; return { ...list, [t]: next }; });
     const list = [...chosen].sort((x, y) => order(x) - order(y));
-  const addable = selectableValidationSteps.filter((t) => !chosen.includes(t));
+  const addable = selectableValidationSteps.filter((t) => !chosen.includes(t) && validationStream(t) === 'PVT');
   const removed = steps.filter((a) => !chosen.includes(a.title)).map((a) => a.title), added = list.filter((t) => !existing(t));
   const execChanged = list.some((t) => !!existing(t) && JSON.stringify(exec[t] || null) !== JSON.stringify(savedExec[t] || null));
   const assignChanged = (t: string) => { const x = row(t), s = saved(t); return !!x.owner && (!existing(t) || x.owner !== s.owner || x.start !== s.start || x.due !== s.due || x.note !== s.note); };

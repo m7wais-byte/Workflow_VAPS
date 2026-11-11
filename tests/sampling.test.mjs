@@ -126,3 +126,13 @@ test('with no sampling report checker configured the report goes straight to the
  j=step(j,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN',{roles});
  assert.equal(operationsFor(j).samplingReports[0].status,'Awaiting Approval');
 });
+
+test('data sheet: sampling point and depth are separate; opening pressure is recorded at reservoir temperature and at ambient',()=>{
+ const all=Object.fromEntries(['samplingDate','samplingTime','sampleNature','samplingPoint','flowPeriod','formation','perforations','sampleBottleVolume','sampleVolume','fluidRemaining','finalPressure','finalTemperature','openingPressureReservoir','openingTemperatureReservoir','openingPressureAmbient','openingTemperatureAmbient','transferPressure','transferTemperature','transferDuration','bhp','bht','whp','wht','chokeSize','stableSince','separatorPressure','separatorTemperature','oilRate','correctedBy','gasRate','waterRate','gasGravity','condensateGravity','oilLineTemperature','gasDifferentialPressure','gasPressure','gasTemperature','fbFactor','fpvFactor','cgr','gor','wor','bsw','h2s','co2'].map(k=>[k,'N/A']));
+ const can={id:'x',containerType:'IATA can',containerVolume:'5 L',depth:'N/A'};
+ assert.deepEqual(standardSheetErrors({...can,fieldData:all}),[],'an IATA can with a volume and N/A pressures is complete');
+ assert.match(standardSheetErrors({...can,fieldData:{...all,samplingPoint:''}}).join(' '),/Identification: complete Sampling Point\./);
+ assert.match(standardSheetErrors({...can,depth:'',fieldData:all}).join(' '),/Identification: complete Depth\./);
+ assert.match(standardSheetErrors({...can,fieldData:{...all,openingPressureReservoir:''}}).join(' '),/Transfer Conditions/);
+ assert.match(standardSheetErrors({...can,containerVolume:'',fieldData:all}).join(' '),/the IATA can volume is required/);
+});
