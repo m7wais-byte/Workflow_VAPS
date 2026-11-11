@@ -341,3 +341,14 @@ Verification: TypeScript and lint passed (existing warnings only); 191 tests pas
 - **UK dates**: every date and time shows as dd/mm/yyyy and 24-hour HH:MM (`app/uk-format.ts`, `DateInput` / `TimeInput` in `app/uk-date.tsx`); stored values stay ISO.
 - **Chemistry**: team, work and role labels read "Chemistry" (`teamName` in `app/team-name.ts`). The stored stream value stays `'Chemical'` so saved records keep working; test names are unchanged.
 - **Later**: OneDrive job folders (`<Job ID>/01 Sampling`, `<Job ID>/02 Lab/PVT`, `<Job ID>/02 Lab/Chemistry`) need Microsoft 365 sign-in and an app registration, and are not part of this round.
+
+## Sample handover step removed
+
+Decision (Mohammed Al Awaisi): there is no recorded sample handover between Sampling and the Laboratory. Earlier sections that describe physical handover, driver handover actions, the `labReceipt` duty or receipt gating are superseded by this section.
+
+- Sampling's part ends when the sampling report is approved and the scope selector releases the laboratory scope. A final sampling-team step will be defined later.
+- Removed: the "Sample receipt" job section, the `handover-send` / `handover-receive` commands, the driver "Hand over samples" and "Confirm receipt" work items, the "Samples received at laboratory" tracker/progress row, the "Sample handover" milestone and the Laboratory receipt duty in Settings.
+- The final report no longer waits for physical receipt: it needs all required laboratory work completed and the sampling report approved.
+- Driver assignment at dispatch is unchanged, but the driver has no workflow action.
+- Saved `operations.handover` records on existing jobs are kept in the data and no longer read. Old `#workflow/<job>/handover` links open the job overview.
+

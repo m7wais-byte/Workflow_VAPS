@@ -43,7 +43,7 @@ export type LabScopeVersion = { version:number; status:'Draft'|'Released'; sampl
 export type ReviewComment = { target:string; label:string; text:string };
 /** One submission of sampling data and its review. Data approval is separate from sampling-report approval. */
 export type DataReview = { version:number; status:'Submitted'|'Returned'|'Approved'|'Reopened'; submittedBy:string; submittedAt:string; snapshot:string; note:string; reviewedBy?:string; reviewedAt?:string; general?:string; comments:ReviewComment[]; reopenedBy?:string; reopenedAt?:string; reason?:string };
-export type Operations = { version:1; labScopes?:LabScopeVersion[]; samplingData?:DataReview[]; revision:number; originalRequest:string[]; scope:ScopeRecord[]; activities:ActivityRecord[]; conditions:{pressure:string;pressureUnit:string;temperature:string;temperatureUnit:string;notes:string}; scopeConfirmedAt?:string; dispatchedAt?:string; dispatchedBy?:string; samplingReports:ReportVersion[]; finalReports:ReportVersion[]; handover?:{sampleIds:string[];/** Container identifier per sample (bottle serial or glass-container ID). */bottles:Record<string,string>;containerTypes?:Record<string,ContainerType>;sentBy:string;sentAt:string;receivedBy?:string;receivedAt?:string;notes:string}; additions:{id:string;title:string;reason:string;by:string;at:string;confirmedAt?:string;destination?:Destination}[]; history:{at:string;by:string;action:string;reason:string}[];
+export type Operations = { version:1; labScopes?:LabScopeVersion[]; samplingData?:DataReview[]; revision:number; originalRequest:string[]; scope:ScopeRecord[]; activities:ActivityRecord[]; conditions:{pressure:string;pressureUnit:string;temperature:string;temperatureUnit:string;notes:string}; scopeConfirmedAt?:string; dispatchedAt?:string; dispatchedBy?:string; samplingReports:ReportVersion[]; finalReports:ReportVersion[]; /** Legacy only: sample handover is no longer a workflow step; saved records are kept but never read. */handover?:{sampleIds:string[];/** Container identifier per sample (bottle serial or glass-container ID). */bottles:Record<string,string>;containerTypes?:Record<string,ContainerType>;sentBy:string;sentAt:string;receivedBy?:string;receivedAt?:string;notes:string}; additions:{id:string;title:string;reason:string;by:string;at:string;confirmedAt?:string;destination?:Destination}[]; history:{at:string;by:string;action:string;reason:string}[];
  /** When the accountable sampling employee pressed Start job. */samplingStart?:{by:string;at:string};
  /** When the coordinator released this job's cylinders back to the sampling team for cleaning and checks. */cylindersReleased?:{by:string;at:string};
  /** Backup sampling employees who may also work on the sampling (set in Job access). Others in the sampling team only view the job. */samplingEditors?:string[];
@@ -51,16 +51,15 @@ export type Operations = { version:1; labScopes?:LabScopeVersion[]; samplingData
 export const clarificationItems = [
  ['initial-scope','Initial scope owner','Confirm who selects and signs off the initial request before sampling. Existing job-creation permissions remain in use.'],
  ['sampling-review','Sampling preparer and checker','Confirm eligibility and independence rules. A named active preparer and checker are required; the checker forwards the reviewed version to the sampling approver.'],
- ['lab-entry','Laboratory entry dependency','Confirm whether laboratory execution may start before approved sampling reports or physical receipt. These milestones are displayed separately; no new automatic execution gate is inferred.'],
+ ['lab-entry','Laboratory entry dependency','Confirm whether laboratory execution may start before approved sampling reports. These milestones are displayed separately; no new automatic execution gate is inferred.'],
  ['validation-rules','Validation applicability','Confirm which steps are mandatory and whether individual steps may be omitted. The supplied sequence is generated per sample; no automatic omission rule is applied.'],
  ['validation-source','Other sampling types','Validation sequences are supplied for Bottom-hole, Wellhead and Separator only. Confirm the sequence for other sampling or transfer methods before confirming their Validation scope.'],
  ['bv','PV terminology in older records','Validation uses PV. Older records are preserved exactly as saved; confirm before reconciling any historical PV entries.'],
  ['workbook-review','Workbook review ownership','Team leads review workbooks. QC review is a separate responsibility that stays unassigned until configured in Settings; no QC identity is invented.'],
  ['final-review','Final preparation / review overlap','Ahmed prepares and reviews the final report; Wilfred approves. Confirm whether an independent reviewer is additionally required.'],
  ['scope-additions','Scope addition authority','Confirm who may authorize additional work. Requests are recorded and the scope selector explicitly confirms lab scope; planning remains with the PVT and Chemistry Team Leads.'],
- ['partial-handover','Partial sample shipments','This handover records all job cylinders together. Confirm partial-shipment and receipt rules before splitting a transfer.'],
  ['multi-owner','Multiple-person activities','The existing model has one accountable employee per activity. Confirm how shared execution should be represented before adding multiple owners.'],
- ['legacy','Legacy records','Historical assignments, reports and lab work remain unchanged. Unrecorded checking, physical receipt and approval evidence are not inferred.'],
+ ['legacy','Legacy records','Historical assignments, reports and lab work remain unchanged. Unrecorded checking and approval evidence are not inferred.'],
 ] as const;
 export function validationSequence(source:string):string[] {
  const base=['Opening Pressure','Restoration','Water Check','Agitation','Charging','Flash','PV','Direct Density'];
@@ -134,7 +133,7 @@ export function samplingApproved(job:JobRecord):boolean { const reports=operatio
 /** Sampling was approved in the older workflow, before dispatch records existed. No dispatch is fabricated. */
 export function legacyDispatch(job:JobRecord):boolean { const o=operationsFor(job);return !o.dispatchedAt&&!o.samplingReports.length&&samplingApproved(job); }
 export function allWorkDone(job:JobRecord):boolean {const o=operationsFor(job);return !!o.scopeConfirmedAt && !unplannedValidation(job).length && o.activities.filter(a=>a.required).every(a=>a.status==='Completed'&&a.files.some(f=>f.status==='Available')) && !o.additions.some(a=>!a.confirmedAt);}
-export function finalReady(job:JobRecord):boolean {const o=operationsFor(job);const required=[...new Set(o.scope.flatMap(s=>s.sampleIds))];return allWorkDone(job)&&samplingApproved(job)&&!!o.handover?.receivedAt&&required.every(id=>o.handover!.sampleIds.includes(id));}
+export function finalReady(job:JobRecord):boolean {return allWorkDone(job)&&samplingApproved(job);}
 export function operationComplete(job:JobRecord):boolean {return finalReady(job)&&latest(operationsFor(job).finalReports)?.status==='Approved';}
 /** A job that had an approved final report and now has further work open (e.g. Validation added later). Earlier versions stay unchanged. */
 export function additionalWorkPending(job:JobRecord):boolean {return operationsFor(job).finalReports.some(r=>r.status==='Approved'&&!!r.approvedAt)&&!operationComplete(job);}
@@ -282,8 +281,6 @@ export type Command =
  | {type:'qc-review';id:string;decision:'approve'|'return';target:string;comments:string}
  | {type:'report-draft';kind:'sampling'|'final';text:string;checker:string;file?:FileVersion;letterhead?:ReportLetterhead}
  | {type:'report-action';kind:'sampling'|'final';action:'checking'|'submit'|'return'|'approve'|'revise';comments:string;letterhead?:ReportLetterhead}
- | {type:'handover-send';sampleIds:string[];notes:string}
- | {type:'handover-receive';notes:string}
  /** Planned start / expected duration / expected completion for one progress row. Empty values clear the estimate. */
  | {type:'estimate';key:string;label?:string;start:string;days:string;finish:string;clientVisible:boolean};
 export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new Date().toISOString()):JobRecord {
@@ -649,7 +646,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
    if(actor.id!==r.checker||!ready)throw Error('Only the named checker can forward this version.');}
    if(r.snapshot!==snapshot(command.kind))throw Error('The draft or checked evidence changed. Save an updated draft or return this version for correction before submission.');
    if(command.kind==='final'&&qcPending(next))throw Error(testsAwaitingQcApproval(next).length+' required test(s) are not yet QC approved. Final reporting waits for every QC approval.');
-   if(command.kind==='final'&&(!finalReady(next)||!r.file))throw Error('Complete required work, sampling approval and physical receipt, and attach the final report.');
+   if(command.kind==='final'&&(!finalReady(next)||!r.file))throw Error('Complete required work and sampling approval, and attach the final report.');
    if(!direct)r.checkedAt=now;r.submittedAt=now;r.status='Awaiting Approval';r.snapshot=snapshot(command.kind);if(command.kind==='sampling'&&command.letterhead)r.letterhead=command.letterhead;
   } else if(command.action==='approve'){
    const approver=holder(actor,command.kind==='sampling'?'samplingApproval':'finalApproval');
@@ -679,19 +676,6 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   if(value)plan[command.key]={...value,clientVisible:!!command.clientVisible,by:actor.id,at:now};else delete plan[command.key];
   reason=(command.label||command.key)+': '+describe(before)+' → '+describe(value?{...value,clientVisible:command.clientVisible}:undefined);
   break;
- }
- case 'handover-send':{
-  // The assigned driver acts through the job assignment (job details access); the engineer needs sampling access.
-  if(!job.assignedDriverId||actor.id!==job.assignedDriverId){requireAssigned(actor,'sampling',actor.id===job.assignedEngineerId);if(actor.id!==job.assignedEngineerId)throw Error('Only the assigned engineer or driver can send the samples.');}
-  if(!samplingApproved(next))throw Error('Obtain sampling-report approval before transferring bottles.');
-  if(o.handover)throw Error('Handover already recorded. Use receipt notes for discrepancies.');
-  if(command.sampleIds.length!==job.samples?.length)throw Error('Select all job samples for this handover. Partial-shipment handling needs confirmation.');
-  if(!command.sampleIds.length||command.sampleIds.length!==new Set(command.sampleIds).size||command.sampleIds.some(id=>{const s=job.samples?.find(s=>s.id===id);return !s||!containerId(s);}))throw Error('Select existing samples with a recorded cylinder serial or glass-container ID.');
-  const sent=command.sampleIds.map(id=>job.samples!.find(s=>s.id===id)!);o.handover={sampleIds:command.sampleIds,bottles:Object.fromEntries(sent.map(s=>[s.id,containerId(s)])),containerTypes:Object.fromEntries(sent.map(s=>[s.id,isGlass(s)?'Glass container':'Bottle'])),sentBy:actor.id,sentAt:now,notes:command.notes};break;
- }
- case 'handover-receive':{
-  requireRole(actor,'analysis','labReceipt');if(!o.handover||o.handover.receivedAt)throw Error('There is no outstanding transfer to receive.');
-  o.handover.receivedBy=actor.id;o.handover.receivedAt=now;o.handover.notes+="\nReceipt: "+command.notes;break;
  }
  }
  // A scope or workbook change invalidates a pending final review, never overwrites an approved version.
@@ -726,7 +710,6 @@ export function operationMilestones(job:JobRecord,roles:Responsibilities=storedR
  {id:'overview',label:'Job creation',done:!!o.dispatchedAt||legacyDispatch(job),note:legacyDispatch(job)?'Dispatch not recorded (legacy)':undefined,owner:job.createdById,next:isDraft(job)?'Complete the draft and send it to Sampling':'Review and send the job to Sampling'},
  {id:'sampling',label:'Sampling',done:dataReviewRequired(job)?['Submitted','Approved'].includes(latestData(job)?.status||'')||samplingApproved(job):sampleDone,owner:job.assignedEngineerId,next:early?st.next:'Complete the sample data sheets'},
  {id:'sampling-report',label:'Sampling review & report approval',done:samplingApproved(job),owner:early?job.assignedEngineerId:st.owner,next:early?'Submit sampling data for review':st.next},
- {id:'handover',label:'Sample handover',done:!!o.handover?.receivedAt,owner:o.handover?.sentAt?roles.labReceipt||undefined:job.assignedDriverId,next:o.handover?.receivedAt?'Receipt recorded':o.handover?'Confirm physical receipt':'Send approved samples'},
  {id:'scope',label:'Laboratory scope',done:!!o.scopeConfirmedAt&&!unplannedValidation(job).length&&lab.every(a=>a.owner&&a.start&&a.due),owner:needsScope||!unplanned?roles.scopeSelector:roles[streamLead(unplanned.stream)],next:needsScope?(samplingApproved(job)?'Select and release the laboratory scope per sample':'Laboratory scope opens after sampling-report approval'):'Team leads assign and schedule tests'},
  {id:'laboratory',label:'Laboratory work',done:allWorkDone(job),owner:lab.find(a=>a.status!=='Completed')?.owner,next:'Complete assigned tests, team-lead review and QC'},
  {id:'reporting',label:'Final reporting',done:latest(o.finalReports)?.status==='Approved'&&finalReady(job),owner:latest(o.finalReports)?.status==='Awaiting Approval'?roles.finalApproval:roles.reporting,next:qcPending(job)?testsAwaitingQcApproval(job).length+' test(s) awaiting QC approval':latest(o.finalReports)?.status||'Collect QC-approved workbooks and prepare the final report'},
@@ -743,7 +726,6 @@ export function pendingActions(job:JobRecord, actor:Actor) {
   if(m.id==='overview')return !o.dispatchedAt&&hasAccess(actor,'createJob');
   if(m.id==='sampling')return !!o.dispatchedAt&&hasAccess(actor,'sampling');
   if(m.id==='sampling-report')return (!!o.dispatchedAt||legacyDispatch(job))&&!early&&st.key!=='report-approved'&&hasAccess(actor,'sampling');
-  if(m.id==='handover')return samplingApproved(job)&&(o.handover?hasAccess(actor,'analysis'):hasAccess(actor,'sampling'));
   if(m.id==='scope')return hasAccess(actor,'analysis')&&(!o.scopeConfirmedAt&&samplingApproved(job)||o.additions.some(a=>!a.confirmedAt));
   if(m.id==='reporting')return hasAccess(actor,'analysis')&&!qcPending(job)&&(finalReady(job)||final?.status==='Changes Requested');
   return false;
