@@ -87,19 +87,13 @@ export const samplingReportCss = `
 .sr-h1::before,.sr-h2::before,.sr-sheet-title::before{content:"";flex:none;width:1.4mm;height:6.5mm;margin-right:3mm;border-radius:.7mm;background:var(--sr-green)}
 /* Cover */
 .sr-cover{padding-top:20mm}
-.sr-banner{display:grid;grid-template-columns:1fr auto;align-items:center;column-gap:8mm;height:32mm;border-bottom:1.2pt solid var(--sr-blue);padding-bottom:5mm;position:relative}
+.sr-banner{display:grid;grid-template-columns:1fr 1fr;align-items:center;column-gap:10mm;height:34mm;border-bottom:1.2pt solid var(--sr-blue);padding-bottom:6mm;position:relative}
 .sr-banner::after{content:"";position:absolute;right:0;bottom:-1.2pt;width:48mm;height:1.2pt;background:var(--sr-green)}
 .sr-brand{display:flex;align-items:center;gap:5mm;min-width:0}
-.sr-brand img{max-height:26mm;max-width:52mm;flex:none}
-.sr-brand span{display:block;border-left:0.8pt solid var(--sr-line);padding-left:5mm;min-width:0}
-.sr-doc .sr-page .sr-brand strong{display:block;font-size:13pt;color:var(--sr-navy);line-height:1.2;overflow-wrap:anywhere}
-.sr-doc .sr-page .sr-brand small{display:block;margin-top:1mm;font-size:7pt;letter-spacing:.3mm;text-transform:uppercase;color:var(--sr-muted);line-height:1.35;overflow-wrap:anywhere}
-.sr-for{display:flex;flex-direction:column;align-items:flex-end;gap:1.5mm;max-width:58mm}
-.sr-doc .sr-page .sr-for small{font-size:6pt;font-weight:700;letter-spacing:.4mm;text-transform:uppercase;color:var(--sr-muted)}
-.sr-for img{max-height:17mm;max-width:40mm}
-.sr-doc .sr-page .sr-for strong{font-size:8.5pt;color:var(--sr-navy);text-align:right;line-height:1.25;overflow-wrap:anywhere}
-.sr-cover-title{margin:30mm 0 0;padding-left:6mm;border-left:2mm solid var(--sr-green)}
-.sr-doc .sr-page .sr-cover-title p{font-size:10pt;font-weight:700;letter-spacing:.5mm;text-transform:uppercase;color:var(--sr-blue);margin:0 0 3mm;overflow-wrap:anywhere}
+.sr-brand-client{justify-content:flex-end}
+.sr-brand img{max-height:22mm;max-width:34mm;flex:none}
+.sr-doc .sr-page .sr-brand strong{display:block;border-left:1pt solid var(--sr-green);padding:1.5mm 0 1.5mm 5mm;font-size:11pt;font-weight:700;color:var(--sr-navy);line-height:1.3;max-width:47mm;overflow-wrap:anywhere}
+.sr-cover-title{margin:34mm 0 0;padding-left:6mm;border-left:2mm solid var(--sr-green)}
 .sr-doc .sr-page .sr-cover-title h1{font-size:30pt;line-height:1.12;font-weight:700;color:var(--sr-navy);margin:0}
 .sr-cover-facts{display:grid;grid-template-columns:1fr 1fr 1fr;gap:3mm;margin:14mm 0 0}
 .sr-cover-facts div{background:var(--sr-tint);border-top:1.2pt solid var(--sr-blue);border-radius:0 0 1.5mm 1.5mm;padding:2.6mm 3.5mm;min-height:15mm;min-width:0}
@@ -115,10 +109,6 @@ export const samplingReportCss = `
 .sr-doc .sr-page .sr-approval span{grid-column:1/-1;font-size:8pt;color:var(--sr-muted);margin-top:.8mm;overflow-wrap:anywhere}
 .sr-doc .sr-page .sr-approval em{font-size:9pt;color:var(--sr-muted);font-style:italic}
 .sr-notice{position:absolute;left:20mm;right:20mm;top:225mm;font-size:7pt;line-height:1.35;color:var(--sr-muted);font-style:italic}
-.sr-contact{position:absolute;left:20mm;right:20mm;bottom:27mm;display:flex;flex-wrap:wrap;gap:1.5mm 9mm;align-items:flex-start}
-.sr-contact div{min-width:0;max-width:78mm}
-.sr-doc .sr-page .sr-contact b{display:block;font-size:5.6pt;font-weight:700;letter-spacing:.35mm;text-transform:uppercase;color:var(--sr-green);margin-bottom:.8mm}
-.sr-doc .sr-page .sr-contact span{display:block;font-size:7.5pt;line-height:1.35;color:var(--sr-ink);white-space:pre-line;overflow-wrap:anywhere}
 /* Index */
 .sr-index{margin:14mm 0 0}
 .sr-index>div{display:grid;grid-template-columns:9mm 1fr 24mm;align-items:center;column-gap:5mm;height:13mm;border-bottom:0.6pt solid var(--sr-line)}
@@ -228,6 +218,8 @@ function Sheet({ s }: { s: SampleSheet }) {
 export function SamplingReportDocument({ input }: { input: SamplingReportInput }) {
   const m = buildSamplingReport(input);
   const c = m.cover;
+  // The logo already carries the short name, so the cover shows the full company name beside it (short name only when there is no logo).
+  const companyTitle = input.company.name && input.company.name !== input.company.displayName ? input.company.name : input.company.logo ? '' : input.company.displayName;
   return <div className="sr-doc" data-report-pages={m.totalPages}>
     <style>{samplingReportCss}</style>
     {m.pages.map(page => {
@@ -235,10 +227,10 @@ export function SamplingReportDocument({ input }: { input: SamplingReportInput }
       if (page.kind === 'cover') return <section className="sr-page sr-cover" key="cover">
         {draft}
         <div className="sr-banner">
-          <div className="sr-brand">{input.company.logo && <img src={assetUrl(input.company.logo)} alt={input.company.displayName} />}<span><strong>{input.company.displayName}</strong>{input.company.name && input.company.name !== input.company.displayName && <small>{input.company.name}</small>}</span></div>
-          <div className="sr-for"><small>Prepared for</small>{input.clientLogo && <img src={assetUrl(input.clientLogo)} alt="" />}<strong>{c.clientTitle}</strong></div>
+          <div className="sr-brand">{input.company.logo && <img src={assetUrl(input.company.logo)} alt={input.company.displayName} />}{companyTitle && <strong>{companyTitle}</strong>}</div>
+          <div className="sr-brand sr-brand-client">{input.clientLogo && <img src={assetUrl(input.clientLogo)} alt="" />}<strong>{c.clientTitle}</strong></div>
         </div>
-        <div className="sr-cover-title"><p>{c.clientTitle}</p><h1>Sampling and<br />Analysis Report</h1></div>
+        <div className="sr-cover-title"><h1>Sampling and<br />Analysis Report</h1></div>
         <dl className="sr-cover-facts">
           <div><dt>Job No</dt><dd>{m.header.jobNo}</dd></div><div><dt>Field</dt><dd>{m.header.field}</dd></div><div><dt>Well</dt><dd>{c.well}</dd></div>
           <div className="wide"><dt>Test</dt><dd>{c.test}</dd></div><div><dt>Date</dt><dd>{c.date}</dd></div>
@@ -247,7 +239,6 @@ export function SamplingReportDocument({ input }: { input: SamplingReportInput }
           <div><small>Prepared by</small><strong>{c.prepared.name}</strong><i>{c.prepared.date}</i><span>{c.prepared.title}</span></div>
           <div><small>Approved by</small>{c.approval ? <><strong>{c.approval.name}</strong><i>{c.approval.date}</i><span>{c.approval.title}</span></> : <em>Pending approval</em>}</div>
         </div>
-        <div className="sr-contact">{([['Address', [input.company.address, input.company.address ? input.company.country : ''].filter(Boolean).join('\n')], ['Phone', input.company.phone], ['E-mail', input.company.email], ['Website', website(m)]] as [string, string | undefined][]).filter(([, v]) => v).map(([k, v]) => <div key={k}><b>{k}</b><span>{v}</span></div>)}</div>
         {input.notice && <p className="sr-notice">{input.notice}</p>}
         <Footer m={m} n={1} />
       </section>;
