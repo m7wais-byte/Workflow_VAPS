@@ -3506,3 +3506,35 @@ main .cyl-filters select,main .cyl-filters input{background:var(--paper)!importa
 .review-sample dd.is-empty{color:var(--risk)}
 .review-sample dd.is-na{color:var(--idle)}
 @media (max-width:760px){.review-sample .review-group .ops-facts{grid-template-columns:1fr 1fr}}
+
+/* Sampling data review: cards in the same theme as preparation and data entry */
+.sampling-review .rv-card{border:1px solid var(--line);border-radius:10px;background:var(--paper);padding:14px 16px;margin:12px 0}
+.sampling-review .rv-card>h3{display:flex;align-items:center;gap:10px;margin:0 0 10px;font-size:13px;letter-spacing:.07em;text-transform:uppercase;color:var(--teal-dark)}
+.sampling-review .rv-card>h3 .section-state{text-transform:none;letter-spacing:0;font-size:12px}
+.rv-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px 12px;margin:0}
+.rv-grid>div{border:1px solid var(--line);border-radius:8px;background:#f8fbfb;padding:10px 12px;min-width:0}
+.rv-grid>div.full-field{grid-column:1/-1}
+.rv-grid dt{font-size:11px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;color:#5f7680}
+.rv-grid dd{margin:3px 0 0;font-size:15px;font-weight:600;color:var(--navy);overflow-wrap:anywhere}
+.rv-grid .crew-list{display:flex;flex-wrap:wrap;gap:6px 14px}
+.rv-focal{background:#f3f7fb!important;border-color:#cfdbe8!important;border-left:4px solid #2d4a72!important}
+.rv-focal dd{display:flex;flex-wrap:wrap;gap:4px 14px}
+.rv-focal a{color:#1d3a63;text-decoration:none;font-weight:650}
+.rv-instructions{background:#fff8e5!important;border-color:var(--todo-line)!important}
+.rv-note{display:block;margin-top:4px;font-size:13.5px;font-weight:500;color:#526971}
+.rv-checks.is-ok{border-left:4px solid var(--ok)}.rv-checks.has-issues{border-left:4px solid var(--risk);background:var(--risk-bg)}
+.rv-ok{display:flex;align-items:center;gap:6px;margin:0;color:var(--ok);font-weight:650}
+.rv-checklist{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.rv-checklist li{display:grid;grid-template-columns:20px 1fr auto;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line-2);border-radius:8px}
+.rv-checklist li.is-done{border-left:4px solid var(--ok)}.rv-checklist li.is-done svg{color:var(--ok)}
+.rv-checklist li.is-open{border-left:4px solid var(--warn-strong)}.rv-checklist li.is-open svg{color:var(--warn-strong)}
+.rv-checklist small{font-size:12.5px;color:var(--muted)}
+.rv-more{margin-top:10px}.rv-more>summary{cursor:pointer;font-weight:700;color:var(--teal-dark);padding:4px 0}
+.rv-table td,.rv-table th{white-space:normal}
+.rv-hint{margin:-4px 0 8px;font-size:13px;color:var(--muted)}
+.rv-handover p{margin:0;font-size:14px;color:var(--ink-2)}
+.sampling-review .review-actions{border:2px solid var(--attn-line);border-radius:10px;background:var(--attn-bg);padding:14px 16px;margin:14px 0}
+.sampling-review .review-actions h3{margin:0 0 8px;color:var(--navy)}
+.sampling-review .ops-two-columns.review-columns{display:none}
+@media (max-width:860px){.rv-grid{grid-template-columns:1fr 1fr}}
+@media (max-width:560px){.rv-grid{grid-template-columns:1fr}.rv-checklist li{grid-template-columns:20px 1fr}.rv-checklist small{grid-column:2}}
