@@ -67,11 +67,14 @@ test('saved jobs and cylinders with tool or brand names are converted to the gen
   const job = { samplingSource: 'Open Hole (SPMC - Field Sampling)', samples: [{ id: '1.01', sampler: 'SPMC', bottle: 'PDS', fieldData: { sampleNature: 'SPMC' } }] };
   const out = migrateJobNames(job);
   assert.equal(out.samplingSource, 'Open Hole – Field Sampling');
-  assert.deepEqual([out.samples[0].sampler, out.samples[0].bottle, out.samples[0].fieldData.sampleNature], ['Downhole sampling tool', 'Type A', 'OHS']);
+  assert.deepEqual([out.samples[0].sampler, out.samples[0].bottle, out.samples[0].fieldData.sampleNature], ['Downhole sampling tool', 'PDS', 'OHS']);
   assert.equal(migrateJobNames(out), out, 'already converted jobs are left as they are');
   assert.equal(migrateJobNames({ samplingSource: 'Open Hole (MDT Transfer)' }).samplingSource, 'Open Hole – Lab Transfer');
-  assert.deepEqual(migrateCylinder({ type: 'GSB', serial: 'X1', capacity: '20 L', specification: 'Cylinder - GAS 20 litre 3K Luxfer' }), { type: 'Type E', serial: 'X1', capacity: '20 L', specification: 'Cylinder Type E - 3K - 20 L' });
-  assert.equal(renameSpecification('Cylinder - 15K SPS/PDS Steel Coated 830/1000 cc TPED', 'SPS-SAM'), 'Cylinder Type D - 15K - 830/1000 cc (TPED)');
+  // Cylinder types keep their original names; records saved with Type A–E go back to them.
+  assert.deepEqual(migrateCylinder({ type: 'GSB', serial: 'X1', capacity: '20 L', specification: 'Cylinder - GAS 20 litre 3K Luxfer' }), { type: 'GSB', serial: 'X1', capacity: '20 L', specification: 'Cylinder - GAS 20 litre 3K Luxfer' });
+  assert.deepEqual(migrateCylinder({ type: 'Type E', serial: 'X2', capacity: '20 L', specification: 'Cylinder Type E - 3K - 20 L' }), { type: 'GSB', serial: 'X2', capacity: '20 L', specification: 'Cylinder - GAS 20 litre 3K Luxfer' });
+  assert.equal(renameSpecification('Cylinder Type D - 15K - 830/1000 cc (TPED)'), 'Cylinder - 15K SPS/PDS Steel Coated 830/1000 cc TPED');
+  assert.equal(migrateJobNames({ samples: [{ id: '1.01', bottle: 'Type C' }] }).samples[0].bottle, 'SPS');
 });
 
 test('open-hole field sampling with the general name still needs equipment preparation', async () => {

@@ -27,7 +27,7 @@ export type StoreFile = (name: string, content: string) => Promise<StoredFile>;
 
 type Sample = NonNullable<JobRecord['samples']>[number];
 const stageNames = ['Job Setup', 'Sampling Preparation', 'Sampling Data', 'Report Preview', 'Final Report'];
-const bottles = cylinderCatalog.filter(b => b.type === 'Type A');
+const bottles = cylinderCatalog.filter(b => b.type === 'PDS');
 
 export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): Promise<JobRecord[]> {
  const employees = initialDirectory().employees, policy = defaultAuthorization(employees.map(e => e.id));

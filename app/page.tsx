@@ -409,7 +409,7 @@ const standardConditionFields = [
 ];
 
 const emptySamples = (): Sample[] => ["1.01", "1.02", "1.03"].map((id) => ({
-  id, sampler: DOWNHOLE_TOOL, bottle: "Type A", samplerSerial: "", bottleSerial: "", bottleCapacity: "", calibrationStatus: "Not Checked", pressureTestStatus: "Not Checked", equipmentCondition: "Not Checked", preparedBy: "", preparedAt: "", preparationRemarks: "", fieldData: defaultFieldData(), dataComplete: false, dataCompletedBy: "", dataCompletedAt: "", pressure: "", temperature: "", depth: "", notes: "",
+  id, sampler: DOWNHOLE_TOOL, bottle: "PDS", samplerSerial: "", bottleSerial: "", bottleCapacity: "", calibrationStatus: "Not Checked", pressureTestStatus: "Not Checked", equipmentCondition: "Not Checked", preparedBy: "", preparedAt: "", preparationRemarks: "", fieldData: defaultFieldData(), dataComplete: false, dataCompletedBy: "", dataCompletedAt: "", pressure: "", temperature: "", depth: "", notes: "",
 }));
 
 export default function Home() {
@@ -526,7 +526,7 @@ export default function Home() {
     try {
       const rawSaved = JSON.parse(window.localStorage.getItem(bottleStorageKey) || "[]");
       if (!Array.isArray(rawSaved)) throw new Error("Invalid cylinder inventory");
-      // Custom cylinders saved with the old type names are converted to Type A–E.
+      // Custom cylinders saved with the neutral Type A–E names are converted back to the original type names.
       const saved = rawSaved.map((bottle) => bottle && typeof bottle.type === "string" && typeof bottle.specification === "string" ? migrateCylinder(bottle) : bottle);
       if (JSON.stringify(saved) !== JSON.stringify(rawSaved)) window.localStorage.setItem(bottleStorageKey, JSON.stringify(saved));
       const loaded: Bottle[] = [];
@@ -1074,7 +1074,7 @@ export default function Home() {
   function addSample() {
     setSamples((current) => {
       const nextNumber = current.reduce((maximum, sample) => Math.max(maximum, Number(sample.id.split(".")[1]) || 0), 0) + 1;
-      return [...current, { ...emptySamples()[0], id: `1.${String(nextNumber).padStart(2, "0")}`, sampler: isSpmcFieldSampling(samplingType) || isCasedHoleSampling(samplingType) ? DOWNHOLE_TOOL : "", bottle: "Type A" }];
+      return [...current, { ...emptySamples()[0], id: `1.${String(nextNumber).padStart(2, "0")}`, sampler: isSpmcFieldSampling(samplingType) || isCasedHoleSampling(samplingType) ? DOWNHOLE_TOOL : "", bottle: "PDS" }];
     });
   }
 
