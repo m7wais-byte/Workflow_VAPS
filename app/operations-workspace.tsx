@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useRef } from 'react';
-import { Activity, LayoutList, AlertCircle, ArrowRight, CheckCircle2, Circle, Download, Eye, FileText, Lock } from 'lucide-react';
+import { Activity, LayoutList, AlertCircle, ArrowRight, CheckCircle2, Circle, Download, Eye, FileText, Lock, Printer } from 'lucide-react';
 import type { JobRecord } from './page';
 import type { Employee } from './employee-directory';
 import { useUnsaved, defaultCompany } from './settings-pages';
@@ -14,7 +14,7 @@ import { storeWorkbook, downloadWorkbook, openWorkbook, canAccessWorkbook } from
 import { containerLabel, containerNoun } from './sample-container';
 import { PersonOptions, OverlapNotice } from './person-picker';
 import { TaskHeader, JobDetails } from './task-layout';
-import { SamplingReportDocument, exportSamplingReportPdf, samplingReportInput, captureLetterhead, type ReportContext } from './sampling-report';
+import { SamplingReportDocument, exportSamplingReportPdf, downloadSamplingReportPdf, samplingReportInput, captureLetterhead, type ReportContext } from './sampling-report';
 import { jobFlow, flowOverdue } from './job-flow';
 import { JobFlowTracker, StatusBadge, shortDate } from './flow-ui';
 import { ClientProgress } from './client-progress';
@@ -252,13 +252,13 @@ export function WeeklyWork({jobs,actor,onOpen,teamView=false}:{jobs:JobRecord[];
 function reportContextOr(context:ReportContext|undefined,employees:Employee[]):ReportContext{return context||{company:defaultCompany,clients:[],positionName:()=>'',employeeName:(id?:string)=>employees.find(e=>e.id===id)?.name||id||'Not recorded'};}
 /** One report version as the A4 Sampling and Analysis Report, built from that version's saved snapshot. */
 function SamplingDocument({report,employees,job,context,inline=false}:{report:ReportVersion;employees:Employee[];job:JobRecord;context?:ReportContext;/** Shown open on the page (current version) instead of folded. */inline?:boolean}) {
- const ref=useRef<HTMLDivElement>(null);const [busy,setBusy]=useState(false),[error,setError]=useState(''),[full,setFull]=useState(false);
+ const ref=useRef<HTMLDivElement>(null);const [busy,setBusy]=useState<''|'save'|'print'>(''),[error,setError]=useState(''),[full,setFull]=useState(false);
  const ctx=reportContextOr(context,employees);
  const approved=report.status==='Approved'&&!!report.approvedBy&&!!report.approvedAt;
  const input=samplingReportInput(job,ctx,{snapshot:JSON.parse(report.snapshot),letterhead:report.letterhead,summary:report.text,version:report.version,status:report.status,approved,preparedBy:report.preparedBy,preparedAt:report.preparedAt,approvedBy:report.approvedBy,approvedAt:report.approvedAt});
  const file=`${input.jobNumber}-Sampling-and-Analysis-Report-v${report.version}${approved?'':'-DRAFT'}`;
- const exportPDF=async()=>{if(!ref.current)return;setBusy(true);try{await exportSamplingReportPdf(ref.current.querySelector('.sr-doc') as HTMLElement,file);setError('');}catch{setError('Could not open the print view. Your saved report remains available.');}finally{setBusy(false);}};
- const actions=<div className="sr-preview-actions"><button type="button" className="outline-button" onClick={()=>setFull(!full)}>{full?'Close full screen':'Open full screen'}</button><button type="button" className="primary-button" disabled={busy} onClick={exportPDF}>{busy?'Preparing…':'Save as PDF / Print'}</button><small>Print dialog with this report only · choose “Save as PDF” and A4.</small></div>;
+ const run=async(kind:'save'|'print')=>{if(!ref.current||busy)return;setBusy(kind);try{const el=ref.current.querySelector('.sr-doc') as HTMLElement;await (kind==='save'?downloadSamplingReportPdf(el,file):exportSamplingReportPdf(el,file));setError('');}catch{setError(kind==='save'?'Could not create the PDF. Your saved report remains available.':'Could not open the print view. Your saved report remains available.');}finally{setBusy('');}};
+ const actions=<div className="sr-preview-actions"><button type="button" className="outline-button" onClick={()=>setFull(!full)}>{full?'Close full screen':'Open full screen'}</button><button type="button" className="primary-button" disabled={!!busy} onClick={()=>run('save')}><Download size={16}/> {busy==='save'?'Saving…':'Save PDF'}</button><button type="button" className="outline-button" disabled={!!busy} onClick={()=>run('print')}><Printer size={16}/> {busy==='print'?'Preparing…':'Print'}</button></div>;
  const doc=<>{error&&<p role="alert" className="ops-error">{error}</p>}{input.notice&&<p className="locked-note"><AlertCircle size={16}/> {input.notice}</p>}<div className="sr-preview" ref={ref}><SamplingReportDocument input={input}/></div></>;
  if(inline)return <section className={'rv-card rp-preview'+(full?' is-full':'')} aria-label="Report preview"><div className="rp-preview-head"><h3>3 · Report preview <span className={'section-state '+(approved?'st-completed':'st-in-progress')}>Version {report.version}{approved?' · approved':' · draft'}</span></h3>{actions}</div>{doc}</section>;
  return <details className="ops-report-preview"><summary>Preview sampling report · version {report.version}{approved?'':' · draft'}</summary>{actions}{doc}</details>;
