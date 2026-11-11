@@ -3538,3 +3538,28 @@ main .cyl-filters select,main .cyl-filters input{background:var(--paper)!importa
 .sampling-review .ops-two-columns.review-columns{display:none}
 @media (max-width:860px){.rv-grid{grid-template-columns:1fr 1fr}}
 @media (max-width:560px){.rv-grid{grid-template-columns:1fr}.rv-checklist li{grid-template-columns:20px 1fr}.rv-checklist small{grid-column:2}}
+
+/* Sampling report page: same card theme; the current version's preview is open on the page */
+.report-panel .rp-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:8px}
+.report-panel .rp-head h2{margin:4px 0 0;font-family:Georgia,serif;font-size:20px;color:var(--navy);font-weight:600}
+.rp-route{margin:6px 0 4px;font-size:14px;color:#526971}
+.rp-card form fieldset{border:0;padding:0;margin:0}
+.rp-summary{display:flex;flex-direction:column;gap:6px;font-weight:650;color:var(--ink)}
+.rp-summary textarea{font-size:15px;line-height:1.55;min-height:180px}
+.rp-card form footer{display:flex;justify-content:flex-end;gap:10px;margin-top:10px}
+.rp-reason{display:flex;flex-direction:column;gap:6px;margin-top:10px;font-weight:650}
+.rp-actions .ops-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+.rp-returned{margin-top:10px}
+.rp-preview-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.rp-preview-head h3{margin:0}
+.rp-preview .sr-preview-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0}
+.rp-preview .sr-preview-actions small{color:var(--muted);font-size:12.5px}
+.rp-preview .sr-preview{max-height:720px;overflow:auto;border:1px solid var(--line);border-radius:8px;background:#e9edf0;padding:16px;display:flex;justify-content:center}
+.rp-preview.is-full{position:fixed;inset:0;z-index:90;margin:0;border-radius:0;overflow:auto;background:var(--canvas);padding:16px 24px}
+.rp-preview.is-full .rp-preview-head{position:sticky;top:-16px;z-index:2;background:var(--canvas);padding:12px 0}
+.rp-preview.is-full .sr-preview{max-height:none}
+.report-panel .rv-card{border:1px solid var(--line);border-radius:10px;background:var(--paper);padding:14px 16px;margin:12px 0}
+.report-panel .rv-card>h3,.report-panel .rp-preview-head h3{display:flex;align-items:center;gap:10px;margin:0 0 10px;font-size:13px;letter-spacing:.07em;text-transform:uppercase;color:var(--teal-dark)}
+.report-panel .rp-preview-head h3{margin:0}
+.report-panel .rv-card h3 .section-state{text-transform:none;letter-spacing:0;font-size:12px}
+.report-panel .review-timeline{margin:10px 0}
