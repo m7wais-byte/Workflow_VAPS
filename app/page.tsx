@@ -404,9 +404,6 @@ const bswUnits = ["% vol"];
 const navItems = ["Dashboard", "My work", "Jobs", "Sampling", "Laboratory", "Inventory", "Settings"];
 const navIcons = [LayoutDashboard, Inbox, BriefcaseBusiness, FlaskConical, ListChecks, PackageSearch, Settings];
 
-const standardConditionFields = [
-  "flowPeriod", "formation", "perforations", "sampleBottleVolume", "sampleVolume", "fluidRemaining", "initialOpeningPressure", "initialOpeningTemperature", "receivingBottleOpeningPressure", "receivingBottleOpeningTemperature", "transferPressure", "transferTemperature", "finalPressure", "finalTemperature", "transferDuration", "bhp", "bht", "whp", "wht", "chokeSize", "stableSince", "separatorPressure", "separatorTemperature", "oilRate", "correctedBy", "gasRate", "waterRate", "gasGravity", "condensateGravity", "oilLineTemperature", "gasDifferentialPressure", "gasPressure", "gasTemperature", "fbFactor", "fpvFactor", "cgr", "wor", "bsw", "h2s", "co2", "gor", "gor",
-];
 
 const emptySamples = (): Sample[] => ["1.01", "1.02", "1.03"].map((id) => ({
   id, sampler: DOWNHOLE_TOOL, bottle: "PDS", samplerSerial: "", bottleSerial: "", bottleCapacity: "", calibrationStatus: "Not Checked", pressureTestStatus: "Not Checked", equipmentCondition: "Not Checked", preparedBy: "", preparedAt: "", preparationRemarks: "", fieldData: defaultFieldData(), dataComplete: false, dataCompletedBy: "", dataCompletedAt: "", pressure: "", temperature: "", depth: "", notes: "",
@@ -1220,15 +1217,22 @@ export default function Home() {
     return started ? "In Progress" : "Not Started";
   }
 
-  function samplingTextField(sample: Sample, label: string, field: string, options: { required?: boolean; type?: string; placeholder?: string } = {}): ReactNode {
-    const value = field === "depth" ? sample.depth : field === "notes" ? sample.notes : sample.fieldData[field] || "";
-    if (options.type === "date" || options.type === "time") { const Field = options.type === "date" ? DateInput : TimeInput; return <label><span>{label}{options.required ? " *" : ""}</span><Field required={options.required} value={value} onChange={(event) => { if (event.target.value !== value) updateSampleFieldData(sample.id, field, event.target.value); }} /></label>; }
-    return <label><span>{label}{options.required ? " *" : ""}</span><input type={options.type || "text"} value={value} onBlur={(event) => { const entered = event.currentTarget.value; if (options.placeholder?.endsWith("or N/A") && entered.trim() === "-") updateSampleFieldData(sample.id, field, "N/A"); else if ((options.type === "date" || options.type === "time") && entered !== value) updateSampleFieldData(sample.id, field, entered); }} onChange={(event) => updateSampleFieldData(sample.id, field, event.target.value)} placeholder={options.placeholder} /></label>;
+  /** Small N/A switch beside a field: one click records N/A (field turns gray and locks), a second click clears it for typing. */
+  function naToggle(sample: Sample, field: string, label: string, isNA: boolean): ReactNode {
+    return <button type="button" className={"na-toggle" + (isNA ? " is-on" : "")} aria-pressed={isNA} aria-label={`${label}: ${isNA ? "enter a value instead of N/A" : "mark not applicable"}`} onClick={() => updateSampleFieldData(sample.id, field, isNA ? "" : "N/A")}>{isNA ? "Enter value" : "N/A"}</button>;
   }
 
-  function samplingUnitField(sample: Sample, label: string, field: string, unitField: string, units: string[], options: { required?: boolean; placeholder?: string } = {}): ReactNode {
+  function samplingTextField(sample: Sample, label: string, field: string, options: { required?: boolean; type?: string; placeholder?: string; na?: boolean } = {}): ReactNode {
+    const value = field === "depth" ? sample.depth : field === "notes" ? sample.notes : sample.fieldData[field] || "";
+    if (options.type === "date" || options.type === "time") { const Field = options.type === "date" ? DateInput : TimeInput; return <label><span>{label}{options.required ? " *" : ""}</span><Field required={options.required} value={value} onChange={(event) => { if (event.target.value !== value) updateSampleFieldData(sample.id, field, event.target.value); }} /></label>; }
+    const isNA = !!options.na && value.trim().toUpperCase() === "N/A";
+    return <label><span>{label}{options.required ? " *" : ""}</span><div className={"value-unit" + (isNA ? " is-na" : "")}><input type="text" value={isNA ? "N/A" : value} disabled={isNA} onChange={(event) => updateSampleFieldData(sample.id, field, event.target.value)} placeholder={options.placeholder} />{options.na && naToggle(sample, field, label, isNA)}</div></label>;
+  }
+
+  function samplingUnitField(sample: Sample, label: string, field: string, unitField: string, units: string[], options: { required?: boolean; placeholder?: string; na?: boolean } = {}): ReactNode {
     const value = field === "depth" ? sample.depth : sample.fieldData[field] || "";
-    return <label><span>{label}{options.required ? " *" : ""}</span><div className="value-unit"><input type="text" inputMode="decimal" value={value} onBlur={(event) => { if (event.currentTarget.value.trim() === "-") updateSampleFieldData(sample.id, field, "N/A"); }} onChange={(event) => updateSampleFieldData(sample.id, field, event.target.value)} placeholder={options.placeholder || "Value or N/A"} /><select aria-label={`${label} unit`} value={sample.fieldData[unitField] || units[0]} onChange={(event) => updateSampleFieldData(sample.id, unitField, event.target.value)}>{[...new Set([...(sample.fieldData[unitField] && !units.includes(sample.fieldData[unitField]) ? [sample.fieldData[unitField]] : []), ...units])].map((unit) => <option key={unit}>{unit}</option>)}</select></div></label>;
+    const isNA = !!options.na && value.trim().toUpperCase() === "N/A";
+    return <label><span>{label}{options.required ? " *" : ""}</span><div className={"value-unit" + (isNA ? " is-na" : "")}><input type="text" inputMode="decimal" value={isNA ? "N/A" : value} disabled={isNA} onChange={(event) => updateSampleFieldData(sample.id, field, event.target.value)} placeholder={options.placeholder || "Value"} /><select aria-label={`${label} unit`} disabled={isNA} value={sample.fieldData[unitField] || units[0]} onChange={(event) => updateSampleFieldData(sample.id, unitField, event.target.value)}>{[...new Set([...(sample.fieldData[unitField] && !units.includes(sample.fieldData[unitField]) ? [sample.fieldData[unitField]] : []), ...units])].map((unit) => <option key={unit}>{unit}</option>)}</select>{options.na && naToggle(sample, field, label, isNA)}</div></label>;
   }
 
   function samplingSelectField(sample: Sample, label: string, field: string, options: string[]): ReactNode {
@@ -1239,14 +1243,10 @@ export default function Home() {
     return standardSheetErrors(sample);
   }
 
-  function fillBlankConditionsAsNotApplicable(id: string) {
-    setSamples((current) => current.map((sample) => sample.id === id ? { ...sample, fieldData: { ...sample.fieldData, ...Object.fromEntries(standardConditionFields.map((field) => [field, sample.fieldData[field]?.trim() || "N/A"])) }, dataComplete: false, dataCompletedBy: "", dataCompletedAt: "" } : sample));
-    setSampleDataErrors((current) => ({ ...current, [id]: [] }));
-  }
 
   function standardDataSheetForm(sample: Sample): ReactNode {
-    const U = (label: string, field: string, units: string[], unitField = field + "Unit", placeholder?: string) => samplingUnitField(sample, label, field, unitField, units, { required: true, placeholder });
-    const T = (label: string, field: string, placeholder = "Value or N/A") => samplingTextField(sample, label, field, { required: true, placeholder });
+    const U = (label: string, field: string, units: string[], unitField = field + "Unit", placeholder?: string) => samplingUnitField(sample, label, field, unitField, units, { required: true, placeholder, na: field !== "depth" });
+    const T = (label: string, field: string, placeholder = "Value") => samplingTextField(sample, label, field, { required: true, placeholder, na: true });
     const filled = (field: string) => Boolean((field === "depth" ? sample.depth : sample.fieldData[field] || "").trim());
     const section = (num: string, title: string, hint: string, fields: string[], body: ReactNode, open = false) => {
       const done = fields.filter(filled).length, st = done >= fields.length ? "completed" : done ? "in-progress" : "not-started";
@@ -1259,7 +1259,7 @@ export default function Home() {
     const natureValue = sample.fieldData.sampleNature || "";
     const natureList = sampleNatureOptions.some(([code]) => code === natureValue) || !natureValue ? sampleNatureOptions : [[natureValue, natureValue] as [string, string], ...sampleNatureOptions];
     return <>
-      <div className="standard-sheet-toolbar"><div><strong>Sample data sheet</strong><small>Fill every section; pick the unit next to each value. Type <kbd>-</kbd> in a field to enter N/A where it does not apply.</small></div><button type="button" className="outline-button" onClick={() => fillBlankConditionsAsNotApplicable(sample.id)}>Set blank fields to N/A</button></div>
+      <div className="standard-sheet-toolbar"><div><strong>Sample data sheet</strong><small>Fill every field and pick its unit. If a condition does not apply, press <span className="na-toggle is-sample">N/A</span> beside that field. Nothing is set to N/A automatically.</small></div></div>
       {section("1", "Identification", "When, where and what was sampled", ["samplingDate", "samplingTime", "sampleNature", "depth", "flowPeriod", "formation", "perforations"], <div className="technical-field-grid">
         {samplingTextField(sample, "Sampling Date", "samplingDate", { required: true, type: "date" })}
         {samplingTextField(sample, "Sampling Time", "samplingTime", { required: true, type: "time" })}
@@ -1267,7 +1267,7 @@ export default function Home() {
         {U("Sampling Point / Depth", "depth", depthUnits, "depthUnit", "Depth, or point description")}
         {U("Flow Period", "flowPeriod", flowPeriodUnits)}
         {T("Formation", "formation")}
-        {U("Perforations", "perforations", depthUnits, "perforationsUnit", "e.g. 2500–2510 or N/A")}
+        {U("Perforations", "perforations", depthUnits, "perforationsUnit", "e.g. 2500–2510")}
       </div>, true)}
       {section("2", "Shipping conditions", "Cylinder and sample volumes and the final cylinder condition", ["sampleBottleVolume", "sampleVolume", "fluidRemaining", "gasCapCreated", "finalPressure", "finalTemperature"], <div className="technical-field-grid">
         {U("Sample Cylinder Volume", "sampleBottleVolume", volumeUnits)}{U("Sample Volume", "sampleVolume", volumeUnits)}{U("Fluid Remaining", "fluidRemaining", volumeUnits)}
@@ -1280,10 +1280,10 @@ export default function Home() {
         {group("Transfer", <>{U("Transfer Pressure", "transferPressure", pressureUnits)}{U("Transfer Temperature", "transferTemperature", temperatureUnits)}{U("Transfer Duration", "transferDuration", durationUnits)}</>)}
       </>)}
       {section("4", "Production conditions during sampling", "Measured values with units, or N/A where a condition does not apply", ["bhp", "bht", "whp", "wht", "chokeSize", "stableSince", "h2s", "co2", "separatorPressure", "separatorTemperature", "gasRate", "gasGravity", "gasDifferentialPressure", "gasPressure", "gasTemperature", "fbFactor", "fpvFactor", "oilRate", "correctedBy", "condensateGravity", "oilLineTemperature", "waterRate", "gor", "cgr", "wor", "bsw"], <>
-        {group("Well", <>{U("Bottomhole Pressure (BHP)", "bhp", pressureUnits)}{U("Bottomhole Temperature (BHT)", "bht", temperatureUnits)}{U("Wellhead Pressure (WHP)", "whp", pressureUnits)}{U("Wellhead Temperature (WHT)", "wht", temperatureUnits)}{U("Choke Size", "chokeSize", chokeUnits)}{T("Stable Since", "stableSince", "Date/time or N/A")}</>)}
+        {group("Well", <>{U("Bottomhole Pressure (BHP)", "bhp", pressureUnits)}{U("Bottomhole Temperature (BHT)", "bht", temperatureUnits)}{U("Wellhead Pressure (WHP)", "whp", pressureUnits)}{U("Wellhead Temperature (WHT)", "wht", temperatureUnits)}{U("Choke Size", "chokeSize", chokeUnits)}{T("Stable Since", "stableSince", "Date/time")}</>)}
         {group("Gas composition", <>{U("H₂S", "h2s", concentrationUnits)}{U("CO₂", "co2", concentrationUnits)}</>)}
         {group("Separator & gas", <>{U("Separator Pressure", "separatorPressure", pressureUnits)}{U("Separator Temperature", "separatorTemperature", temperatureUnits)}{U("Gas Rate (std)", "gasRate", gasRateUnits)}{U("Gas Gravity", "gasGravity", gasGravityUnits)}{U("Gas Differential Pressure", "gasDifferentialPressure", pressureUnits)}{U("Gas Pressure", "gasPressure", pressureUnits)}{U("Gas Temperature", "gasTemperature", temperatureUnits)}{T("Fb Factor (dimensionless)", "fbFactor")}{T("Fpv Factor (dimensionless)", "fpvFactor")}</>)}
-        {group("Oil & water", <>{U("Oil Rate", "oilRate", liquidRateUnits)}{T("Corrected By", "correctedBy", "Name/reference or N/A")}{U("Oil Gravity", "condensateGravity", liquidGravityUnits)}{U("Oil Line Temperature", "oilLineTemperature", temperatureUnits)}{U("Water Rate", "waterRate", liquidRateUnits)}</>)}
+        {group("Oil & water", <>{U("Oil Rate", "oilRate", liquidRateUnits)}{T("Corrected By", "correctedBy", "Name or reference")}{U("Oil Gravity", "condensateGravity", liquidGravityUnits)}{U("Oil Line Temperature", "oilLineTemperature", temperatureUnits)}{U("Water Rate", "waterRate", liquidRateUnits)}</>)}
         {group("Ratios", <>{U("GOR", "gor", gorUnits)}{U("CGR", "cgr", cgrUnits)}{U("WOR", "wor", worUnits)}{U("BSW", "bsw", bswUnits)}</>)}
       </>)}
       <label className="sample-remarks"><span>Remarks</span><textarea rows={4} value={sample.notes} onChange={(event) => updateSampleFieldData(sample.id, "notes", event.target.value)} placeholder="Record the data source, sample condition, observations, or exceptions…" /></label>
