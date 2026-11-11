@@ -8,7 +8,7 @@ import { jobFlow, type JobFlow } from './job-flow';
 import { canOpenJob, jobsInWork, applyJobOperation, noJobAccessMessage } from './job-access';
 import { StatusBadge, OverdueBadge, MiniTracker } from './flow-ui';
 import { OperationsWorkspace, WeeklyWork, ClarificationReview, LabWorkspace } from './operations-workspace';
-import { SamplingReportDocument, exportSamplingReportPdf, samplingReportInput, type ReportContext } from './sampling-report';
+import { SamplingReportDocument, exportSamplingReportPdf, downloadSamplingReportPdf, samplingReportInput, type ReportContext } from './sampling-report';
 import { applyOperation, isTrashed, trashJob, restoreJob, operationComplete, latest, operationsFor, streamLead, labStatus, labStatuses, type ActivityRecord, isDraft, canSeeDraft, samplingTeam, samplingWorkers, samplingStarted, samplingStatus, latestData, samplingDataLocked, dataReviewRequired, type Actor, type Operations, type Command } from './operations-model';
 import { readSavedRouting, effectiveRouting, storedTestRouting, testRoutingKey, type TestRouting, type SavedRouting } from './test-routing';
 import { readCustomTests, testCatalogueKey, catalogueIds, type CatalogueTest } from './test-catalogue';
@@ -1160,16 +1160,17 @@ export default function Home() {
     setNotice("Report returned to the preparer for changes");
   }
 
-  async function downloadReportPdf() {
+  async function downloadReportPdf(kind: "save" | "print" = "save") {
     if (report.reportStatus !== "Completed" || !report.approvedBy || !report.approvedAt) return;
     const reportElement = document.querySelector<HTMLElement>("[data-pdf-report] .sr-doc");
     if (!reportElement || pdfExporting) return;
     setPdfExporting(true);
+    const fileName = `${displayJobId}-Sampling-and-Analysis-Report`;
     try {
-      await exportSamplingReportPdf(reportElement, `${displayJobId}-Sampling-and-Analysis-Report`);
-      setNotice("Choose “Save as PDF” in the print dialog to download the report.");
+      if (kind === "save") { await downloadSamplingReportPdf(reportElement, fileName); setNotice("The report PDF was downloaded."); }
+      else await exportSamplingReportPdf(reportElement, fileName);
     } catch {
-      setNotice("The print view could not be opened. Please try again.");
+      setNotice(kind === "save" ? "The PDF could not be created. Please try again." : "The print view could not be opened. Please try again.");
     } finally {
       setPdfExporting(false);
     }
@@ -2339,7 +2340,7 @@ export default function Home() {
           })()}
 
           {stage === "scope" && report.reportStatus === "Completed" && !!report.approvedBy && report.approvedAt && (
-            <section className="final-report-ready panel"><div className="scope-route"><span>✓</span><div><strong>Final report generated</strong><small>{displayJobId} · {report.reportStatus} · Approved by {employeeName(report.approvedBy)}</small></div></div><div className="final-report-actions"><button type="button" className="text-button" onClick={() => setStage("report")}>← Back to report preview</button>{scopeAttachment && <a className="outline-button" href={scopeAttachment.dataUrl} download={scopeAttachment.name}>Open Scope of Work</a>}<button type="button" className="primary-button" onClick={downloadReportPdf} disabled={pdfExporting}>{pdfExporting ? "Preparing PDF..." : "Download PDF"}</button></div></section>
+            <section className="final-report-ready panel"><div className="scope-route"><span>✓</span><div><strong>Final report generated</strong><small>{displayJobId} · {report.reportStatus} · Approved by {employeeName(report.approvedBy)}</small></div></div><div className="final-report-actions"><button type="button" className="text-button" onClick={() => setStage("report")}>← Back to report preview</button>{scopeAttachment && <a className="outline-button" href={scopeAttachment.dataUrl} download={scopeAttachment.name}>Open Scope of Work</a>}<button type="button" className="primary-button" onClick={() => downloadReportPdf("save")} disabled={pdfExporting}>{pdfExporting ? "Preparing PDF..." : "Download PDF"}</button></div></section>
           )}
 
           {stage === "bottomhole" && isCasedHoleSampling(samplingType) && (
@@ -2411,7 +2412,7 @@ export default function Home() {
                   <label className="report-summary-editor"><span>Executive Summary *</span><textarea rows={5} value={report.summary} disabled={report.reportStatus !== "Draft"} onChange={(event) => { setReport((current) => ({ ...current, summary: event.target.value })); setReportErrors([]); }} /></label>
                   <div className="report-approval-grid"><label><span>Prepared By *</span><select value={report.preparedBy} disabled={report.reportStatus !== "Draft"} onChange={(event) => setReport((current) => ({ ...current, preparedBy: event.target.value }))}><option value="">Select employee</option>{demoEmployees.filter(e=>e.active || e.id===report.preparedBy).map((employee) => <option disabled={!employee.active} value={employee.id} key={employee.id}>{employee.name}</option>)}</select></label><label><span>Prepared Date *</span><DateInput value={report.preparedDate} disabled={report.reportStatus !== "Draft"} onChange={(event) => setReport((current) => ({ ...current, preparedDate: event.target.value }))} /></label><label><span>Send To / Approver *</span><input value={report.approvedBy ? employeeName(report.approvedBy) : samplingApprover ? employeeName(samplingApprover) : "Not configured"} readOnly /></label><label><span>Approval Date</span><input value={report.approvalDate ? reportDate(report.approvalDate) : "Recorded automatically"} readOnly /></label></div>
                   {report.reportStatus === "Awaiting Approval" && <div className="approval-handoff-card"><div><span>APPROVAL REQUEST</span><strong>Sent to {employeeName(samplingApprover)}</strong><small>Submitted by {employeeName(report.submittedBy)} · {formatDateTime(report.submittedAt)}</small></div>{currentEmployee.id === samplingApprover ? <div><button type="button" className="outline-button" onClick={requestReportChanges}>Request Changes</button><button type="button" className="primary-button" onClick={approveFinalReport}>Approve &amp; Finalize Report <span>→</span></button></div> : <em>Waiting for the assigned approver</em>}</div>}
-                  <div className="report-toolbar"><button type="button" className="text-button" disabled={report.reportStatus !== "Draft"} onClick={() => setStage("bottomhole")}>← Edit sampling data</button><div><button type="button" className="outline-button" onClick={saveReportDraft} disabled={report.reportStatus !== "Draft"}>Save Draft</button>{report.reportStatus === "Completed" && !!report.approvedBy && report.approvedAt && <button type="button" className="outline-button" onClick={downloadReportPdf} disabled={pdfExporting}>{pdfExporting ? "Preparing…" : "Save as PDF / Print"}</button>}<button type="button" className="primary-button" onClick={submitReportForApproval} disabled={report.reportStatus !== "Draft"}>{report.reportStatus === "Awaiting Approval" ? "Sent for Approval" : "Open checking & approval"} <span>→</span></button></div></div>
+                  <div className="report-toolbar"><button type="button" className="text-button" disabled={report.reportStatus !== "Draft"} onClick={() => setStage("bottomhole")}>← Edit sampling data</button><div><button type="button" className="outline-button" onClick={saveReportDraft} disabled={report.reportStatus !== "Draft"}>Save Draft</button>{report.reportStatus === "Completed" && !!report.approvedBy && report.approvedAt && <><button type="button" className="outline-button" onClick={() => downloadReportPdf("save")} disabled={pdfExporting}>{pdfExporting ? "Preparing…" : "Save PDF"}</button><button type="button" className="outline-button" onClick={() => downloadReportPdf("print")} disabled={pdfExporting}>Print</button></>}<button type="button" className="primary-button" onClick={submitReportForApproval} disabled={report.reportStatus !== "Draft"}>{report.reportStatus === "Awaiting Approval" ? "Sent for Approval" : "Open checking & approval"} <span>→</span></button></div></div>
                 </section>
               </>}
 

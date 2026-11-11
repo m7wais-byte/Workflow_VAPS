@@ -223,7 +223,7 @@ export function SamplingReportDocument({ input }: { input: SamplingReportInput }
 }
 
 /**
- * Opens the browser's print dialog for the report only (choose "Save as PDF").
+ * Opens the browser's print dialog for the report only.
  * The browser's print engine keeps text selectable and logos sharp, unlike a canvas screenshot.
  */
 export async function exportSamplingReportPdf(element: HTMLElement, title: string): Promise<void> {
@@ -246,4 +246,28 @@ export async function exportSamplingReportPdf(element: HTMLElement, title: strin
   win.focus();
   win.print();
   setTimeout(() => { if (document.title === safeTitle) document.title = previous; }, 60000);
+}
+
+/**
+ * Downloads the report as an A4 PDF file directly, without the print dialog.
+ * Each report page is rendered on its own PDF page, so page breaks match the preview exactly.
+ */
+export async function downloadSamplingReportPdf(element: HTMLElement, title: string): Promise<void> {
+  const pages = Array.from(element.querySelectorAll<HTMLElement>('.sr-page'));
+  if (!pages.length) throw Error('The report has no pages.');
+  const html2pdf = (await import('html2pdf.js')).default;
+  const options = { margin: 0, filename: `${title.replace(/[<>&"/\\:*?|]/g, '')}.pdf`, image: { type: 'jpeg' as const, quality: 0.98 }, html2canvas: { scale: 2, backgroundColor: '#ffffff', useCORS: true }, jsPDF: { unit: 'mm' as const, format: 'a4' as const, orientation: 'portrait' as const } };
+  // One A4 page per source: 794 × 1122 px is just inside A4 at 96 dpi, so a page never spills onto a second sheet.
+  const single = (page: HTMLElement) => {
+    const holder = document.createElement('div');
+    holder.className = element.className;
+    const copy = page.cloneNode(true) as HTMLElement;
+    copy.style.cssText += ';margin:0;box-shadow:none;width:794px;height:1122px';
+    holder.appendChild(copy);
+    return holder;
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- html2pdf's chained worker is not fully typed
+  let worker: any = html2pdf().set(options).from(single(pages[0])).toPdf();
+  for (const page of pages.slice(1)) worker = worker.get('pdf').then((pdf: { addPage: () => void }) => { pdf.addPage(); }).from(single(page)).toContainer().toCanvas().toPdf();
+  await worker.save();
 }
