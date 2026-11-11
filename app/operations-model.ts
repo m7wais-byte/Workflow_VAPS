@@ -16,6 +16,7 @@ export type Stream = 'PVT' | 'Chemical';
 export const streamLead = (stream:Stream):Responsibility=>stream==='PVT'?'pvtTeamLead':'chemicalTeamLead';
 /** Workbook Submitted = awaiting team-lead review; Changes Requested = returned to the employee; QC Returned = back with the team lead; Completed = QC approved. */
 export type WorkState = 'Unassigned' | 'Scheduled' | 'In Progress' | 'Workbook Submitted' | 'Changes Requested' | 'Awaiting QC' | 'QC Returned' | 'Completed';
+/** One submission of a test for review. Internal tests are marked finished without an upload (empty id, size 0): the workbook is kept outside this system. */
 export type FileVersion = { id:string; name:string; size:number; type:string; version:number; submittedBy:string; submittedAt:string; status:'Available'|'Changes Requested'; comments:string; /** Sheet, section or attachment reference named in a return. */target?:string; leadApprovedBy?:string; leadApprovedAt?:string; qcApprovedBy?:string; qcApprovedAt?:string; qcReturnedBy?:string; qcReturnedAt?:string; qcComments?:string };
 export type ActivityEvent = { at:string; by:string; action:'assigned'|'reassigned'|'submitted'|'lead-approved'|'lead-returned'|'qc-approved'|'qc-returned'|'dispatched'|'results-received'|'planned'; version?:number; target?:string; comments?:string; from?:string; to?:string };
 export type ActivityRecord = { id:string; scopeId:string; /** Shared by the PVT and Chemistry items created for one test sent to both sections. */linkId?:string; sampleId:string; title:string; stream:Stream; owner:string; start:string; due:string; conditions:string; notes:string; status:WorkState; files:FileVersion[]; required:boolean; kind?:'validation'|'analysis'; /** Assignment, submission and review decisions, oldest first. */history?:ActivityEvent[]; /** The assigned employee's own progress notes; notes keep the team lead's instructions. */progressNotes?:string; /** A job-specific test entered in the scope (never added to the global catalogue). */custom?:boolean; /** Performed by a third-party laboratory; the owner is the internal coordinator. Absent = performed internally. */external?:ExternalWork };
@@ -304,7 +305,8 @@ export type Command =
  | {type:'external-submit';id:string;notes:string}
  | {type:'schedule';id:string;owner:string;start:string;due:string;conditions:string;notes:string}
  | {type:'progress';id:string;status:WorkState;notes:string}
- | {type:'workbook';id:string;notes?:string;file:Omit<FileVersion,'version'|'submittedBy'|'submittedAt'|'status'|'comments'>}
+ /** The assigned employee marks the test finished for team-lead review. No file is needed; older callers may still attach one. */
+ | {type:'workbook';id:string;notes?:string;file?:Omit<FileVersion,'version'|'submittedBy'|'submittedAt'|'status'|'comments'>}
  | {type:'workbook-return';id:string;comments:string}
  | {type:'lead-review';id:string;decision:'approve'|'return';target:string;comments:string}
  | {type:'qc-review';id:string;decision:'approve'|'return';target:string;comments:string}
@@ -616,7 +618,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
  }
  case 'progress':{
   const a=currentActivity();requireAssigned(actor,'analysis',!!a.owner&&actor.id===a.owner);if(actor.id!==a.owner)throw Error('This action is not assigned to your active profile or permission.');
-  if(command.status==='Completed')throw Error('A test is completed by QC approval after team-lead review. Submit the workbook to your team lead.');
+  if(command.status==='Completed')throw Error('A test is completed by QC approval after team-lead review. Mark it finished for your team lead.');
   if(command.status!=='In Progress')throw Error('Use workbook submission or correction actions for this state.');
   if(a.status==='Completed')throw Error('Completed work is immutable; request additional work.');
   if(['Workbook Submitted','Awaiting QC','QC Returned'].includes(a.status))throw Error('The submitted workbook is under review and cannot be edited.');
@@ -625,10 +627,10 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
  case 'workbook':{
   const a=currentActivity();requireAssigned(actor,'analysis',!!a.owner&&actor.id===a.owner);if(actor.id!==a.owner)throw Error('This action is not assigned to your active profile or permission.');if(a.status==='Completed')throw Error('Request a correction before replacing completed work.');
   if(a.external)throw Error('This test is performed by a third-party laboratory. Record the returned results, then submit them for review.');
-  if(['Workbook Submitted','Awaiting QC','QC Returned'].includes(a.status))throw Error('The current workbook is under review. Wait for the team lead’s decision.');
-  if(!command.file.id||command.file.size<=0)throw Error('Upload a workbook first.');
+  if(['Workbook Submitted','Awaiting QC','QC Returned'].includes(a.status))throw Error('This test is already under review. Wait for the team lead’s decision.');
+  if(command.file&&(!command.file.id||command.file.size<=0))throw Error('The attached file is empty.');
   if(command.notes!==undefined)a.progressNotes=command.notes;
-  a.files.push({...command.file,version:a.files.length+1,submittedBy:actor.id,submittedAt:now,status:'Available',comments:''});a.status='Workbook Submitted';
+  a.files.push({...(command.file||{id:'',name:'',size:0,type:''}),version:a.files.length+1,submittedBy:actor.id,submittedAt:now,status:'Available',comments:''});a.status='Workbook Submitted';
   (a.history||(a.history=[])).push({at:now,by:actor.id,action:'submitted',version:a.files.length,comments:command.notes});break;
  }
  case 'workbook-return':{
@@ -641,10 +643,10 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   if(command.type==='lead-review'){requireRole(actor,'analysis',streamLead(a.stream));if(!['Workbook Submitted','QC Returned'].includes(a.status)||!f)throw Error('There is no submitted workbook waiting for team-lead review.');}
   else{requireRole(actor,'analysis','qcReviewer');if(a.status!=='Awaiting QC'||!f?.leadApprovedAt)throw Error('Only team-lead-approved workbooks can be QC reviewed.');}
   if(command.decision==='return'){
-   requireText(command.target,'Affected sheet, section or attachment reference');if(command.comments.trim().length<10)throw Error('Explain the correction specifically (at least a sentence).');
+   if(command.type==='qc-review')requireText(command.target,'Affected sheet, section or attachment reference');if(command.comments.trim().length<10)throw Error('Explain the correction specifically (at least a sentence).');
    reason=command.comments.trim();
    if(command.type==='qc-review'){a.files[a.files.length-1]={...f,qcReturnedBy:actor.id,qcReturnedAt:now,qcComments:reason,target:command.target.trim()};a.status='QC Returned';(a.history||(a.history=[])).push({at:now,by:actor.id,action:'qc-returned',version:f.version,target:command.target.trim(),comments:reason});}
-   else{a.files[a.files.length-1]={...f,status:'Changes Requested',comments:reason,target:command.target.trim()};a.status='Changes Requested';(a.history||(a.history=[])).push({at:now,by:actor.id,action:'lead-returned',version:f.version,target:command.target.trim(),comments:reason});}
+   else{const where=command.target.trim()||undefined;a.files[a.files.length-1]={...f,status:'Changes Requested',comments:reason,target:where};a.status='Changes Requested';(a.history||(a.history=[])).push({at:now,by:actor.id,action:'lead-returned',version:f.version,target:where,comments:reason});}
   } else if(command.type==='lead-review'){
    if(a.status==='QC Returned')throw Error('QC returned this workbook. Return it to the employee for correction; a corrected version needs your review again.');
    a.files[a.files.length-1]={...f,leadApprovedBy:actor.id,leadApprovedAt:now};a.status='Awaiting QC';(a.history||(a.history=[])).push({at:now,by:actor.id,action:'lead-approved',version:f.version,comments:command.comments.trim()||undefined});
@@ -777,8 +779,8 @@ export function pendingActions(job:JobRecord, actor:Actor) {
  if(hasAccess(actor,'analysis')){
   const mine=o.activities.filter(a=>a.owner===actor.id&&['Scheduled','In Progress','Changes Requested'].includes(a.status));
   const returned=mine.filter(a=>a.status==='Changes Requested').length;
-  if(returned)actions.push({id:'laboratory',label:'Returned tests',done:false,owner:actor.id,next:'Correct and resubmit '+returned+' returned workbook(s)'});
-  if(mine.length>returned)actions.push({id:'laboratory',label:'Assigned tests',done:false,owner:actor.id,next:'Complete '+(mine.length-returned)+' test(s) and submit the workbook'});
+  if(returned)actions.push({id:'laboratory',label:'Returned tests',done:false,owner:actor.id,next:'Correct '+returned+' returned test(s) and mark them finished again'});
+  if(mine.length>returned)actions.push({id:'laboratory',label:'Assigned tests',done:false,owner:actor.id,next:'Complete '+(mine.length-returned)+' test(s) and mark them finished'});
   const waiting=o.activities.filter(a=>a.status==='Awaiting QC').length;
   // An unconfigured QC reviewer is a blocker shown in My work, not an action for team leads or the supervisor.
   if(waiting&&roles.qcReviewer===actor.id)actions.push({id:'reporting',label:'QC review',done:false,owner:actor.id,next:'QC review '+waiting+' team-lead-approved workbook(s)'});

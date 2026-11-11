@@ -48,7 +48,7 @@ test('the dashboard follows the whole journey with one next responsible person a
  assert.ok(items(j,'SHEREIQI',{teams:{PVT:[],Chemical:[]}}).actions.some(i=>i.key.startsWith('assign:')),'lead can assign themselves with no additional members');
  const pvt=operationsFor(j).activities.find(a=>a.stream==='PVT'),chem=operationsFor(j).activities.find(a=>a.stream==='Chemical');
  j=step(j,{type:'schedule',id:pvt.id,owner:'NASSER',start:'2026-10-28',due:'2026-10-31',conditions:'',notes:'Use cell 2.'},'SHEREIQI');
- const n=items(j,'NASSER').actions[0];assert.equal(n.action,'Start test and submit workbook');assert.equal(n.test,'Black Oil — DL');assert.equal(n.sample,'1.01');assert.equal(n.container,'PDS · B-1.01');assert.equal(n.from,'SHEREIQI');assert.equal(n.comment,'Use cell 2.');assert.equal(n.overdue,true);
+ const n=items(j,'NASSER').actions[0];assert.equal(n.action,'Start test and mark it finished');assert.equal(n.test,'Black Oil — DL');assert.equal(n.sample,'1.01');assert.equal(n.container,'PDS · B-1.01');assert.equal(n.from,'SHEREIQI');assert.equal(n.comment,'Use cell 2.');assert.equal(n.overdue,true);
  j=step(j,{type:'workbook',id:pvt.id,file:file(1)},'NASSER');
  assert.deepEqual(acts(j,'NASSER'),[]);assert.match(items(j,'NASSER').waiting[0].waitingOn,/Shereiqi \(team lead\)/);
  assert.ok(acts(j,'SHEREIQI').includes('Review workbook v1'));

@@ -68,13 +68,29 @@ test('employee submits; self-completion is refused; lead returns with specific c
  j=submit(j,a0,'NASSER');assert.equal(labStatus(act(j,'1.01','PVT')),'Under team-lead review');
  assert.throws(()=>submit(j,a0,'NASSER'),/under review/,'a submitted workbook cannot be replaced');
  assert.throws(()=>step(j,{type:'progress',id:a0.id,status:'In Progress',notes:'edit'},'NASSER'),/under review/);
- assert.throws(()=>step(j,{type:'lead-review',id:a0.id,decision:'return',target:'',comments:'Fix the density calculation please.'},'SHEREIQI'),/Affected sheet/);
+ assert.equal(act(step(j,{type:'lead-review',id:a0.id,decision:'return',target:'',comments:'Fix the density calculation please.'},'SHEREIQI'),'1.01','PVT').status,'Changes Requested','the team lead returns with a note only; a sheet reference is optional');
  assert.throws(()=>step(j,{type:'lead-review',id:a0.id,decision:'return',target:'Sheet Results',comments:'Fix'},'SHEREIQI'),/at least a sentence/);
  assert.throws(()=>step(j,{type:'lead-review',id:a0.id,decision:'approve',target:'',comments:''},'BAHRI'),/not assigned/);
  j=step(j,{type:'lead-review',id:a0.id,decision:'return',target:'workbook-1.xlsx · sheet Results row 12',comments:'Recalculate the density with the corrected volume.'},'SHEREIQI');
  let a=act(j,'1.01','PVT');assert.equal(labStatus(a),'Returned');assert.equal(a.files[0].target,'workbook-1.xlsx · sheet Results row 12');
  assert.ok(pendingActions(j,actor('NASSER')).some(p=>p.label==='Returned tests'));
  j=submit(j,a,'NASSER');a=act(j,'1.01','PVT');assert.equal(a.files.length,2);assert.equal(a.files[0].status,'Changes Requested','earlier version and comment kept');
+});
+
+test('employee marks a test finished without an upload; the lead is notified, returns a note or approves',()=>{
+ let j=released();const a0=act(j,'1.01','PVT');j=assign(j,a0,'NASSER','SHEREIQI');
+ const finish=k=>step(k,{type:'workbook',id:a0.id,notes:'Done, workbook updated.'},'NASSER');
+ j=finish(j);let a=act(j,'1.01','PVT');
+ assert.equal(a.status,'Workbook Submitted');assert.equal(a.files.length,1);assert.equal(a.files[0].id,'','nothing is uploaded');assert.equal(a.files[0].submittedBy,'NASSER');
+ assert.ok(pendingActions(j,actor('SHEREIQI')).some(p=>p.label==='PVT workbook review'),'the team lead gets the review action');
+ assert.throws(()=>finish(j),/already under review/);
+ j=step(j,{type:'lead-review',id:a0.id,decision:'return',target:'',comments:'Recheck the opening pressure reading.'},'SHEREIQI');a=act(j,'1.01','PVT');
+ assert.equal(a.status,'Changes Requested');assert.equal(a.history.at(-1).comments,'Recheck the opening pressure reading.');
+ assert.ok(pendingActions(j,actor('NASSER')).some(p=>p.label==='Returned tests'),'the note goes back to the employee');
+ j=finish(j);j=approve(j,a0,'SHEREIQI');a=act(j,'1.01','PVT');
+ assert.equal(a.status,'Awaiting QC');assert.equal(a.files.length,2);assert.equal(a.files[1].leadApprovedBy,'SHEREIQI');
+ assert.ok(!pendingActions(j,actor('NASSER')).some(p=>/test/i.test(p.label)),'approved: nothing left for the employee');
+ j=qc(j,a0);assert.equal(act(j,'1.01','PVT').status,'Completed');
 });
 
 test('QC needs team-lead approval and a valid reviewer, records the exact version, and returns to the team lead',()=>{

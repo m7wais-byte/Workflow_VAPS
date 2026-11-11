@@ -2695,6 +2695,11 @@ main,.workspace-content,.settings-workspace .panel {min-width:0;}
 .workbook-actions{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
 .workbook-actions .text-button{display:inline-flex;align-items:center;gap:4px}
 .workbook-uploaded{display:inline-flex;align-items:center;gap:5px;color:var(--ink)}
+/* Finish step: the employee marks a test finished (no upload); the team lead is notified */
+.finish-step{display:flex;align-items:center;justify-content:space-between;gap:16px 24px;flex-wrap:wrap;margin-top:18px;padding:16px 18px;border:2px solid var(--teal);border-radius:10px;background:#f1f9f7}
+.finish-step>div{flex:1 1 320px;min-width:0}.finish-step strong{color:var(--navy);font-size:15px}.finish-step p{margin:4px 0 0;color:#4b6877;font-size:13.5px}
+.finish-step .primary-button{display:inline-flex;align-items:center;gap:8px;flex:none}
+.finished-note{margin:6px 0 0}
 /* Settings → Tests */
 .catalogue-counts{display:flex;flex-wrap:wrap;gap:6px}
 .catalogue-add{border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:14px 0 18px;background:#fbfcfc}

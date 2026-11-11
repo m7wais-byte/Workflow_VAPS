@@ -370,3 +370,11 @@ Model rules, permissions and stored records are unchanged; only the PVT Team Lea
 - **Start date and due date per step:** choosing an engineer proposes today as the start; the lead moves it later when the engineer is busy until then. The due date cannot be before the start. Dates and note are enabled once an engineer is chosen. The advisory schedule-overlap notice checks the start–due range on changed rows.
 - **Third-party** execution is a per-row link ("Send to third-party lab") with provider and expected return; the engineer is then the internal coordinator.
 - Other viewers see the same table read-only with status. The "Awaiting your assignment" list below is unchanged.
+
+## Finish without upload (Nov 2026)
+
+- **Employee:** an internal test is no longer submitted by uploading a workbook. The assigned employee opens the task, sees the job details and the team lead's instructions, does the work and presses **Mark as finished** (with a confirmation). Progress notes are optional.
+- **Team lead:** gets the review action and alert in My work ("Review workbook"). The lead checks the workbook outside this system, then **Approve** or **Return with a note**. The note is required; the sheet/section reference is now optional for the team lead (still required for QC returns).
+- **Returned:** the test goes back to the employee with the note; they correct it and mark it finished again (each submission is kept in the history).
+- **Approved:** nothing more for the employee. The test continues to QC exactly as before; QC and final reporting are unchanged.
+- **Data:** each submission is still a version record on the test, with an empty file reference. Workbooks uploaded earlier stay viewable. Third-party tests still attach the provider's returned results.

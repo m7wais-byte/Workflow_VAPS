@@ -64,7 +64,8 @@ test('demo jobs show assigned work, review, returns, QC, new scope alerts and co
  assert.equal(work('WILFRED').actions.length, 0);
 });
 test('every referenced workbook and report file was stored', () => {
- const refs = jobs.flatMap(j => [...(j.operations?.activities.flatMap(a => a.files.map(f => f.id)) || []), ...(j.operations?.finalReports.map(r => r.file?.id).filter(Boolean) || [])]);
- assert.ok(refs.length > 10);
+ const refs = jobs.flatMap(j => [...(j.operations?.activities.flatMap(a => a.files.map(f => f.id).filter(Boolean)) || []), ...(j.operations?.finalReports.map(r => r.file?.id).filter(Boolean) || [])]);
+ assert.ok(refs.length > 0);
+ assert.ok(jobs.some(j => j.operations?.activities.some(a => !a.external && a.files.length && a.files.every(f => !f.id))), 'internal tests are marked finished without an upload');
  assert.ok(refs.every(id => stored.some(f => f.id === id)));
 });

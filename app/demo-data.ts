@@ -50,7 +50,6 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
  const demoRoles = { ...defaultResponsibilities, ...demoConfiguration.roles };
  const demoTeams = demoConfiguration.teams;
  const run = (j: JobRecord, by: string, command: Command, at: string) => applyOperation(j, command, { id: by, employees, policy, roles: demoRoles, teams: demoTeams, routing: demoConfiguration.routing }, at);
- const workbook = (title: string, sampleId: string, v = 1) => storeFile(`DEMO ${title} ${sampleId} v${v}.csv`, `DEMO workbook,fictional data\nActivity,${title}\nSample,${sampleId}\nVersion,${v}\n`);
  /** Data submitted and reviewed first; the report is generated from approved data and approved separately. */
  const samplingReport = (j: JobRecord, engineer: string, tick: () => string, upTo: 'data-submitted' | 'report-approved') => {
   j = run(j, engineer, { type: 'data-submit', note: 'DEMO data submitted for review.' }, tick());
@@ -67,10 +66,10 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
  const acts = (j: JobRecord) => j.operations!.activities;
  const find = (j: JobRecord, sampleId: string, title: string, stream: 'PVT' | 'Chemical' = 'PVT') => acts(j).find(a => a.sampleId === sampleId && a.title === title && a.stream === stream)!;
  const assign = (j: JobRecord, id: string, owner: string, start: number, due: number, tick: () => string, notes = 'DEMO instructions: follow the laboratory procedure for this test.') => { const a = acts(j).find(x => x.id === id)!; return run(j, a.stream === 'PVT' ? 'SHEREIQI' : 'BAHRI', { type: 'schedule', id, owner, start: addDays(day, start), due: addDays(day, due), conditions: a.conditions, notes }, tick()); };
- /** Workbook submitted, team-lead approved and QC approved. */
+ /** Marked finished by the employee (no upload), team-lead approved and QC approved. */
  async function complete(j: JobRecord, id: string, tick: () => string) {
   const a = acts(j).find(x => x.id === id)!;
-  j = run(j, a.owner, { type: 'workbook', id, file: await workbook(a.title, a.sampleId), notes: 'Workbook submitted.' }, tick());
+  j = run(j, a.owner, { type: 'workbook', id, notes: 'Test finished.' }, tick());
   j = run(j, a.stream === 'PVT' ? 'SHEREIQI' : 'BAHRI', { type: 'lead-review', id, decision: 'approve', target: '', comments: '' }, tick());
   return run(j, 'AHAD', { type: 'qc-review', id, decision: 'approve', target: '', comments: '' }, tick());
  }
@@ -110,12 +109,12 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
  j3 = assign(j3, find(j3, '1.01', 'Black Oil — DL').id, 'NASSER', 3, 6, t);
  j3 = assign(j3, find(j3, '1.02', 'Others — Water Analysis', 'Chemical').id, 'YAQEEN', -1, 2, t);
  for (const a of v1.slice(0, 5)) j3 = await complete(j3, a.id, t);
- j3 = run(j3, 'NASSER', { type: 'workbook', id: v1[5].id, file: await workbook(v1[5].title, '1.01'), notes: 'Charging complete.' }, t());
+ j3 = run(j3, 'NASSER', { type: 'workbook', id: v1[5].id, notes: 'Charging complete.' }, t());
  j3 = run(j3, 'NASSER', { type: 'progress', id: v1[6].id, status: 'In Progress', notes: 'Flash started.' }, t());
  for (const a of v2.slice(0, 3)) j3 = await complete(j3, a.id, t);
- j3 = run(j3, 'RANJITH', { type: 'workbook', id: v2[3].id, file: await workbook(v2[3].title, '1.02'), notes: 'Water check done.' }, t());
+ j3 = run(j3, 'RANJITH', { type: 'workbook', id: v2[3].id, notes: 'Water check done.' }, t());
  j3 = run(j3, 'SHEREIQI', { type: 'lead-review', id: v2[3].id, decision: 'return', target: 'Sheet "Readings", row 4', comments: 'Record the water volume in cm³ and attach the photo reference.' }, t());
- j3 = run(j3, 'RANJITH', { type: 'workbook', id: v2[4].id, file: await workbook(v2[4].title, '1.02'), notes: 'Agitation complete.' }, t());
+ j3 = run(j3, 'RANJITH', { type: 'workbook', id: v2[4].id, notes: 'Agitation complete.' }, t());
  j3 = run(j3, 'SHEREIQI', { type: 'lead-review', id: v2[4].id, decision: 'approve', target: '', comments: '' }, t());
  j3 = run(j3, 'YAQEEN', { type: 'progress', id: find(j3, '1.02', 'Others — Water Analysis', 'Chemical').id, status: 'In Progress', notes: 'Sub-sample taken.' }, t());
 
