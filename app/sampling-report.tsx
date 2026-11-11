@@ -179,7 +179,7 @@ export const samplingReportCss = `
 `;
 
 /** Company tagline, as used on the VAPS letterhead and e-mail signature. */
-const TAGLINE = 'Precision in analysis. Excellence in solutions.';
+const TAGLINE = 'Excellence in solutions.';
 /** Blue and green sweep along the bottom of every page (an image, so the preview, print and PDF copy match). */
 const WAVE = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="2100" height="170" viewBox="0 0 210 17" preserveAspectRatio="none"><path d="M0 15.2C70 16.6 140 12.4 210 1.6V0C140 10.6 70 15.4 0 14.2Z" fill="#0a9a3c"/><path d="M0 17V15.2C70 16.6 140 12.4 210 1.6V17Z" fill="#1f6fb5"/><path d="M96 17C140 15.6 180 11.4 210 6.4V17Z" fill="#0d3b6e"/></svg>');
 const website = (m: SamplingReportModel) => (m.input.company.website || '').replace(/^https?:\/\//i, '').replace(/\/+$/, '');
