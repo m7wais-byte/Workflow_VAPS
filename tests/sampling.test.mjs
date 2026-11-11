@@ -95,7 +95,7 @@ test('approved data is corrected only through an explicit reopen that keeps hist
  assert.equal(operationsFor(reopened).samplingReports.at(-1).status,'Changes Requested');
  assert.equal(latestData(reopened).status,'Reopened');assert.equal(samplingDataLocked(reopened),false);
  const handed=step(j,{type:'handover-send',sampleIds:['1.01','1.02'],notes:''},'ALI');
- assert.throws(()=>step(handed,{type:'data-reopen',reason:'Late correction'},'MOHSIN'),/Needs clarification/);
+ assert.equal(latestData(step(handed,{type:'data-reopen',reason:'Late correction'},'MOHSIN')).status,'Reopened','the handover no longer blocks a correction; only a released laboratory scope does');
 });
 
 test('a changed approver takes over pending work without rewriting past approvals',()=>{
