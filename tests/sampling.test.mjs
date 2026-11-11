@@ -17,7 +17,7 @@ const job=(samples=[sample('1.01'),sample('1.02',{containerType:'Glass container
 const sent=(j=job())=>step(j,{type:'dispatch',engineer:'MOHSIN',driver:'ALI',team:['HUSSEINI']},'SALIM');
 const submitted=()=>step(sent(),{type:'data-submit',note:'All done'},'MOHSIN');
 const comment=(target,text='Record the opening pressure for this sample.')=>({target,label:target,text});
-const reported=()=>{let j=step(submitted(),{type:'data-approve'},'SALIM');j=step(j,{type:'report-draft',kind:'sampling',text:'Summary',checker:''},'MOHSIN');return step(j,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN');};
+const reported=()=>{let j=step(submitted(),{type:'data-approve'},'SALIM');j=step(j,{type:'report-draft',kind:'sampling',text:'Summary',checker:''},'MOHSIN');return step(step(j,{type:'report-action',kind:'sampling',action:'checking',comments:''},'MOHSIN'),{type:'report-action',kind:'sampling',action:'submit',comments:''},'SALIM');};
 
 test('only the accountable employee submits; supporting employees, drivers and others cannot',()=>{
  const j=sent();
@@ -65,7 +65,7 @@ test('returning needs specific comments; returned work is distinct and resubmitt
  assert.equal(operationsFor(again).samplingData.length,2,'submission history is kept');assert.equal(operationsFor(again).samplingData[0].comments.length,2,'earlier comments are kept');
 });
 
-test('data approval is not report approval; the report goes straight to the approver and unlocks laboratory scope',()=>{
+test('data approval is not report approval; the report is checked by the sampling report checker, then approved, and unlocks laboratory scope',()=>{
  const s=submitted();
  assert.throws(()=>step(s,{type:'report-draft',kind:'sampling',text:'Summary',checker:''},'MOHSIN'),/after the sampling data is approved/);
  const changed={...s,samples:s.samples.map(x=>({...x,bottleSerial:x.bottleSerial+'x'}))};
@@ -75,9 +75,9 @@ test('data approval is not report approval; the report goes straight to the appr
  assert.equal(samplingStatus(a).key,'report-generation');
  assert.throws(()=>step(a,{type:'report-draft',kind:'sampling',text:'Summary',checker:''},'HUSSEINI'),/Only the accountable/);
  let j=step(a,{type:'report-draft',kind:'sampling',text:'Summary',checker:''},'MOHSIN');
- assert.equal(operationsFor(j).samplingReports[0].checker,'','no checker step');
- assert.throws(()=>step(j,{type:'report-action',kind:'sampling',action:'checking',comments:''},'MOHSIN'),/directly to the sampling approver/);
- j=step(j,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN');
+ assert.equal(operationsFor(j).samplingReports[0].checker,'SALIM','checker comes from the Sampling report check & review duty');
+ assert.throws(()=>step(j,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN'),/Only the preparer can submit|named checker|checking/i);
+ j=step(step(j,{type:'report-action',kind:'sampling',action:'checking',comments:''},'MOHSIN'),{type:'report-action',kind:'sampling',action:'submit',comments:''},'SALIM');
  assert.equal(samplingStatus(j).key,'report-review');
  assert.throws(()=>step(j,{type:'report-action',kind:'sampling',action:'approve',comments:''},'WILFRED'),/named approver/);
  j=step(j,{type:'report-action',kind:'sampling',action:'approve',comments:''},'SALIM');
@@ -118,4 +118,13 @@ test('legacy records keep their recorded approvals and in-flight reports keep th
  assert.throws(()=>step(inFlight,{type:'data-submit',note:''},'MOHSIN'),/started before data review/);
  const forwarded=step(inFlight,{type:'report-action',kind:'sampling',action:'submit',comments:''},'HUSSEINI');
  assert.equal(operationsFor(forwarded).samplingReports[0].status,'Awaiting Approval','the old checker path still completes');
+});
+
+test('with no sampling report checker configured the report goes straight to the approver',()=>{
+ const roles={...defaultResponsibilities,samplingReportChecker:''};
+ let j=step(step(submitted(),{type:'data-approve'},'SALIM'),{type:'report-draft',kind:'sampling',text:'Summary',checker:''},'MOHSIN',{roles});
+ assert.equal(operationsFor(j).samplingReports[0].checker,'');
+ assert.throws(()=>step(j,{type:'report-action',kind:'sampling',action:'checking',comments:''},'MOHSIN',{roles}),/directly to the sampling approver/);
+ j=step(j,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN',{roles});
+ assert.equal(operationsFor(j).samplingReports[0].status,'Awaiting Approval');
 });

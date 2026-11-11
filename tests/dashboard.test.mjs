@@ -40,7 +40,7 @@ test('the dashboard follows the whole journey with one next responsible person a
  j=step(j,{type:'data-submit',note:''},'MOHSIN');j=step(j,{type:'data-approve'},'SALIM');
  assert.deepEqual(acts(j,'MOHSIN'),['Prepare sampling report']);assert.deepEqual(acts(j,'SALIM'),[]);
  j=step(j,{type:'report-draft',kind:'sampling',text:'Summary',checker:''},'MOHSIN');assert.deepEqual(acts(j,'MOHSIN'),['Submit sampling report for approval']);
- j=step(j,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN');assert.deepEqual(acts(j,'SALIM'),['Review sampling report']);
+ j=step(step(j,{type:'report-action',kind:'sampling',action:'checking',comments:''},'MOHSIN'),{type:'report-action',kind:'sampling',action:'submit',comments:''},'SALIM');assert.deepEqual(acts(j,'SALIM'),['Review sampling report']);
  j=step(j,{type:'report-action',kind:'sampling',action:'approve',comments:''},'SALIM');
  assert.deepEqual(acts(j,'SALIM'),['Define and release laboratory scope']);assert.deepEqual(acts(j,'ALI'),['Hand over samples/containers to the laboratory']);
  j=step(j,{type:'lab-scope',action:'release',reason:'',conditions:{pressure:'',pressureUnit:'psi',temperature:'',temperatureUnit:'°C',notes:''},samples:[{sampleId:'1.01',destination:'PVT',pvtTests:['Black Oil — DL'],chemicalTests:[],notes:'',excluded:false,exclusionReason:'',fluidType:'Black Oil'},{sampleId:'1.02',destination:'Chemical',pvtTests:[],chemicalTests:['Others — Water Analysis'],notes:'',excluded:false,exclusionReason:'',fluidType:'Black Oil'}]},'SALIM');
