@@ -14,7 +14,7 @@ import { teamName } from './team-name';
 type Run = (c: Command | Command[]) => boolean;
 const touched = (a: ActivityRecord) => a.status !== 'Unassigned' || !!a.owner || a.files.length > 0 || (a.history || []).length > 0;
 
-type Row = { owner: string; due: string; note: string };
+type Row = { owner: string; start: string; due: string; note: string };
 const underReview = (a?: ActivityRecord) => !!a && ['Workbook Submitted', 'Awaiting QC', 'QC Returned'].includes(a.status);
 const order = (t: string) => validationCatalogue.indexOf(t as typeof validationCatalogue[number]);
 
@@ -30,7 +30,7 @@ export function ValidationPlanning({ job, actor, run }: { job: JobRecord; actor:
   if (!records.length) return null;
   const open = records.filter((r) => r.validationRequest && !r.plannedAt).length;
   return <section className="panel ops-panel validation-planning" id="validation-planning"><div className="section-head"><h2>Validation — assign steps</h2>{open > 0 && <span className="status-pill flow-waiting">{open} awaiting planning</span>}</div>
-    <p>{isLead ? 'Assign each Validation step to an engineer with a due date and a note. Remove a step that is not needed, or add one that was not selected in the scope.' : `Assigned by ${lead ? name(lead) + ' (PVT Team Lead)' : 'the PVT Team Lead (not configured)'}.`} The usual order is shown for guidance only; no step blocks another.</p>
+    <p>{isLead ? 'Assign each Validation step to an engineer with a start date, a due date and a note. Remove a step that is not needed, or add one that was not selected in the scope.' : `Assigned by ${lead ? name(lead) + ' (PVT Team Lead)' : 'the PVT Team Lead (not configured)'}.`} The usual order is shown for guidance only; no step blocks another.</p>
     <ul className="plan-list">{records.map((r) => { const steps = o.activities.filter((a) => a.scopeId === r.id && a.kind === 'validation').sort((x, y) => order(x.title) - order(y.title));
       return <li key={r.id} className={r.validationRequest && !r.plannedAt ? 'needs-plan' : ''}><SamplePlan key={steps.map((a) => [a.title, a.owner, a.due, a.notes, a.status, a.external?.provider].join('|')).join(';')} actor={actor} job={job} record={r} steps={steps} run={run} isLead={isLead} /></li>; })}</ul>
   </section>;
@@ -40,18 +40,19 @@ function SamplePlan({ actor, job, record, steps, run, isLead }: { actor: Actor; 
   const name = (id?: string) => actor.employees.find((e) => e.id === id)?.name || 'Not assigned';
   const sid = record.sampleIds[0]; const smp = job.samples?.find((s) => s.id === sid); const separate = separateRecombination(job, sid);
   const existing = (t: string) => steps.find((a) => a.title === t);
-  const saved = (t: string): Row => { const a = existing(t); return { owner: a?.owner || '', due: a?.due || '', note: a?.notes || '' }; };
+  const saved = (t: string): Row => { const a = existing(t); return { owner: a?.owner || '', start: a?.start || '', due: a?.due || '', note: a?.notes || '' }; };
   const savedExec = Object.fromEntries(steps.map((a) => [a.title, a.external ? { by: 'Third-party', provider: a.external.provider, notes: a.external.notes, expectedReturn: a.external.expectedReturn } as ExecutionChoice : undefined]));
   const [chosen, setChosen] = useState<string[]>(steps.map((a) => a.title)), [rows, setRows] = useState<Record<string, Row>>({}), [exec, setExec] = useState<Record<string, ExecutionChoice | undefined>>(savedExec);
   const [restoration, setRestoration] = useState(() => operationsFor(job).conditions), [confirm, setConfirm] = useState(false);
-  const row = (t: string) => rows[t] || saved(t);
-  const change = (t: string, c: Partial<Row>) => setRows((list) => ({ ...list, [t]: { ...row(t), ...c } }));
   const today = localDate();
-  const list = [...chosen].sort((x, y) => order(x) - order(y));
+  const row = (t: string) => rows[t] || saved(t);
+  // Choosing an engineer proposes today as the start; the lead moves it when the engineer is busy until later.
+  const change = (t: string, c: Partial<Row>) => setRows((list) => { const next = { ...row(t), ...c }; if (next.owner && !next.start) next.start = today; return { ...list, [t]: next }; });
+    const list = [...chosen].sort((x, y) => order(x) - order(y));
   const addable = selectableValidationSteps.filter((t) => !chosen.includes(t));
   const removed = steps.filter((a) => !chosen.includes(a.title)).map((a) => a.title), added = list.filter((t) => !existing(t));
   const execChanged = list.some((t) => !!existing(t) && JSON.stringify(exec[t] || null) !== JSON.stringify(savedExec[t] || null));
-  const assignChanged = (t: string) => { const x = row(t), s = saved(t); return !!x.owner && (!existing(t) || x.owner !== s.owner || x.due !== s.due || x.note !== s.note); };
+  const assignChanged = (t: string) => { const x = row(t), s = saved(t); return !!x.owner && (!existing(t) || x.owner !== s.owner || x.start !== s.start || x.due !== s.due || x.note !== s.note); };
   const toAssign = list.filter(assignChanged);
   const needs = !!record.validationRequest && !record.plannedAt;
   const planChanged = removed.length > 0 || added.length > 0 || execChanged || (needs && list.length > 0);
@@ -62,30 +63,31 @@ function SamplePlan({ actor, job, record, steps, run, isLead }: { actor: Actor; 
   const conditionsFor = (t: string) => existing(t)?.conditions ?? (t === 'Restoration' ? `${restoration.pressure.trim()} ${restoration.pressureUnit}; ${restoration.temperature.trim()} ${restoration.temperatureUnit}` : t === 'Water Check' ? 'Check for water on the sample side.' : operationsFor(job).conditions.notes || '');
   const save = () => { const commands: Command[] = [];
     if (planChanged) commands.push({ type: 'validation-plan', scopeId: record.id, steps: list.map((title) => ({ title, external: exec[title] })), restoration, confirmRecombination: confirm });
-    for (const t of toAssign) { const x = row(t), a = existing(t); const start = a?.start && a.start <= x.due ? a.start : x.due < today ? x.due : today;
-      commands.push({ type: 'schedule', id: a?.id || record.id + ':validation:' + t, owner: x.owner, start, due: x.due, conditions: conditionsFor(t), notes: x.note.trim() }); }
+    for (const t of toAssign) { const x = row(t), a = existing(t);
+      commands.push({ type: 'schedule', id: a?.id || record.id + ':validation:' + t, owner: x.owner, start: x.start, due: x.due, conditions: conditionsFor(t), notes: x.note.trim() }); }
     run(commands); };
   const assigned = list.filter((t) => !!existing(t)?.owner).length;
   const head = <div className="plan-row"><span><span><strong>Sample {sid}</strong> · {smp ? containerLabel(smp) : 'container not recorded'}</span><small>Requested by {name(record.addedBy)} · {ukDate(record.at)}{record.source === 'Additional work' ? ' · additional work' : ''}{record.plannedAt ? ` · steps selected by ${name(record.plannedBy)} ${ukDate(record.plannedAt)}` : ''}</small></span>
     <span className="plan-status">{!steps.length ? <strong className="flag-note">Steps not chosen yet</strong> : <><b>{assigned}</b> of {steps.length} step{steps.length === 1 ? '' : 's'} assigned{steps.length - assigned > 0 && <em className="flag-note"> · {steps.length - assigned} to assign</em>}</>}</span></div>;
 
   if (!isLead) return <>{head}{steps.length > 0 && <div className="assign-table" role="table" aria-label={'Validation steps for Sample ' + sid}>
-    <div className="assign-head" role="row"><span>#</span><span>Step</span><span>Engineer</span><span>Due date</span><span>Note</span><span>Status</span></div>
-    {steps.map((a, i) => <div className="assign-row is-read" role="row" key={a.id}><span className="step-no">{i + 1}</span><span className="assign-step"><strong>{a.title}</strong>{a.external && <small>External · {a.external.provider}</small>}</span><span data-label="Engineer">{a.owner ? name(a.owner) : <em className="flag-note">Unassigned</em>}</span><span data-label="Due date">{a.due ? ukDate(a.due) : '—'}</span><span data-label="Note">{a.notes || '—'}</span><span data-label="Status">{a.external ? externalStage(a) : labStatus(a)}</span></div>)}
+    <div className="assign-head" role="row"><span>#</span><span>Step</span><span>Engineer</span><span>Start date</span><span>Due date</span><span>Note</span><span>Status</span></div>
+    {steps.map((a, i) => <div className="assign-row is-read" role="row" key={a.id}><span className="step-no">{i + 1}</span><span className="assign-step"><strong>{a.title}</strong>{a.external && <small>External · {a.external.provider}</small>}</span><span data-label="Engineer">{a.owner ? name(a.owner) : <em className="flag-note">Unassigned</em>}</span><span data-label="Start date">{a.start ? ukDate(a.start) : '—'}</span><span data-label="Due date">{a.due ? ukDate(a.due) : '—'}</span><span data-label="Note">{a.notes || '—'}</span><span data-label="Status">{a.external ? externalStage(a) : labStatus(a)}</span></div>)}
   </div>}</>;
 
   return <form className="plan-form" onSubmit={(e) => { e.preventDefault(); save(); }}>{head}
     {list.length > 0 ? <div className="assign-table" role="table" aria-label={'Assign Validation steps for Sample ' + sid}>
-      <div className="assign-head" role="row"><span>#</span><span>Step</span><span>Engineer</span><span>Due date</span><span>Note for the engineer</span><span /></div>
+      <div className="assign-head" role="row"><span>#</span><span>Step</span><span>Engineer</span><span>Start date</span><span>Due date</span><span>Note for the engineer</span><span /></div>
       {list.map((t, i) => { const a = existing(t), x = row(t), ext = exec[t]; const locked = !!a && touched(a); const done = a?.status === 'Completed'; const untouched = !a || (a.status === 'Unassigned' && !a.files.length);
         return <div className={'assign-row' + (!a ? ' is-new' : '') + (x.owner ? '' : ' is-open')} role="row" key={t}>
           <span className="step-no">{i + 1}</span>
           <span className="assign-step"><strong>{t}</strong>
             <small>{!a ? 'New · added by you' : a.external ? externalStage(a) : labStatus(a)}{ext?.by === 'Third-party' && !a?.external ? ' · third-party' : ''}</small>
             {untouched && <button type="button" className="link-button" onClick={() => setExec({ ...exec, [t]: ext?.by === 'Third-party' ? undefined : { by: 'Third-party', provider: '', notes: '', expectedReturn: '' } })}>{ext?.by === 'Third-party' ? 'Perform internally' : 'Send to third-party lab'}</button>}</span>
-          {done ? <><span data-label="Engineer">{name(a!.owner)}</span><span data-label="Due date">{a!.due ? ukDate(a!.due) : '—'}</span><span data-label="Note">{a!.notes || '—'}</span></> : <>
+          {done ? <><span data-label="Engineer">{name(a!.owner)}</span><span data-label="Start date">{a!.start ? ukDate(a!.start) : '—'}</span><span data-label="Due date">{a!.due ? ukDate(a!.due) : '—'}</span><span data-label="Note">{a!.notes || '—'}</span></> : <>
             <select aria-label={(ext?.by === 'Third-party' ? 'Internal coordinator for ' : 'Engineer for ') + t} value={x.owner} disabled={underReview(a)} title={underReview(a) ? 'Under review — finish the review before reassigning' : undefined} onChange={(e) => change(t, { owner: e.target.value })}>{!a?.owner && <option value="">{ext?.by === 'Third-party' ? 'Select coordinator' : 'Select engineer'}</option>}<PersonOptions employees={actor.employees} departments={actor.departments} me={actor.id} current={a?.owner} first={[...(actor.teams?.PVT || []), holder(actor, 'pvtTeamLead')]} firstLabel="PVT team" /></select>
-            <DateInput aria-label={'Due date for ' + t} required={!!x.owner} disabled={!x.owner} value={x.due} onChange={(e) => change(t, { due: e.target.value })} />
+            <DateInput aria-label={'Start date for ' + t} required={!!x.owner} disabled={!x.owner} value={x.start} onChange={(e) => change(t, { start: e.target.value, ...(x.due && e.target.value > x.due ? { due: '' } : {}) })} />
+            <DateInput aria-label={'Due date for ' + t} required={!!x.owner} disabled={!x.owner} min={x.start || undefined} value={x.due} onChange={(e) => change(t, { due: e.target.value })} />
             <input aria-label={'Note for ' + t} placeholder={x.owner ? 'Instructions (optional)' : 'Select an engineer first'} disabled={!x.owner} value={x.note} onChange={(e) => change(t, { note: e.target.value })} /></>}
           <span className="assign-remove">{locked ? <span className="assign-lock" title={'Already ' + (a!.owner ? 'assigned' : 'started') + ' — kept in the plan'}><Lock size={14} aria-hidden="true" /><span className="sr-only">Kept: already {a!.owner ? 'assigned' : 'started'}</span></span> : <button type="button" className="icon-remove" aria-label={'Remove ' + t} title="Remove this step — not needed" onClick={() => setChosen(chosen.filter((s) => s !== t))}><Trash2 size={15} aria-hidden="true" /></button>}</span>
           {(ext?.by === 'Third-party' && untouched || !a && t === 'Restoration' || t === 'Recombination' && separate.length > 0 || assignChanged(t)) && <div className="assign-extra">
@@ -93,7 +95,7 @@ function SamplePlan({ actor, job, record, steps, run, isLead }: { actor: Actor; 
             {!a && t === 'Restoration' && <div className="plan-exec">{(['pressure', 'temperature'] as const).map((key) => { const unit = key === 'pressure' ? 'pressureUnit' : 'temperatureUnit';
               return <label key={key} className="inline-date">Reservoir {key} *<input required inputMode="decimal" aria-label={'Reservoir ' + key + ' for Restoration'} value={restoration[key]} onChange={(e) => setRestoration({ ...restoration, [key]: e.target.value })} /><select aria-label={key + ' unit'} value={restoration[unit]} onChange={(e) => setRestoration({ ...restoration, [unit]: e.target.value })}>{(key === 'pressure' ? ['psi', 'bar', 'kPa', 'MPa'] : ['°C', '°F', 'K']).map((u) => <option key={u}>{u}</option>)}</select></label>; })}</div>}
             {t === 'Recombination' && separate.length > 0 && <small className="flag-note">Recombination is already requested as a separate test on this sample ({separate.map((s) => s.stream + ' · ' + labStatus(s)).join(', ')}).</small>}
-            {assignChanged(t) && x.due && <OverlapNotice jobs={actor.jobs} employees={actor.employees} employeeId={x.owner} start={a?.start && a.start <= x.due ? a.start : today} end={x.due} exclude={a ? ['activity:' + a.id] : []} />}
+            {assignChanged(t) && x.start && x.due && <OverlapNotice jobs={actor.jobs} employees={actor.employees} employeeId={x.owner} start={x.start} end={x.due} exclude={a ? ['activity:' + a.id] : []} />}
           </div>}
         </div>; })}
     </div> : <p className="assign-empty">No steps in the plan. Add the steps this sample needs below.</p>}
