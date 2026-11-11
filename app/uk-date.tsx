@@ -46,21 +46,21 @@ export function DateInput({ value, onChange, onBlur, required, disabled, min, ma
   </span>;
 }
 
-/** Time field that always shows and accepts 24-hour HH:MM. */
+/** Time picked from two lists, hour (00–23) and minute (00–59), always 24-hour; Now fills the current time. */
 export function TimeInput({ value, onChange, onBlur, required, disabled, id, className, ...rest }: FieldProps) {
-  const [text, setText] = useState(value || "");
-  const [invalid, setInvalid] = useState(false);
+  const split = (v?: string) => { const t = v ? parseUkTime(v) : null; return t ? t.split(":") : ["", ""]; };
+  const [hour, setHour] = useState(split(value)[0]);
+  const [minute, setMinute] = useState(split(value)[1]);
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { setText(value || ""); setInvalid(false); }, [value]);
-  const commit = (raw: string, blur: boolean) => {
-    if (!raw.trim()) { setInvalid(false); if (value) onChange?.(asEvent("")); if (blur) onBlur?.(asEvent("")); return; }
-    const t = parseUkTime(raw);
-    if (t) { setInvalid(false); if (t !== value) onChange?.(asEvent(t)); if (blur) { setText(t); onBlur?.(asEvent(t)); } }
-    else if (blur) setInvalid(true);
-  };
-  return <span className={"uk-date-input uk-time-input" + (invalid ? " invalid" : "") + (className ? " " + className : "")}>
-    <input id={id} type="text" inputMode="numeric" placeholder="HH:MM (24h)" title="Time as HH:MM, 24-hour" required={required} disabled={disabled} aria-label={rest["aria-label"]} aria-invalid={invalid || undefined}
-      value={text} onChange={(e) => { setText(e.target.value); if (/^\d{1,2}:\d{2}$/.test(e.target.value.trim())) commit(e.target.value, false); }} onBlur={(e) => commit(e.target.value, true)} />
-    {invalid && <small className="uk-date-error">Use 24-hour HH:MM</small>}
+  useEffect(() => { const [h, m] = split(value); if (value || (!hour && !minute)) { setHour(h); setMinute(m); } }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
+  const emit = (h: string, m: string) => { const next = h && m ? `${h}:${m}` : ""; if (next !== (value || "")) onChange?.(asEvent(next)); onBlur?.(asEvent(next)); };
+  const label = rest["aria-label"] || "Time";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return <span className={"uk-time-pick" + (className ? " " + className : "")}>
+    <select id={id} aria-label={label + " · hour"} required={required} disabled={disabled} value={hour} onChange={(e) => { setHour(e.target.value); const m = minute || (e.target.value ? "00" : ""); setMinute(m); emit(e.target.value, m); }}><option value="">HH</option>{Array.from({ length: 24 }, (_, n) => <option key={n} value={pad(n)}>{pad(n)}</option>)}</select>
+    <b aria-hidden="true">:</b>
+    <select aria-label={label + " · minute"} required={required} disabled={disabled} value={minute} onChange={(e) => { setMinute(e.target.value); emit(hour, e.target.value); }}><option value="">MM</option>{Array.from({ length: 60 }, (_, n) => <option key={n} value={pad(n)}>{pad(n)}</option>)}</select>
+    <button type="button" className="uk-time-now" disabled={disabled} onClick={() => { const d = new Date(), h = pad(d.getHours()), m = pad(d.getMinutes()); setHour(h); setMinute(m); emit(h, m); }}>Now</button>
+    <small className="uk-time-hint">24-hour</small>
   </span>;
 }
