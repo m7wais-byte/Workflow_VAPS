@@ -406,7 +406,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   requireAssigned(actor,'sampling',actor.id===job.assignedEngineerId);requireText(command.reason,'Reason for correcting approved data');
   const d=o.samplingData?.at(-1);if(!d||d.status!=='Approved')throw Error('Only approved sampling data can be reopened.');
   if(![job.assignedEngineerId,holder(actor,'samplingApproval')].filter(Boolean).includes(actor.id))throw Error('Only the accountable sampling employee or the sampling approver can reopen approved data.');
-  if(o.handover||o.scopeConfirmedAt)throw Error('Needs clarification: approved sampling data cannot be reopened after sample handover or laboratory scope release.');
+  if(o.scopeConfirmedAt)throw Error('Approved sampling data cannot be reopened after the laboratory scope is released.');
   o.samplingData!.push({...d,version:o.samplingData!.length+1,status:'Reopened',reopenedBy:actor.id,reopenedAt:now,reason:command.reason.trim(),reviewedBy:undefined,reviewedAt:undefined,comments:[],general:undefined});
   const r=latest(o.samplingReports);
   if(r&&['Draft','Checking','Awaiting Approval'].includes(r.status)){r.status='Changes Requested';r.comments='Sampling data reopened: '+command.reason.trim();}
