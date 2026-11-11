@@ -5,7 +5,7 @@ import type { JobRecord } from './page';
 import type { Employee } from './employee-directory';
 import { useUnsaved, defaultCompany } from './settings-pages';
 import { localDate } from './local-date';
-import { samplingWorkers, operationsFor, latest, validationCatalogue, validationSequence, clarificationItems, actorRoles, holder, streamLead, hasAccess, finalReady, legacyDispatch, isDraft, samplingTeam, labStatus, labStatuses, teamMismatch, testsAwaitingQcApproval, assignedWork, type LabStatus, samplingStatus, estimatePlanner, latestData, dataReviewRequired, type DataReview, type ReviewComment, qcPending, type Actor, type Command, type ActivityRecord, type Stream, type Destination, type FileVersion, type ReportVersion, externalLabel, externalStage } from './operations-model';
+import { samplingWorkers, operationsFor, latest, selectableValidationSteps, validationSequence, clarificationItems, actorRoles, holder, streamLead, hasAccess, finalReady, legacyDispatch, isDraft, samplingTeam, labStatus, labStatuses, teamMismatch, testsAwaitingQcApproval, assignedWork, type LabStatus, samplingStatus, estimatePlanner, latestData, dataReviewRequired, type DataReview, type ReviewComment, qcPending, type Actor, type Command, type ActivityRecord, type Stream, type Destination, type FileVersion, type ReportVersion, externalLabel, externalStage } from './operations-model';
 import { LabScope } from './lab-scope-editor';
 import { ValidationPlanning, ExternalWorkPanel } from './lab-planning';
 import { workItems, streamsFor as employeeStreams, type WorkItem, type UpcomingItem, type WaitingItem } from './work-items';
@@ -97,7 +97,7 @@ function Scope({job,actor,run}:{job:JobRecord;actor:Actor;run:(c:Command)=>boole
 }
 type Run=(c:Command|Command[])=>boolean;
 /** Logical Validation order for guidance only; activities are assigned and worked independently. */
-const stepNo=(a:ActivityRecord)=>a.kind==='validation'?validationCatalogue.indexOf(a.title as typeof validationCatalogue[number])+1:0;
+const stepNo=(a:ActivityRecord)=>a.kind==='validation'?selectableValidationSteps.indexOf(a.title as typeof selectableValidationSteps[number])+1:0;
 /**
  * The job's laboratory activities, opened on the viewer's own team: their assignments first, then (for team leads)
  * unassigned work with one Assign-to control, then the rest of that team's work. Other teams stay one click away.

@@ -141,6 +141,8 @@ export function operationComplete(job:JobRecord):boolean {return finalReady(job)
 export function additionalWorkPending(job:JobRecord):boolean {return operationsFor(job).finalReports.some(r=>r.status==='Approved'&&!!r.approvedAt)&&!operationComplete(job);}
 /** The full Validation catalogue in its logical order (guidance only). */
 export const validationCatalogue=[...validationStepNames];
+/** Steps offered for new Validation selections. Sample Transfer is no longer offered; older records that have it keep it. */
+export const selectableValidationSteps=validationStepNames.filter(t=>t!=='Sample Transfer');
 /** Validation is requested for a scope entry, by the new Yes/No control or (older records) a catalogue Validation test. */
 export const entryValidation=(s:Pick<SampleScope,'pvtTests'|'chemicalTests'|'validation'>)=>!!s.validation||[...s.pvtTests,...s.chemicalTests].some(isValidationTest);
 /** Validation scope records the PVT Team Lead plans: new requests, Validation added later, and older Validation scope. */
@@ -232,6 +234,7 @@ export function labScopeProblems(job:JobRecord,samples:Omit<SampleScope,'contain
    if(newTests.length)problems.push(label+': detailed tests are selected in Phase 2, after Validation.');
    if(validation&&!(s.validationSteps||[]).length)problems.push(label+': select the Validation steps, or set Validation required to No.');
    if((s.validationSteps||[]).some(t=>!validationStepNames.includes(t as typeof validationStepNames[number])))problems.push(label+': choose Validation steps from the catalogue.');
+   if((s.validationSteps||[]).includes('Sample Transfer')&&!(prev?.validationSteps||[]).includes('Sample Transfer'))problems.push(label+': Sample Transfer is no longer a Validation step.');
   } else if(phase===2){
    if(s.furtherStudy&&!tests.length&&!custom.length)problems.push(label+' is selected for further study but has no tests. Select its tests, or mark it Not selected.');
    if(newTests.length&&!s.furtherStudy)problems.push(label+': tests are added only to samples selected for further study.');

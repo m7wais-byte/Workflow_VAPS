@@ -45,11 +45,12 @@ test('Phase 1: Salim chooses Validation steps per sample; release creates them f
  assert.ok(labScopeProblems(j,samples,conditions,routing,roles,undefined,undefined,1).some(p=>/1\.03: select the Validation steps/.test(p)));
  assert.ok(labScopeProblems(j,[samples[0],samples[1],e('1.03',{fluidType:'Black Oil',pvtTests:['Black Oil — DL']})],conditions,routing,roles,undefined,undefined,1).some(p=>/detailed tests are selected in Phase 2/.test(p)));
  assert.ok(labScopeProblems(j,samples.slice(0,2).concat(e('1.03',{fluidType:'Black Oil'})),{...conditions,pressure:''},routing,roles,undefined,undefined,1).some(p=>/reservoir pressure and temperature/.test(p)),'P and T go to Ahmed with Validation');
- samples[2].validationSteps=['Sample Transfer','PV'];
+ assert.ok(labScopeProblems(j,samples.slice(0,2).concat(e('1.03',{fluidType:'Black Oil',validation:true,validationSteps:['Sample Transfer']})),conditions,routing,roles,undefined,undefined,1).some(p=>/Sample Transfer is no longer a Validation step/.test(p)));
+ samples[2].validationSteps=['Opening Pressure','PV'];
  j=p1(j,samples);
  const v=released(j);assert.equal(v.phase,1);
  const val=acts(j).filter(a=>a.kind==='validation');
- assert.deepEqual(val.map(a=>[a.sampleId,a.title,a.status]),[['1.01','Opening Pressure','Unassigned'],['1.01','Restoration','Unassigned'],['1.01','PV','Unassigned'],['1.03','Sample Transfer','Unassigned'],['1.03','PV','Unassigned']]);
+ assert.deepEqual(val.map(a=>[a.sampleId,a.title,a.status]),[['1.01','Opening Pressure','Unassigned'],['1.01','Restoration','Unassigned'],['1.01','PV','Unassigned'],['1.03','Opening Pressure','Unassigned'],['1.03','PV','Unassigned']]);
  assert.equal(val.find(a=>a.title==='Restoration').conditions,'2100 psi; 88 °C');
  assert.equal(unplannedValidation(j).length,0,'already planned by the scope selector');
  assert.ok(!acts(j).some(a=>a.kind!=='validation'),'no tests in Phase 1');
