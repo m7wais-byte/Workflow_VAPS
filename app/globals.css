@@ -2384,7 +2384,7 @@ main,.workspace-content,.settings-workspace .panel {min-width:0;}
 .job-progress-list{list-style:none;padding:0;display:grid;gap:8px}.job-progress-list li{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .lab-overview-counts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:12px 0}.lab-overview-counts div{display:flex;flex-wrap:wrap;gap:6px 12px;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:13px}.lab-overview-counts strong{width:100%}
 .lab-status-summary{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 12px}
-.lab-not-assigned{background:#f6e7e7!important;color:#8a2c2c!important}.lab-in-progress{background:#e7f1fb!important;color:#22568a!important}.lab-under-team-lead-review{background:#efe9fb!important;color:#55309a!important}.lab-returned{background:#fff1e0!important;color:#9a5300!important}.lab-awaiting-qc{background:#fff8d9!important;color:#7a5d00!important}.lab-qc-approved{background:#e5f4ef!important;color:#1d6654!important}
+.lab-not-assigned{background:#f6e7e7!important;color:#8a2c2c!important}.lab-in-progress{background:#e7f1fb!important;color:#22568a!important}.lab-under-team-lead-review{background:#efe9fb!important;color:#55309a!important}.lab-returned{background:#fff1e0!important;color:#9a5300!important}.lab-approved{background:#e5f4ef!important;color:#1d6654!important}
 .lab-test{border-left:3px solid var(--line)}.lab-test.is-returned{border-left-color:#d9822b}
 .lab-test>summary .status-pill{justify-self:start}
 .lab-facts{grid-template-columns:repeat(3,minmax(0,1fr))}

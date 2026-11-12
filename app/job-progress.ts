@@ -6,8 +6,8 @@
  * Status language (one mapping for the whole overview):
  *   Unassigned / Scheduled                       → Not started
  *   In Progress / Changes Requested (returned)   → In progress
- *   Workbook Submitted / Awaiting QC / QC Return → Under review
- *   Completed (QC approved)                      → Completed
+ *   Workbook Submitted (team-lead review)        → Under review
+ *   Completed (team lead approved)               → Completed
  * Schedule warnings (Overdue) are separate from the work status.
  */
 import type { JobRecord } from './page';
@@ -55,7 +55,7 @@ export function combineProgress(states: ProgressStatus[]): ProgressStatus {
 export function workStatus(status: WorkState): ProgressStatus {
   switch (status) {
     case 'Completed': return 'completed';
-    case 'Workbook Submitted': case 'Awaiting QC': case 'QC Returned': return 'under-review';
+    case 'Workbook Submitted': return 'under-review';
     case 'In Progress': case 'Changes Requested': return 'in-progress';
     default: return 'not-started';
   }

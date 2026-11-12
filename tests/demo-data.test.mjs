@@ -42,19 +42,19 @@ test('each demo job sits at a coherent stage, including Validation added to a co
  const added = o4.activities.filter(a => a.id.startsWith('addval:'));
  assert.deepEqual(added.map(a => a.title), ['Opening Pressure', 'Restoration', 'Flash', 'PV']);
  assert.ok(added.every(a => a.status === 'Unassigned' && a.stream === 'PVT'));
- assert.ok(o4.activities.filter(a => !a.id.startsWith('addval:')).every(a => a.status === 'Completed' && a.files.some(f => f.qcApprovedAt)), 'earlier completed work is unchanged');
+ assert.ok(o4.activities.filter(a => !a.id.startsWith('addval:')).every(a => a.status === 'Completed' && a.files.some(f => f.leadApprovedAt)), 'earlier completed work is unchanged');
 });
-test('demo assignments always match the demo team setup, and QC is independent of the teams', () => {
+test('demo assignments always match the demo team setup', () => {
  for (const j of jobs) for (const a of j.operations?.activities || []) if (a.owner) assert.ok(demoConfiguration.teams[a.stream].includes(a.owner), `${j.id} ${a.title} → ${a.owner}`);
- assert.ok(!demoConfiguration.teams.PVT.includes(demoConfiguration.roles.qcReviewer) && !demoConfiguration.teams.Chemical.includes(demoConfiguration.roles.qcReviewer));
+ assert.equal(demoConfiguration.roles.qcReviewer, undefined, 'no QC duty in the demo');
 });
-test('demo jobs show assigned work, review, returns, QC, new scope alerts and coming-up responsibilities', () => {
+test('demo jobs show assigned work, review, returns, new scope alerts and coming-up responsibilities', () => {
  const lab = byId['OM-X-26-003'].operations.activities;
- for (const status of ['Completed', 'Workbook Submitted', 'Changes Requested', 'Awaiting QC', 'In Progress', 'Scheduled']) assert.ok(lab.some(a => a.status === status), status);
+ for (const status of ['Completed', 'Workbook Submitted', 'Changes Requested', 'In Progress', 'Scheduled']) assert.ok(lab.some(a => a.status === status), status);
  assert.ok(work('SALIM').actions.some(i => i.action === 'Review sampling data'));
  assert.ok(work('SHEREIQI').actions.some(i => /^Review workbook/.test(i.action)), 'team lead review');
  assert.ok(work('RANJITH').actions.some(i => i.kind === 'returned'), 'returned work');
- assert.ok(work('AHAD').actions.some(i => i.area === 'QC'), 'QC review');
+ assert.equal(work('AHAD').actions.length, 0, 'no QC review work');
  assert.ok(work('YAQEEN').actions.some(i => i.stream === 'Chemical'), 'Chemical work');
  assert.deepEqual(work('BAHRI').alerts.map(a => [a.jobNumber, a.headline]), [['OM-X-26-005', 'New Chemistry scope added'], ['OM-X-26-001', 'Job in sampling · DEMO'], ['OM-X-26-002', 'Job in sampling · DEMO']]);
  assert.ok(work('SHEREIQI').alerts.some(a => a.headline === 'Validation added' && a.jobNumber === 'OM-X-26-004'));

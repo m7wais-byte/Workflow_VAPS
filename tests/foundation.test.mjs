@@ -20,10 +20,10 @@ const schedule=a=>({type:'schedule',id:a.id,owner:'NASSER',start:'2026-10-28',du
 
 test('responsibility defaults, saved changes, intentionally empty values and corrupt settings',()=>{
  assert.deepEqual(readResponsibilities(null),defaultResponsibilities);
- assert.equal(defaultResponsibilities.pvtSupervisor,'WILFRED');assert.equal(defaultResponsibilities.pvtTeamLead,'SHEREIQI');assert.equal(defaultResponsibilities.chemicalTeamLead,'BAHRI');assert.equal(defaultResponsibilities.qcReviewer,'');
+ assert.equal(defaultResponsibilities.pvtSupervisor,'WILFRED');assert.equal(defaultResponsibilities.pvtTeamLead,'SHEREIQI');assert.equal(defaultResponsibilities.chemicalTeamLead,'BAHRI');assert.equal(defaultResponsibilities.qcReviewer,undefined,'there is no QC duty');
  const saved=readResponsibilities(JSON.stringify({...defaultResponsibilities,pvtTeamLead:'NASSER',finalApproval:''}));
  assert.equal(saved.pvtTeamLead,'NASSER');assert.equal(saved.finalApproval,'','a cleared duty is not restored to its default');
- const {qcReviewer,...older}=defaultResponsibilities;assert.equal(readResponsibilities(JSON.stringify({...older,pvtTeamLead:''})).pvtTeamLead,'');assert.equal(qcReviewer,'');
+ assert.equal(readResponsibilities(JSON.stringify({...defaultResponsibilities,pvtTeamLead:'',qcReviewer:'AHAD'})).pvtTeamLead,'');assert.equal(readResponsibilities(JSON.stringify(Object.assign({},defaultResponsibilities,{qcReviewer:'AHAD'}))).qcReviewer,undefined,'a QC duty saved earlier is ignored');
  for(const raw of ['bad','null','[]',JSON.stringify({pvtTeamLead:7})])assert.throws(()=>readResponsibilities(raw));
  store.set(responsibilitiesKey,'corrupt');assert.ok(Object.values(storedResponsibilities()).every(v=>v===''),'unreadable settings block every duty');store.delete(responsibilitiesKey);
 });

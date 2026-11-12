@@ -8,8 +8,8 @@ import { teamName } from './team-name';
 
 export type MyWorkFilter = 'now' | 'upcoming' | 'waiting' | 'jobs';
 const PER_PAGE = 15;
-export const settingLabel: Record<Setting, string> = { teams: 'PVT and Chemistry teams', qcReviewer: 'QC review responsibility', samplingApproval: 'Sampling approval responsibility', scopeSelector: 'Scope selection responsibility', routing: 'Laboratory test routing', finalApproval: 'Final report approval responsibility', pvtTeamLead: 'PVT Team Lead responsibility', chemicalTeamLead: 'Chemistry Team Lead responsibility' };
-const settingAnchor: Record<Setting, string> = { teams: 'lab-teams', qcReviewer: 'responsibilities', samplingApproval: 'responsibilities', scopeSelector: 'responsibilities', routing: 'test-routing', finalApproval: 'responsibilities', pvtTeamLead: 'responsibilities', chemicalTeamLead: 'responsibilities' };
+export const settingLabel: Record<Setting, string> = { teams: 'PVT and Chemistry teams', samplingApproval: 'Sampling approval responsibility', scopeSelector: 'Scope selection responsibility', routing: 'Laboratory test routing', finalApproval: 'Final report approval responsibility', pvtTeamLead: 'PVT Team Lead responsibility', chemicalTeamLead: 'Chemistry Team Lead responsibility' };
+const settingAnchor: Record<Setting, string> = { teams: 'lab-teams', samplingApproval: 'responsibilities', scopeSelector: 'responsibilities', routing: 'test-routing', finalApproval: 'responsibilities', pvtTeamLead: 'responsibilities', chemicalTeamLead: 'responsibilities' };
 const when = (v?: string) => ukDate(v);
 const stamp = (v: string) => ukDateTime(v);
 const ident = (test?: string, sample?: string, container?: string) => [sample && `Sample ${sample}${container ? ` · ${container}` : ''}`, test].filter(Boolean).join(' · ');

@@ -13,7 +13,7 @@ const {handoff}=await bundle('app/team-workflow.ts');
 
 const employees=initialDirectory().employees,policy=defaultAuthorization(employees.map(e=>e.id));
 const routing={'Black Oil — DL':'PVT','Others — Water Analysis':'Chemical','Black Oil — Validation':'PVT'};
-const roles={...defaultResponsibilities,qcReviewer:'AHAD'};
+const roles={...defaultResponsibilities};
 const teams={PVT:['NASSER','RANJITH'],Chemical:['YAQEEN']};
 const actor=(id,extra={})=>({id,employees,policy,roles,routing,teams,...extra});
 let tick=0;const at=()=>new Date(Date.UTC(2026,10,1,6,0,tick++)).toISOString();const today='2026-11-01';
@@ -27,7 +27,7 @@ const received=j=>j;
 const released=()=>step(received(approved()),{type:'lab-scope',action:'release',reason:'',conditions,samples:[entry('1.01','PVT',['Black Oil — DL']),entry('1.02','Both',['Black Oil — DL'],['Others — Water Analysis'])]},'SALIM');
 const file=n=>({id:'f'+n+tick,name:`wb-${n}.xlsx`,size:10,type:''});
 const assign=(j,a,owner,start='2026-10-30',due='2026-11-03')=>step(j,{type:'schedule',id:a.id,owner,start,due,conditions:'',notes:''},a.stream==='PVT'?'SHEREIQI':'BAHRI');
-const finish=(j,a)=>{j=step(j,{type:'workbook',id:a.id,file:file(a.id)},a.owner);j=step(j,{type:'lead-review',id:a.id,decision:'approve',target:'',comments:''},a.stream==='PVT'?'SHEREIQI':'BAHRI');return step(j,{type:'qc-review',id:a.id,decision:'approve',target:'',comments:''},'AHAD');};
+const finish=(j,a)=>{j=step(j,{type:'workbook',id:a.id,file:file(a.id)},a.owner);return step(j,{type:'lead-review',id:a.id,decision:'approve',target:'',comments:''},a.stream==='PVT'?'SHEREIQI':'BAHRI');};
 const acts=j=>operationsFor(j).activities;
 const view=(jobs,id,extra)=>workItems(jobs,actor(id,extra),today);
 
@@ -68,11 +68,11 @@ test('Validation can be added to any job — even completed, or of an unsupporte
  const added=acts(j).filter(a=>a.id.startsWith('addval:'));
  assert.deepEqual(added.map(a=>a.title),['Opening Pressure','Flash','PV'],'catalogue order, for guidance');
  assert.ok(added.every(a=>a.kind==='validation'&&a.stream==='PVT'&&a.status==='Unassigned'&&a.sampleId==='1.02'));
- assert.equal(JSON.stringify(acts(j).filter(a=>!a.id.startsWith('addval:'))),before,'completed tests, files and QC approvals are unchanged');
+ assert.equal(JSON.stringify(acts(j).filter(a=>!a.id.startsWith('addval:'))),before,'completed tests, files and approvals are unchanged');
  const o=operationsFor(j);assert.equal(o.finalReports[0].status,'Approved','the approved report version is kept');assert.equal(o.finalReports.at(-1).status,'Changes Requested','a new revision is needed');
  assert.equal(operationComplete(j),false);assert.equal(additionalWorkPending(j),true);
  assert.ok(view([j],'SHEREIQI').alerts.some(a=>a.headline==='Validation added'&&/Opening Pressure, Flash, PV/.test(a.scope)));
- assert.ok(!view([j],'SHEREIQI').actions.some(i=>i.area==='Final report'),'no final-report action before the new work is QC approved');
+ assert.ok(!view([j],'SHEREIQI').actions.some(i=>i.area==='Final report'),'no final-report action before the new work is approved');
  // Repeating Validation on the same sample creates distinct, additional activities.
  j=step(j,{type:'add-validation',sampleIds:['1.02'],steps:['Flash'],reason:'Second repeat.'},'SALIM');
  assert.equal(acts(j).filter(a=>a.id.startsWith('addval:')&&a.title==='Flash').length,2);
@@ -106,7 +106,7 @@ test('an unrelated employee does not see the job; reviewers and approvers see wh
  assert.equal(view([j],'HUMAID').upcoming.length+view([j],'HUMAID').actions.length,0,'no sample handover step for the driver');
  assert.ok(view([j],'SALIM').upcoming.some(u=>u.role==='Sampling approval'));
  const done=released();assert.ok(view([done],'WILFRED').upcoming.some(u=>u.role==='Final report approval'));assert.equal(view([done],'WILFRED').actions.length,0,'no approve button before its prerequisites');
- assert.ok(view([done],'AHAD').upcoming.some(u=>u.role==='QC review'));
+ assert.equal(view([done],'AHAD').upcoming.length,0,'no QC review role');
 });
 
 test('employees land on their own laboratory team',()=>{
@@ -124,12 +124,12 @@ test('the retired team handoff refuses current jobs, so it cannot overwrite the 
 });
 
 test('the demo setup is isolated: it never changes saved Settings and switches off cleanly',()=>{
- store.set(responsibilitiesKey,JSON.stringify({...defaultResponsibilities,qcReviewer:''}));store.set(labTeamsKey,JSON.stringify({PVT:['NASSER'],Chemical:[]}));
+ store.set(responsibilitiesKey,JSON.stringify({...defaultResponsibilities,finalApproval:''}));store.set(labTeamsKey,JSON.stringify({PVT:['NASSER'],Chemical:[]}));
  const savedRoles=store.get(responsibilitiesKey),savedTeams=store.get(labTeamsKey),ids=employees.map(e=>e.id);
- store.set('vaps-demo-setup-v1',JSON.stringify({enabled:true,roles:{qcReviewer:'AHAD'},teams:{PVT:['RANJITH'],Chemical:['YAQEEN']},routing:{},loadedAt:at()}));
- assert.equal(storedResponsibilities().qcReviewer,'AHAD');assert.equal(storedResponsibilities().pvtTeamLead,'SHEREIQI','unlisted duties keep the saved value');assert.deepEqual(storedLabTeams(ids),{PVT:['RANJITH'],Chemical:['YAQEEN']});
- store.set('vaps-demo-setup-v1',JSON.stringify({enabled:false,roles:{qcReviewer:'AHAD'},teams:{PVT:['RANJITH'],Chemical:['YAQEEN']},routing:{},loadedAt:at()}));
- assert.equal(storedResponsibilities().qcReviewer,'');assert.deepEqual(storedLabTeams(ids),{PVT:['NASSER'],Chemical:[]});
+ store.set('vaps-demo-setup-v1',JSON.stringify({enabled:true,roles:{finalApproval:'AHAD'},teams:{PVT:['RANJITH'],Chemical:['YAQEEN']},routing:{},loadedAt:at()}));
+ assert.equal(storedResponsibilities().finalApproval,'AHAD');assert.equal(storedResponsibilities().pvtTeamLead,'SHEREIQI','unlisted duties keep the saved value');assert.deepEqual(storedLabTeams(ids),{PVT:['RANJITH'],Chemical:['YAQEEN']});
+ store.set('vaps-demo-setup-v1',JSON.stringify({enabled:false,roles:{finalApproval:'AHAD'},teams:{PVT:['RANJITH'],Chemical:['YAQEEN']},routing:{},loadedAt:at()}));
+ assert.equal(storedResponsibilities().finalApproval,'');assert.deepEqual(storedLabTeams(ids),{PVT:['NASSER'],Chemical:[]});
  assert.equal(store.get(responsibilitiesKey),savedRoles);assert.equal(store.get(labTeamsKey),savedTeams);
  store.clear();
 });
@@ -150,7 +150,7 @@ test('PVT Supervisor: no workflow command requires the duty, so supervisor-only 
  assert.throws(()=>step(j,{type:'lead-review',id:acts(j)[0].id,decision:'approve',target:'',comments:''},'WILFRED',supOnly),/not assigned|Team Lead/,'the supervisor cannot take over team-lead review');
  // With the default final-approval duty, Wilfred's approval appears as soon as it is actionable.
  for(const a of acts(j).slice(1))j=step(j,{type:'workbook',id:a.id,file:file(a.id)},a.owner);
- for(const a of acts(j)){j=step(j,{type:'lead-review',id:a.id,decision:'approve',target:'',comments:''},a.stream==='PVT'?'SHEREIQI':'BAHRI');j=step(j,{type:'qc-review',id:a.id,decision:'approve',target:'',comments:''},'AHAD');}
+ for(const a of acts(j)){j=step(j,{type:'lead-review',id:a.id,decision:'approve',target:'',comments:''},a.stream==='PVT'?'SHEREIQI':'BAHRI');}
  j=step(j,{type:'report-draft',kind:'final',text:'Final',checker:'SHEREIQI',file:{...file('final'),version:1,submittedBy:'SHEREIQI',submittedAt:at(),status:'Available',comments:''}},'SHEREIQI');
  assert.equal(view([j],'WILFRED').actions.length,0,'no approve button before submission');
  j=step(j,{type:'report-action',kind:'final',action:'submit',comments:''},'SHEREIQI');

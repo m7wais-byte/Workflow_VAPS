@@ -3,7 +3,7 @@
  *
  * Built only from saved records (dispatch, sampling data reviews, sampling-report versions, released laboratory
  * scope, activities and final-report versions). It never adds a mandatory stage the workflow does not have, and an uploaded
- * file never counts as an approval: a test is complete only when QC approved, a report only when approved.
+ * file never counts as an approval: a test is complete only when its team lead approved it, a report only when approved.
  */
 import type { JobRecord } from './page';
 import type { Responsibilities } from './authorization';
@@ -61,16 +61,14 @@ export function combineStates(states: FlowState[]): FlowState {
 }
 const group = (g: Omit<FlowGroup, 'state'>): FlowGroup => ({ ...g, state: combineStates(g.steps.map((s) => s.state)) });
 
-/** One laboratory activity: complete only when QC approved; a returned workbook needs correction. */
+/** One laboratory activity: complete only when the team lead approved it; a returned test needs correction. */
 export function activityStep(a: ActivityRecord, roles: Responsibilities, additional: boolean): FlowStep {
-  const lead = roles[streamLead(a.stream)], qc = roles.qcReviewer, ext = externalStage(a);
+  const lead = roles[streamLead(a.stream)], ext = externalStage(a);
   const base = { id: 'act:' + a.id, label: (a.kind === 'validation' ? a.title : short(a.title)) + ' · Sample ' + a.sampleId, sample: a.sampleId, due: a.due || undefined, additional, external: !!a.external };
-  const done = a.files.at(-1)?.qcApprovedAt || [...(a.history || [])].reverse().find((h) => h.action === 'qc-approved')?.at;
+  const done = a.files.at(-1)?.qcApprovedAt || [...(a.history || [])].reverse().find((h) => h.action === 'qc-approved' || h.action === 'lead-approved')?.at;
   switch (a.status) {
-    case 'Completed': return { ...base, state: 'completed', detail: 'QC approved', team: teamName(a.stream) + ' team', at: done };
+    case 'Completed': return { ...base, state: 'completed', detail: 'Approved', team: teamName(a.stream) + ' team', at: done };
     case 'Changes Requested': return { ...base, state: 'blocked', correction: true, detail: ext ? 'Returned · results to be corrected' : 'Returned for correction', team: teamName(a.stream) + ' team', owner: a.owner || undefined };
-    case 'QC Returned': return { ...base, state: 'blocked', correction: true, detail: 'Returned by QC · with team lead', team: a.stream + ' Team Lead', owner: lead || undefined };
-    case 'Awaiting QC': return qc ? { ...base, state: 'in-progress', detail: 'QC review', team: 'QC review', owner: qc } : { ...base, state: 'blocked', setting: true, detail: 'QC reviewer not configured', team: 'QC review' };
     case 'Workbook Submitted': return { ...base, state: 'in-progress', detail: ext ? 'External results · team-lead review' : 'Team-lead review', team: a.stream + ' Team Lead', owner: lead || undefined };
     case 'In Progress': return { ...base, state: 'in-progress', detail: ext || 'In progress', team: teamName(a.stream) + ' team', owner: a.owner || undefined };
     default:
@@ -175,12 +173,12 @@ function reportSection(job: JobRecord, roles: Responsibilities): FlowSection {
   const reopened = !complete && final?.status === 'Approved';
   if (previous.length && !complete) notes.push(`Report v${previous.at(-1)!.version} was approved earlier and is kept. A revised report is required for the additional work.`);
   const steps: FlowStep[] = [];
-  const waitText = 'Starts when all laboratory work is QC approved and samples are received';
+  const waitText = 'Starts when all laboratory work is approved and samples are received';
   steps.push({ id: 'report:prep', label: previous.length && !complete ? 'Revised final report preparation' : 'Final report preparation', team: 'Final report preparation', owner: preparer, additional: reopened || undefined,
     ...(complete || (!reopened && ['Checking', 'Awaiting Approval'].includes(final?.status || '')) ? { state: 'completed', detail: 'Submitted for approval', at: final?.submittedAt }
       // The workflow itself reopens a report when scope or workbooks change; only a reviewer's return is a correction.
       : final?.status === 'Changes Requested' && !systemReopen(final.comments) ? (ready ? { state: 'blocked', correction: true, detail: 'Returned for correction' } : { state: 'not-started', detail: 'Returned for correction · resumes when laboratory work is complete' })
-      : final?.status === 'Changes Requested' ? (ready ? { state: 'in-progress', detail: 'Revision required' } : { state: 'not-started', detail: 'Revision required · after the additional work is QC approved' })
+      : final?.status === 'Changes Requested' ? (ready ? { state: 'in-progress', detail: 'Revision required' } : { state: 'not-started', detail: 'Revision required · after the additional work is approved' })
       : ready ? (preparer ? { state: 'in-progress', detail: final?.status === 'Draft' ? 'Draft in preparation' : 'Ready to prepare' } : { state: 'blocked', setting: true, detail: 'Report preparation not configured' })
       : { state: 'not-started', detail: waitText }) } as FlowStep);
   if (o.finalReports.some((r) => r.checker)) steps.push({ id: 'report:check', label: 'Final report check', team: 'Report checker', owner: final?.checker || undefined,
@@ -211,7 +209,7 @@ function legacySections(job: JobRecord): FlowSection[] {
   return out;
 }
 
-const phrases: Record<string, string> = { 'Team-lead review': 'in team-lead review', 'QC review': 'in QC review', 'Returned by QC · with team lead': 'returned by QC', 'External results · team-lead review': 'external results in team-lead review' };
+const phrases: Record<string, string> = { 'Team-lead review': 'in team-lead review', 'External results · team-lead review': 'external results in team-lead review' };
 const phrase = (detail: string) => phrases[detail] || detail.charAt(0).toLowerCase() + detail.slice(1);
 /** Same rules for every view. roles default to the saved responsibilities (demo setup included). */
 export function jobFlow(job: JobRecord, roles: Responsibilities = storedResponsibilities(), employees?: { id: string; active: boolean }[]): JobFlow {

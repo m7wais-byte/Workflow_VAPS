@@ -27,7 +27,7 @@ const names = employees.map(e => e.name).filter(n => n && n.length > 3);
 test('status language: internal states map to Not started / In progress / Under review / Completed', () => {
   assert.equal(workStatus('Unassigned'), 'not-started'); assert.equal(workStatus('Scheduled'), 'not-started');
   assert.equal(workStatus('In Progress'), 'in-progress'); assert.equal(workStatus('Changes Requested'), 'in-progress', 'returned internally reads as in progress');
-  for (const s of ['Workbook Submitted', 'Awaiting QC', 'QC Returned']) assert.equal(workStatus(s), 'under-review');
+  assert.equal(workStatus('Workbook Submitted'), 'under-review');
   assert.equal(workStatus('Completed'), 'completed');
   assert.equal(combineProgress(['completed', 'completed']), 'completed');
   assert.equal(combineProgress(['not-started', 'not-started']), 'not-started');

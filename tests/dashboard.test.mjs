@@ -10,7 +10,7 @@ const {initialDirectory}=await bundle('app/employee-directory.ts');
 
 const employees=initialDirectory().employees,policy=defaultAuthorization(employees.map(e=>e.id));
 const routing={'Black Oil — DL':'PVT','Others — Water Analysis':'Chemical'};
-const roles={...defaultResponsibilities,qcReviewer:'RANJITH'};
+const roles={...defaultResponsibilities};
 const teams={PVT:['NASSER'],Chemical:['YAQEEN']};
 const actor=(id,extra={})=>({id,employees,policy,roles,routing,teams,...extra});
 let tick=0;const at=()=>new Date(Date.UTC(2026,10,1,8,0,tick++)).toISOString();const today='2026-11-01';
@@ -55,16 +55,11 @@ test('the dashboard follows the whole journey with one next responsible person a
  j=step(j,{type:'lead-review',id:pvt.id,decision:'return',target:'sheet Results',comments:'Recalculate density with the right volume.'},'SHEREIQI');
  const back=items(j,'NASSER').actions[0];assert.equal(back.kind,'returned');assert.match(back.comment,/sheet Results — Recalculate/);
  j=step(j,{type:'workbook',id:pvt.id,file:file(2)},'NASSER');j=step(j,{type:'lead-review',id:pvt.id,decision:'approve',target:'',comments:''},'SHEREIQI');
- assert.deepEqual(acts(j,'RANJITH'),['QC review workbook v2']);assert.match(items(j,'SHEREIQI').waiting.find(w=>/approved by you/.test(w.what)).waitingOn,/Ranjith \(QC\)/);
- assert.equal(items(j,'SHEREIQI',{roles:{...roles,qcReviewer:''}}).blocked.find(b=>b.setting==='qcReviewer').setting,'qcReviewer');
- j=step(j,{type:'qc-review',id:pvt.id,decision:'return',target:'summary',comments:'Units are missing from the summary.'},'RANJITH');
- const q=items(j,'SHEREIQI').actions.find(a=>a.action==='Review QC return');assert.equal(q.from,'RANJITH');assert.match(q.comment,/Units are missing/);assert.deepEqual(acts(j,'RANJITH'),[]);
- j=step(j,{type:'lead-review',id:pvt.id,decision:'return',target:'summary',comments:'Add units as QC requested.'},'SHEREIQI');
- j=step(j,{type:'workbook',id:pvt.id,file:file(3)},'NASSER');assert.ok(acts(j,'SHEREIQI').includes('Review workbook v3'),'lead reviews again after a QC return');
- j=step(j,{type:'lead-review',id:pvt.id,decision:'approve',target:'',comments:''},'SHEREIQI');j=step(j,{type:'qc-review',id:pvt.id,decision:'approve',target:'',comments:''},'RANJITH');
+ assert.deepEqual(acts(j,'RANJITH'),[],'no QC step after the team lead approves');assert.equal(operationsFor(j).activities.find(a=>a.id===pvt.id).status,'Completed');
+ assert.ok(!items(j,'SHEREIQI').waiting.some(w=>w.test==='Black Oil — DL'),'nothing waits on QC');
  j=step(j,{type:'schedule',id:chem.id,owner:'YAQEEN',start:'2026-11-01',due:'2026-11-05',conditions:'',notes:''},'BAHRI');j=step(j,{type:'workbook',id:chem.id,file:file(4)},'YAQEEN');
  assert.deepEqual(acts(j,'SHEREIQI'),[],'final preparation waits for the Chemical test');
- j=step(j,{type:'lead-review',id:chem.id,decision:'approve',target:'',comments:''},'BAHRI');j=step(j,{type:'qc-review',id:chem.id,decision:'approve',target:'',comments:''},'RANJITH');
+ j=step(j,{type:'lead-review',id:chem.id,decision:'approve',target:'',comments:''},'BAHRI');
  assert.deepEqual(acts(j,'SHEREIQI'),['Prepare final laboratory report']);
  j=step(j,{type:'report-draft',kind:'final',text:'Final',checker:'SHEREIQI',file:{...file(5),version:1,submittedBy:'SHEREIQI',submittedAt:at(),status:'Available',comments:''}},'SHEREIQI');
  j=step(j,{type:'report-action',kind:'final',action:'submit',comments:''},'SHEREIQI');
@@ -78,7 +73,7 @@ test('the dashboard follows the whole journey with one next responsible person a
 });
 
 test('a person with several duties sees each action once; ordering puts overdue work first and New only breaks ties',()=>{
- const multi={...roles,samplingApproval:'SHEREIQI',scopeSelector:'SHEREIQI',qcReviewer:'SHEREIQI'};
+ const multi={...roles,samplingApproval:'SHEREIQI',scopeSelector:'SHEREIQI'};
  let j=step(draft(),{type:'dispatch',engineer:'MOHSIN',driver:'ALI'},'SALIM');j=step(j,{type:'data-submit',note:''},'MOHSIN');
  const list=workItems([j,{...j,id:'OM-P-26-402',jobNumber:'OM-P-26-402'}],actor('SHEREIQI',{roles:multi}),today).actions;
  assert.equal(new Set(list.map(i=>i.key)).size,list.length,'no duplicate cards');assert.deepEqual(list.map(i=>i.action),['Review sampling data','Review sampling data']);

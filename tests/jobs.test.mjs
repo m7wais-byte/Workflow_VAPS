@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 const bundle=async entry=>{const out=await build({entryPoints:[entry],bundle:true,write:false,format:'esm',platform:'node',logLevel:'silent'});return import('data:text/javascript;base64,'+Buffer.from(out.outputFiles[0].text).toString('base64'));};
 const store=new Map();globalThis.window={localStorage:{getItem:k=>store.get(k)??null,setItem:(k,v)=>store.set(k,String(v))}};globalThis.localStorage=window.localStorage;
-const {applyOperation,pendingActions,canSeeDraft,isDraft,finalReady,qcPending,labScopeProblems,operationMilestones}=await bundle('app/operations-model.ts');
+const {applyOperation,pendingActions,canSeeDraft,isDraft,finalReady,approvalPending,labScopeProblems,operationMilestones}=await bundle('app/operations-model.ts');
 const {defaultAuthorization,defaultResponsibilities}=await bundle('app/authorization.ts');
 const {initialDirectory}=await bundle('app/employee-directory.ts');
 const {readTestRouting,storedTestRouting,testRoutingKey,testsFor,unclassifiedTests}=await bundle('app/test-routing.ts');
@@ -131,13 +131,13 @@ test('drafts carry no approval; released versions and routing never change after
  assert.ok(job.operations.activities.filter(a=>a.title==='Specialised Analysis — Pour Point').some(a=>a.stream==='PVT'),'existing work is not rerouted by later settings');
 });
 
-test('QC stays a required gate before final reporting for per-sample scopes',()=>{
+test('team-lead approval of every test stays a required gate before final reporting',()=>{
  const job=release(approved());
- assert.equal(qcPending(job),true);assert.equal(finalReady(job),false);
+ assert.equal(approvalPending(job),true);assert.equal(finalReady(job),false);
  assert.equal(operationMilestones(job).find(m=>m.id==='completion').done,false);
  const drafted=step(job,{type:'report-draft',kind:'final',text:'Final',checker:'SHEREIQI'},'SHEREIQI');
- assert.throws(()=>step(drafted,{type:'report-action',kind:'final',action:'submit',comments:''},'SHEREIQI'),/not yet QC approved/);
- assert.equal(pendingActions(job,actor('SHEREIQI')).some(a=>a.id==='reporting'),false,'no final-report action while QC is pending');
+ assert.throws(()=>step(drafted,{type:'report-action',kind:'final',action:'submit',comments:''},'SHEREIQI'),/not yet approved by the team lead/);
+ assert.equal(pendingActions(job,actor('SHEREIQI')).some(a=>a.id==='reporting'),false,'no final-report action while tests await approval');
 });
 
 test('test routing settings are validated and never assumed',()=>{

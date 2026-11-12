@@ -735,7 +735,7 @@ export default function Home() {
   const canCompany = hasPermission("companyOverview");
   const unseenEvents = (item: JobRecord) => samplingEvents(item).filter((key) => !(seenSampling[currentEmployee?.id || ""] || []).includes(key));
   /** Laboratory indicator events for the signed-in employee: new assignment, returned work and items awaiting their review. */
-  const labEvents = ({ a }: { job: JobRecord; a: ActivityRecord }): string[] => currentEmployee ? labEventsFor(a, currentEmployee.id, roleHolder(responsibilities, streamLead(a.stream), demoEmployees), roleHolder(responsibilities, "qcReviewer", demoEmployees)) : [];
+  const labEvents = ({ a }: { job: JobRecord; a: ActivityRecord }): string[] => currentEmployee ? labEventsFor(a, currentEmployee.id, roleHolder(responsibilities, streamLead(a.stream), demoEmployees)) : [];
   const labItemsVisible = visibleJobs.filter((item) => !isDraft(item)).flatMap((job) => operationsFor(job).activities.filter((a) => a.required).map((a) => ({ job, a })));
   const samplingActionLabel = (item: JobRecord) => ({ draft: "Open job", preparation: "Start preparation", data: "Continue sampling data", "data-review": "Review sampling data", returned: "Correct returned work", "report-generation": "Sampling report", "report-review": "Review report", "report-approved": "Open job" } as Record<string, string>)[samplingStatus(item, responsibilities).key];
   const reportsWorkspaceJobs = visibleJobs.filter((item) => (hasPermission("companyOverview") || samplingWorkIds.has(item.id)) && (item.operations?.samplingReports.length || item.report?.preparedBy || item.report?.summary));
@@ -1737,7 +1737,7 @@ export default function Home() {
   function toggleDemoSetup() {
     const current = readDemoSetup(); if (!current) return;
     const next = { ...current, enabled: !current.enabled }; saveDemoSetup(next); setDemoSetupState(next);
-    setNotice(next.enabled ? "Demo setup on: demo teams and QC are used. Your saved Settings are unchanged." : "Demo setup off: your saved Settings are used.");
+    setNotice(next.enabled ? "Demo setup on: demo teams and duties are used. Your saved Settings are unchanged." : "Demo setup off: your saved Settings are used.");
   }
   /** Fills an empty browser with fictional DEMO jobs so visitors can explore the workflow. */
   async function loadDemoData() {
@@ -1747,12 +1747,12 @@ export default function Home() {
       const demoJobs = await buildDemoJobs((name, content) => storeWorkbook(new File([content], name, { type: name.endsWith(".pdf") ? "application/pdf" : "text/csv" })));
       if (!clients.some((item) => item.code === demoClient.code)) { const nextClients = [...clients, demoClient]; window.localStorage.setItem(clientStorageKey, JSON.stringify(nextClients)); setClients(nextClients); }
       persistJobs(demoJobs);
-      // The demo's own teams and QC are stored separately (vaps-demo-setup-v1); saved Settings are not touched.
+      // The demo's own teams and duties are stored separately (vaps-demo-setup-v1); saved Settings are not touched.
       const setup: DemoSetup = { enabled: true, ...demoConfiguration, loadedAt: new Date().toISOString() }; saveDemoSetup(setup); setDemoSetupState(setup);
       const sequence = Math.max(globalCounter, ...demoJobs.map((item) => item.globalSequence));
       window.localStorage.setItem(globalCounterStorageKey, String(sequence)); setGlobalCounter(sequence);
       recordActivity("Loaded DEMO jobs", demoJobs[0].id);
-      setNotice("Demo jobs loaded with the labelled demo setup (demo teams and QC). Use “Demo: view as employee” at the top to see each person’s work.");
+      setNotice("Demo jobs loaded with the labelled demo setup (demo teams and duties). Use “Demo: view as employee” at the top to see each person’s work.");
     } catch (error) { setNotice(error instanceof Error ? error.message : "Demo data could not be loaded."); }
     finally { setDemoLoading(false); }
   }
@@ -1861,7 +1861,7 @@ export default function Home() {
           {navItems.map((item, index) => { const NavIcon = navIcons[index]; const view = ({ Dashboard: "dashboard", "My work": "my-work", Jobs: "jobs", Sampling: "sampling", Laboratory: "pvt-lab", Inventory: "inventory", Settings: "settings" } as Record<string, string>)[item]; if (!canView(view)) return null;
             // Inside a job, the view the employee came from stays highlighted.
             const here = workspaceView === "workflow" ? returnTo : workspaceView === "planning" ? "my-work" : workspaceView === "overview" ? "dashboard" : workspaceView;
-            const badge = item === "Sampling" ? nowItems.filter((i) => i.area === "Sampling").length : item === "Laboratory" ? nowItems.filter((i) => ["PVT", "Chemical", "QC"].includes(i.area)).length : item === "My work" ? nowItems.length : 0;
+            const badge = item === "Sampling" ? nowItems.filter((i) => i.area === "Sampling").length : item === "Laboratory" ? nowItems.filter((i) => ["PVT", "Chemical"].includes(i.area)).length : item === "My work" ? nowItems.length : 0;
             return (
             <button key={item} className={here === view ? "nav-item active" : "nav-item"} type="button" aria-current={here === view ? "page" : undefined} onClick={() => { if (view === "pvt-lab") setLabJobId(""); setWorkspaceView(view as WorkspaceView); }}>
               <span className="nav-icon" aria-hidden="true"><NavIcon size={19} strokeWidth={1.8} /></span>{item}{badge > 0 && <span className="nav-badge" aria-label={`${badge} task(s) to do now`}>{badge}</span>}
@@ -1913,7 +1913,7 @@ export default function Home() {
             <CompanyDashboard jobs={dashboardJobs} today={today} canActivity={canView("overview")} onActivity={() => setWorkspaceView("overview")} />
           ) : workspaceView === "my-work" ? (
             <MyWork now={nowItems} upcoming={[...dashboardWork.upcoming].sort((a, b) => (a.due || a.jobNumber).localeCompare(b.due || b.jobNumber))} waiting={dashboardWork.waiting} blocked={dashboardWork.blocked} blockedActions={dashboardWork.actions.filter(blockedAssign)} alerts={unseenAlerts} rows={inbox} today={today} name={employeeName} isNew={isNewItem} filter={myWorkFilter} onFilter={setMyWorkFilter} isAdmin={hasPermission("authorization")} canCreate={hasPermission("createJob")} onCreate={startNewJob} canPlan={canView("planning")} onPlanning={() => setWorkspaceView("planning")} flowOf={(id) => flowById.get(id)} onOpen={(item) => { setReturnTo("my-work"); openWorkItem(item); }} onReadAlert={(alert) => markSeen(alert.keys)} onOpenTab={(jobId, tab, alert) => { const target = jobs.find((job) => job.id === jobId); if (alert) markSeen(alert.keys); setReturnTo("my-work"); if (target) openOperation(target, tab); }} onOpenJob={(row) => { const target = jobs.find((job) => job.id === row.jobId); setReturnTo("my-work"); if (target) openOperation(target); }}>
-            {storedJobs.length===0&&<section className="panel ops-panel demo-banner"><div><h2>Explore the workflow with demo jobs</h2><p>This browser has no jobs yet. Load six example jobs (sampling, review, PVT-only, Chemistry-only and mixed laboratory scope, and a completed job with Validation added later). All names and values are fictional and marked DEMO and stay in this browser. The demo switches on a labelled demo setup (teams, QC and receipt) that is stored separately and never written to Settings.</p></div><button type="button" className="primary-button" disabled={demoLoading} onClick={() => void loadDemoData()}>{demoLoading ? "Loading…" : "Load demo data"}</button></section>}</MyWork>
+            {storedJobs.length===0&&<section className="panel ops-panel demo-banner"><div><h2>Explore the workflow with demo jobs</h2><p>This browser has no jobs yet. Load six example jobs (sampling, review, PVT-only, Chemistry-only and mixed laboratory scope, and a completed job with Validation added later). All names and values are fictional and marked DEMO and stay in this browser. The demo switches on a labelled demo setup (teams and receipt) that is stored separately and never written to Settings.</p></div><button type="button" className="primary-button" disabled={demoLoading} onClick={() => void loadDemoData()}>{demoLoading ? "Loading…" : "Load demo data"}</button></section>}</MyWork>
           ) : workspaceView === "planning" ? (
             <div className="secondary-view"><button type="button" className="text-button" onClick={() => setWorkspaceView("my-work")}>← My work</button>
             <WeeklyWork jobs={visibleJobs} actor={opsActor!} onOpen={openOperation} hidePending />

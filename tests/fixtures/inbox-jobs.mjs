@@ -1,7 +1,6 @@
 // 27 fictional jobs (DEMO) for the My work inbox tests and screenshots. Every job is advanced with the real
-// workflow commands, so each is a state the app can reach on its own. QC review is deliberately unassigned
-// to exercise the "blocked by a missing setting" state.
-export const inboxRoles = (defaults) => ({ ...defaults, qcReviewer: '' });
+// workflow commands, so each is a state the app can reach on its own.
+export const inboxRoles = (defaults) => ({ ...defaults });
 export const inboxTeams = { PVT: ['NASSER', 'RANJITH', 'AHAD'], Chemical: ['YAQEEN'] };
 export const inboxRouting = { 'Black Oil — DL': 'PVT', 'Black Oil — Sep Test': 'PVT', 'Gas Condensates (GC) — CVD': 'PVT', 'Others — Water Analysis': 'Chemical' };
 

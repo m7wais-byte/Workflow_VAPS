@@ -13,11 +13,11 @@ export const demoClient = { code: 'X', shortName: 'DEMO', name: 'DEMO Operator (
 export const demoLogin = { id: 'MA001', password: '1234' };
 /**
  * The labelled demo setup: fictional duties, team membership and test routing used only while the demo is on.
- * Stored separately from Settings (see demo-setup.ts) so a real configuration is never overwritten. QC reviewer Ahad
- * is not a team member, so no one QC-reviews their own work; demo assignments only use members of the matching team.
+ * Stored separately from Settings (see demo-setup.ts) so a real configuration is never overwritten.
+ * Demo assignments only use members of the matching team.
  */
 export const demoConfiguration = {
- roles: { scopeSelector: 'SALIM', samplingApproval: 'SALIM', pvtSupervisor: 'WILFRED', pvtTeamLead: 'SHEREIQI', chemicalTeamLead: 'BAHRI', reporting: 'SHEREIQI', finalApproval: 'WILFRED', qcReviewer: 'AHAD' } as Record<string, string>,
+ roles: { scopeSelector: 'SALIM', samplingApproval: 'SALIM', pvtSupervisor: 'WILFRED', pvtTeamLead: 'SHEREIQI', chemicalTeamLead: 'BAHRI', reporting: 'SHEREIQI', finalApproval: 'WILFRED' } as Record<string, string>,
  teams: { PVT: ['NASSER', 'RANJITH'], Chemical: ['YAQEEN'] },
  routing: Object.fromEntries([...['Validation', 'Recombination', 'DL', 'Sep Test', 'Viscosity'].map(t => ['Black Oil — ' + t, 'PVT']), ...['Validation', 'Recombination', 'Cryo', 'CCE', 'CVD', 'Sep Test'].map(t => ['Gas Condensates (GC) — ' + t, 'PVT']), ['Others — Water Analysis', 'Chemical'], ['Others — Compositional Analysis', 'Chemical']]) as Record<string, 'PVT' | 'Chemical' | 'Both'>,
 };
@@ -66,12 +66,11 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
  const acts = (j: JobRecord) => j.operations!.activities;
  const find = (j: JobRecord, sampleId: string, title: string, stream: 'PVT' | 'Chemical' = 'PVT') => acts(j).find(a => a.sampleId === sampleId && a.title === title && a.stream === stream)!;
  const assign = (j: JobRecord, id: string, owner: string, start: number, due: number, tick: () => string, notes = 'DEMO instructions: follow the laboratory procedure for this test.') => { const a = acts(j).find(x => x.id === id)!; return run(j, a.stream === 'PVT' ? 'SHEREIQI' : 'BAHRI', { type: 'schedule', id, owner, start: addDays(day, start), due: addDays(day, due), conditions: a.conditions, notes }, tick()); };
- /** Marked finished by the employee (no upload), team-lead approved and QC approved. */
+ /** Marked finished by the employee (no upload) and approved by the team lead, which completes the test. */
  async function complete(j: JobRecord, id: string, tick: () => string) {
   const a = acts(j).find(x => x.id === id)!;
   j = run(j, a.owner, { type: 'workbook', id, notes: 'Test finished.' }, tick());
-  j = run(j, a.stream === 'PVT' ? 'SHEREIQI' : 'BAHRI', { type: 'lead-review', id, decision: 'approve', target: '', comments: '' }, tick());
-  return run(j, 'AHAD', { type: 'qc-review', id, decision: 'approve', target: '', comments: '' }, tick());
+  return run(j, a.stream === 'PVT' ? 'SHEREIQI' : 'BAHRI', { type: 'lead-review', id, decision: 'approve', target: '', comments: '' }, tick());
  }
 
  // 1 · Sampling in progress: dispatched to Mohsin (accountable) with Ahmed Al Husseini supporting; one of two sheets complete.
@@ -92,7 +91,7 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
  j2 = samplingReport(j2, 'HUSSEINI', t, 'data-submitted');
 
  // 3 · Mixed scope, per sample: 1.01 → PVT (Validation + DL); 1.02 → Both (PVT Validation + Chemical Water Analysis).
- //     Shows completed steps, a workbook awaiting team-lead review, a returned workbook, one awaiting QC, and parallel Chemical work.
+ //     Shows completed steps, a workbook awaiting team-lead review, a returned test, and parallel Chemical work.
  t = clock(9); start = t();
  const bh = { samplingDate: addDays(day, -8), formation: 'DEMO Formation', bhp: '3150', bht: '92', sampleBottleVolume: '700', sampleVolume: '600' };
  let j3 = job(3, { samplingSource: 'Cased Hole (Bottomhole / Downhole Sampling)', holeType: 'Cased Hole', well: 'DEMO-BH-03', formation: 'DEMO Formation', plannedDepth: '2450', requiredTests: ['Black Oil — Validation', 'Black Oil — DL', 'Others — Water Analysis'], assignedEngineerId: 'MOHSIN', assignedDriverId: 'ALI',

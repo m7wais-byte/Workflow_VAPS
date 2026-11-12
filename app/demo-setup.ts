@@ -1,5 +1,5 @@
 /**
- * Demo setup: a labelled, separate configuration (teams, QC, receipt, routing) used only while the demo is switched on.
+ * Demo setup: a labelled, separate configuration (teams, receipt, routing) used only while the demo is switched on.
  * It is stored under its own key and never written to the real Settings keys, so turning it off restores the saved Settings.
  */
 export const demoSetupKey = 'vaps-demo-setup-v1';

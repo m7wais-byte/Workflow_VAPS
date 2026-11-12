@@ -46,7 +46,7 @@ test('mixed PVT and Chemical scope: parallel streams, Validation steps, a return
   const water = step(f, 'Water Check · Sample 1.02'); assert.equal(water.correction, true); assert.equal(water.state, 'blocked');
   // An uploaded workbook awaiting team-lead review is in progress, not complete.
   assert.equal(step(f, 'Charging · Sample 1.01').state, 'in-progress');
-  assert.equal(step(f, 'Agitation · Sample 1.02').detail, 'QC review');
+  assert.equal(step(f, 'Agitation · Sample 1.02').detail, 'Approved', 'team-lead approval completes the step');
   assert.ok(f.now.some(n => /Chemical tests/.test(n.text)) && f.now.some(n => /Validation/.test(n.text)), 'both teams are active now');
   assert.equal(f.next, 'Final report preparation');
 });

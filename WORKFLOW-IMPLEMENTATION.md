@@ -376,5 +376,15 @@ Model rules, permissions and stored records are unchanged; only the PVT Team Lea
 - **Employee:** an internal test is no longer submitted by uploading a workbook. The assigned employee opens the task, sees the job details and the team lead's instructions, does the work and presses **Mark as finished** (with a confirmation). Progress notes are optional.
 - **Team lead:** gets the review action and alert in My work ("Review workbook"). The lead checks the workbook outside this system, then **Approve** or **Return with a note**. The note is required; the sheet/section reference is now optional for the team lead (still required for QC returns).
 - **Returned:** the test goes back to the employee with the note; they correct it and mark it finished again (each submission is kept in the history).
-- **Approved:** nothing more for the employee. The test continues to QC exactly as before; QC and final reporting are unchanged.
+- **Approved:** the team lead's approval completes the test (see *QC step removed* below).
 - **Data:** each submission is still a version record on the test, with an empty file reference. Workbooks uploaded earlier stay viewable. Third-party tests still attach the provider's returned results.
+
+## QC step removed (Nov 2026)
+
+Supersedes the QC descriptions earlier in this document.
+
+- **Flow:** assigned employee marks the test finished → team lead approves (test **Completed**) or returns a note. There is no QC review, QC queue, QC return or QC reviewer duty. Third-party tests follow the same rule after the coordinator submits the returned results.
+- **Final report:** opens when every required test is approved by its team lead (previously: QC approved). Preparation and final approval are unchanged.
+- **Statuses:** Not assigned, In progress, Under team-lead review, Returned, Approved.
+- **Settings:** the *QC review* duty is no longer shown in Authorization; a value saved earlier is ignored, not deleted.
+- **Existing records:** a test that was waiting for QC (already team-lead approved) reads as Completed; a test QC had returned goes back to the team lead for review. Earlier QC approvals stay in each test's history.

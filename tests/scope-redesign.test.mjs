@@ -11,7 +11,7 @@ const {initialDirectory}=await bundle('app/employee-directory.ts');
 
 const employees=initialDirectory().employees,policy=defaultAuthorization(employees.map(e=>e.id));
 const routing={'Black Oil — DL':'PVT','Gas Condensates (GC) — CCE':'PVT','Others — Water Analysis':'Chemical'};
-const roles={...defaultResponsibilities,qcReviewer:'AHAD'};
+const roles={...defaultResponsibilities};
 const teams={PVT:['NASSER','RANJITH'],Chemical:['YAQEEN']};
 const actor=(id,extra={})=>({id,employees,policy,roles,routing,teams,...extra});
 let tick=0;const at=()=>new Date(Date.UTC(2026,10,2,6,0,tick++)).toISOString();const today='2026-11-02';
@@ -26,7 +26,7 @@ const acts=j=>operationsFor(j).activities;
 const view=(jobs,id,extra)=>workItems(jobs,actor(id,extra),today);
 const file=n=>({id:'f'+n+tick,name:`wb-${n}.xlsx`,size:10,type:''});
 const assign=(j,a,owner,start='2026-11-02',due='2026-11-06')=>step(j,{type:'schedule',id:a.id,owner,start,due,conditions:'',notes:'Use cell 2'},a.stream==='PVT'?'SHEREIQI':'BAHRI');
-const finish=(j,a)=>{const lead=a.stream==='PVT'?'SHEREIQI':'BAHRI';if(a.external){j=step(j,{type:'external-dispatch',id:a.id,sentOn:'2026-11-02',expectedReturn:'2026-11-10',notes:''},a.owner);j=step(j,{type:'external-results',id:a.id,receivedOn:'2026-11-09',notes:'',file:file(a.id)},a.owner);j=step(j,{type:'external-submit',id:a.id,notes:''},a.owner);}else j=step(j,{type:'workbook',id:a.id,file:file(a.id)},a.owner);j=step(j,{type:'lead-review',id:a.id,decision:'approve',target:'',comments:''},lead);return step(j,{type:'qc-review',id:a.id,decision:'approve',target:'',comments:''},'AHAD');};
+const finish=(j,a)=>{const lead=a.stream==='PVT'?'SHEREIQI':'BAHRI';if(a.external){j=step(j,{type:'external-dispatch',id:a.id,sentOn:'2026-11-02',expectedReturn:'2026-11-10',notes:''},a.owner);j=step(j,{type:'external-results',id:a.id,receivedOn:'2026-11-09',notes:'',file:file(a.id)},a.owner);j=step(j,{type:'external-submit',id:a.id,notes:''},a.owner);}else j=step(j,{type:'workbook',id:a.id,file:file(a.id)},a.owner);return step(j,{type:'lead-review',id:a.id,decision:'approve',target:'',comments:''},lead);};
 
 test('each test appears once per fluid type; Validation is never a test card; Other shows each test once with its methods',()=>{
  for(const fluid of ['Black Oil','Gas Condensate','Other',undefined]){const keys=testCards(fluid).map(c=>c.key);assert.equal(new Set(keys).size,keys.length,'no duplicate card for '+fluid);assert.ok(!keys.includes('Validation'));}
@@ -94,7 +94,7 @@ test('Validation is not restricted by fluid or sampling type, needs a PVT destin
  assert.ok(labScopeProblems(j,v1.samples,conditions,routing,roles,v1).some(p=>/Nothing has changed/.test(p)),'saving unchanged scope never re-releases');
  const rev=v1.samples.map(x=>x.sampleId==='1.03'?{...x,destination:'Both',validation:true}:x);
  j=release(j,rev,'Client asked for Validation of 1.03');
- assert.equal(JSON.stringify(acts(j)),before,'completed tests, files and QC approvals are unchanged');
+ assert.equal(JSON.stringify(acts(j)),before,'completed tests, files and approvals are unchanged');
  const o=operationsFor(j);assert.equal(o.finalReports[0].status,'Approved');assert.equal(o.finalReports.at(-1).status,'Changes Requested');
  assert.equal(additionalWorkPending(j),true);assert.equal(unplannedValidation(j)[0].sampleIds[0],'1.03');
  // Older job shapes: Validation requested with no steps goes to the same planning item.
@@ -133,9 +133,8 @@ test('one outsourced test alongside internal tests: coordinator actions, waiting
  assert.ok(!view([j],'SHEREIQI').actions.some(i=>i.key.startsWith('review:'+visc.id)),'no review before submission');
  j=step(j,{type:'external-submit',id:visc.id,notes:''},'NASSER');
  const lead=view([j],'SHEREIQI');assert.ok(lead.actions.some(i=>i.action.startsWith('Review external results v1')));assert.ok(lead.alerts.some(a=>a.kind==='external'&&a.headline==='External results submitted for review'));
- j=step(j,{type:'lead-review',id:visc.id,decision:'approve',target:'',comments:''},'SHEREIQI');assert.equal(acts(j).find(a=>a.id===visc.id).status,'Awaiting QC');
- j=step(j,{type:'qc-review',id:visc.id,decision:'approve',target:'',comments:''},'AHAD');assert.equal(acts(j).find(a=>a.id===visc.id).status,'Completed');
- assert.deepEqual(acts(j).find(a=>a.id===visc.id).history.map(h=>h.action),['assigned','dispatched','results-received','submitted','lead-approved','qc-approved']);
+ j=step(j,{type:'lead-review',id:visc.id,decision:'approve',target:'',comments:''},'SHEREIQI');assert.equal(acts(j).find(a=>a.id===visc.id).status,'Completed','team-lead approval completes the external test');
+ assert.deepEqual(acts(j).find(a=>a.id===visc.id).history.map(h=>h.action),['assigned','dispatched','results-received','submitted','lead-approved']);
 });
 
 test('several or all tests outsourced; a third-party test needs a provider and an internal team coordinator',()=>{

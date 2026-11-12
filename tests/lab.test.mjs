@@ -3,14 +3,14 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 const bundle=async entry=>{const out=await build({entryPoints:[entry],bundle:true,write:false,format:'esm',platform:'node',logLevel:'silent'});return import('data:text/javascript;base64,'+Buffer.from(out.outputFiles[0].text).toString('base64'));};
 const store=new Map();globalThis.window={localStorage:{getItem:k=>store.get(k)??null,setItem:(k,v)=>store.set(k,String(v))}};globalThis.localStorage=window.localStorage;
-const {applyOperation,pendingActions,finalReady,qcPending,labStatus,teamMismatch,operationsFor,operationComplete,samplingApproved}=await bundle('app/operations-model.ts');
+const {applyOperation,pendingActions,finalReady,approvalPending,labStatus,teamMismatch,operationsFor,operationComplete,samplingApproved}=await bundle('app/operations-model.ts');
 const {defaultAuthorization,defaultResponsibilities,readResponsibilities}=await bundle('app/authorization.ts');
 const {initialDirectory}=await bundle('app/employee-directory.ts');
 const {readLabTeams}=await bundle('app/lab-teams.ts');
 
 const employees=initialDirectory().employees,policy=defaultAuthorization(employees.map(e=>e.id));
 const routing={'Black Oil — DL':'PVT','Others — Water Analysis':'Chemical','Specialised Analysis — SARA':'Both'};
-const roles={...defaultResponsibilities,qcReviewer:'RANJITH'};
+const roles={...defaultResponsibilities};
 const teams={PVT:['NASSER','AHAD'],Chemical:['YAQEEN']};
 const actor=(id,extra={})=>({id,employees,policy,roles,routing,teams,...extra});
 let tick=0;const at=()=>new Date(Date.UTC(2026,9,30,8,0,tick++)).toISOString();
@@ -31,7 +31,6 @@ const assign=(j,a,owner,by,extra)=>step(j,{type:'schedule',id:a.id,owner,start:'
 const file=n=>({id:'f'+n+Math.random(),name:`workbook-${n}.xlsx`,size:100,type:'application/vnd.ms-excel'});
 const submit=(j,a,owner)=>step(j,{type:'workbook',id:a.id,file:file(a.id),notes:'Done'},owner);
 const approve=(j,a,lead)=>step(j,{type:'lead-review',id:a.id,decision:'approve',target:'',comments:''},lead);
-const qc=(j,a)=>step(j,{type:'qc-review',id:a.id,decision:'approve',target:'',comments:''},'RANJITH');
 
 test('released scope routes PVT, Chemical and Both to separate items; excluded samples create no work',()=>{
  const j=released();const o=operationsFor(j);
@@ -63,7 +62,7 @@ test('team leads assign their own stream to anyone in the directory; assigning g
 
 test('employee submits; self-completion is refused; lead returns with specific comments; versions are kept',()=>{
  let j=released();const a0=act(j,'1.01','PVT');j=assign(j,a0,'NASSER','SHEREIQI');
- assert.throws(()=>step(j,{type:'progress',id:a0.id,status:'Completed',notes:''},'NASSER'),/completed by QC approval/);
+ assert.throws(()=>step(j,{type:'progress',id:a0.id,status:'Completed',notes:''},'NASSER'),/completed by the team lead’s approval/);
  assert.throws(()=>submit(j,a0,'AHAD'),/not assigned/,'only the assignee submits');
  j=submit(j,a0,'NASSER');assert.equal(labStatus(act(j,'1.01','PVT')),'Under team-lead review');
  assert.throws(()=>submit(j,a0,'NASSER'),/under review/,'a submitted workbook cannot be replaced');
@@ -88,41 +87,31 @@ test('employee marks a test finished without an upload; the lead is notified, re
  assert.equal(a.status,'Changes Requested');assert.equal(a.history.at(-1).comments,'Recheck the opening pressure reading.');
  assert.ok(pendingActions(j,actor('NASSER')).some(p=>p.label==='Returned tests'),'the note goes back to the employee');
  j=finish(j);j=approve(j,a0,'SHEREIQI');a=act(j,'1.01','PVT');
- assert.equal(a.status,'Awaiting QC');assert.equal(a.files.length,2);assert.equal(a.files[1].leadApprovedBy,'SHEREIQI');
+ assert.equal(a.status,'Completed','the team lead’s approval completes the test');assert.equal(labStatus(a),'Approved');assert.equal(a.files.length,2);assert.equal(a.files[1].leadApprovedBy,'SHEREIQI');
  assert.ok(!pendingActions(j,actor('NASSER')).some(p=>/test/i.test(p.label)),'approved: nothing left for the employee');
- j=qc(j,a0);assert.equal(act(j,'1.01','PVT').status,'Completed');
+ assert.throws(()=>approve(j,a0,'SHEREIQI'),/no finished test waiting/);assert.throws(()=>finish(j),/Request a correction/,'completed work is not resubmitted');
 });
 
-test('QC needs team-lead approval and a valid reviewer, records the exact version, and returns to the team lead',()=>{
+test('there is no QC step: records saved while QC existed are completed or go back to the team lead',()=>{
  let j=released();const a0=act(j,'1.01','PVT');j=submit(assign(j,a0,'NASSER','SHEREIQI'),a0,'NASSER');
- assert.throws(()=>qc(j,a0),/Only team-lead-approved/);
- j=approve(j,a0,'SHEREIQI');assert.equal(labStatus(act(j,'1.01','PVT')),'Awaiting QC');
- assert.throws(()=>step(j,{type:'qc-review',id:a0.id,decision:'approve',target:'',comments:''},'RANJITH',{roles:{...roles,qcReviewer:''}}),/QC review is not configured/);
- // An inactive QC holder is treated as unassigned: nobody can approve in their place.
- assert.throws(()=>step(j,{type:'qc-review',id:a0.id,decision:'approve',target:'',comments:''},'SHEREIQI',{employees:employees.map(e=>e.id==='RANJITH'?{...e,active:false}:e)}),/QC review is not configured/);
- assert.throws(()=>step(j,{type:'qc-review',id:a0.id,decision:'approve',target:'',comments:''},'RANJITH',{policy:{...policy,analysis:policy.analysis.filter(id=>id!=='RANJITH')}}),/not assigned/,'QC holder without lab permission cannot approve');
- assert.throws(()=>step(j,{type:'qc-review',id:a0.id,decision:'approve',target:'',comments:''},'SHEREIQI'),/not assigned/,'a team lead cannot QC approve');
- assert.ok(pendingActions(j,actor('RANJITH')).some(p=>p.label==='QC review'));
- assert.ok(!pendingActions(j,actor('SHEREIQI',{roles:{...roles,qcReviewer:''}})).some(p=>p.label==='QC not configured'),'a missing QC reviewer is a blocker shown in My work, not a team-lead action');
- const back=step(j,{type:'qc-review',id:a0.id,decision:'return',target:'Sheet Results',comments:'Units for density are missing in the summary.'},'RANJITH');
- let a=act(back,'1.01','PVT');assert.equal(a.status,'QC Returned');assert.equal(labStatus(a),'Under team-lead review');assert.ok(pendingActions(back,actor('SHEREIQI')).some(p=>p.label==='PVT QC returns'));
- assert.throws(()=>approve(back,a,'SHEREIQI'),/Return it to the employee/);
- let k=step(back,{type:'lead-review',id:a.id,decision:'return',target:'Sheet Results',comments:'Add density units as QC requested.'},'SHEREIQI');
- k=submit(k,act(k,'1.01','PVT'),'NASSER');assert.equal(act(k,'1.01','PVT').status,'Workbook Submitted','corrected work passes team-lead review again');
- k=qc(approve(k,act(k,'1.01','PVT'),'SHEREIQI'),act(k,'1.01','PVT'));
- a=act(k,'1.01','PVT');assert.equal(a.status,'Completed');assert.equal(a.files.length,2);assert.equal(a.files[1].qcApprovedBy,'RANJITH');assert.equal(a.files[0].qcApprovedBy,undefined,'approval is tied to version 2');
- assert.deepEqual(a.history.map(h=>h.action),['assigned','submitted','lead-approved','qc-returned','lead-returned','submitted','lead-approved','qc-approved']);
+ assert.throws(()=>step(j,{type:'lead-review',id:a0.id,decision:'approve',target:'',comments:''},'RANJITH'),/not assigned/,'only the team lead approves');
+ const stored=status=>({...j,operations:{...j.operations,activities:j.operations.activities.map(a=>a.id===a0.id?{...a,status,files:a.files.map(f=>({...f,leadApprovedBy:'SHEREIQI',leadApprovedAt:at()}))}:a)}});
+ assert.equal(act(stored('Awaiting QC'),'1.01','PVT').status,'Completed','team-lead-approved work that waited for QC is complete');
+ const back=stored('QC Returned');assert.equal(act(back,'1.01','PVT').status,'Workbook Submitted','work QC had returned is back with the team lead');
+ assert.ok(pendingActions(back,actor('SHEREIQI')).some(p=>p.label==='PVT workbook review'));
+ const done=approve(back,a0,'SHEREIQI');assert.equal(done.operations.activities.find(a=>a.id===a0.id).status,'Completed');
+ assert.deepEqual(act(approve(j,a0,'SHEREIQI'),'1.01','PVT').history.map(h=>h.action),['assigned','submitted','lead-approved']);
 });
 
-test('final reporting waits for every QC approval; Ahmed prepares and Wilfred approves separately',()=>{
+test('final reporting waits for every team-lead approval; Ahmed prepares and Wilfred approves separately',()=>{
  let j=released();
  const all=()=>operationsFor(j).activities;
- for(const a of all()){const lead=a.stream==='PVT'?'SHEREIQI':'BAHRI',owner=a.stream==='PVT'?'NASSER':'YAQEEN';j=submit(assign(j,a,owner,lead),a,owner);j=approve(j,a,lead);}
- assert.equal(qcPending(j),true);assert.equal(finalReady(j),false);
+ for(const a of all()){const lead=a.stream==='PVT'?'SHEREIQI':'BAHRI',owner=a.stream==='PVT'?'NASSER':'YAQEEN';j=submit(assign(j,a,owner,lead),a,owner);}
+ assert.equal(approvalPending(j),true);assert.equal(finalReady(j),false);
  const file={id:'final',name:'final.pdf',size:10,type:'application/pdf',version:1,submittedBy:'SHEREIQI',submittedAt:at(),status:'Available',comments:''};
  let d=step(j,{type:'report-draft',kind:'final',text:'Final',checker:'SHEREIQI',file},'SHEREIQI');
- assert.throws(()=>step(d,{type:'report-action',kind:'final',action:'submit',comments:''},'SHEREIQI'),/4 required test\(s\) are not yet QC approved/);
- for(const a of all())j=qc(j,a);
+ assert.throws(()=>step(d,{type:'report-action',kind:'final',action:'submit',comments:''},'SHEREIQI'),/4 required test\(s\) are not yet approved by the team lead/);
+ for(const a of all())j=approve(j,a,a.stream==='PVT'?'SHEREIQI':'BAHRI');
  assert.equal(finalReady(j),true);
  assert.throws(()=>step(j,{type:'report-draft',kind:'final',text:'Final',checker:'',file},'WILFRED'),/not assigned/,'Wilfred does not prepare');
  j=step(j,{type:'report-draft',kind:'final',text:'Final',checker:'SHEREIQI',file},'SHEREIQI');j=step(j,{type:'report-action',kind:'final',action:'submit',comments:''},'SHEREIQI');
@@ -139,5 +128,5 @@ test('settings: team defaults and saved settings are validated; completed histor
  assert.deepEqual(readLabTeams(JSON.stringify({PVT:['NASSER','NASSER']}),['NASSER']),{PVT:['NASSER'],Chemical:[]});
  for(const raw of ['bad','[]',JSON.stringify({PVT:['GHOST']}),JSON.stringify({Chemical:'YAQEEN'})])assert.throws(()=>readLabTeams(raw,['NASSER','YAQEEN']));
  const legacy={...base(),status:'Completed',operations:{...operationsFor(base()),scopeConfirmedAt:'2026-08-01T00:00:00Z',activities:[{id:'old',scopeId:'original:x',sampleId:'1.01',title:'Old test',stream:'PVT',owner:'NASSER',start:'',due:'',conditions:'',notes:'',status:'Completed',files:[{id:'x',name:'x.xlsx',size:1,type:'',version:1,submittedBy:'NASSER',submittedAt:'2026-08-01T00:00:00Z',status:'Available',comments:''}],required:true}]}};
- assert.equal(qcPending(legacy),false,'work completed before QC is not asked for QC');assert.equal(labStatus(legacy.operations.activities[0]),'QC approved');
+ assert.equal(approvalPending(legacy),false,'completed work stays complete');assert.equal(labStatus(legacy.operations.activities[0]),'Approved');
 });

@@ -6,10 +6,9 @@ import { teamName } from './team-name';
 
 const roleNotes: Partial<Record<Responsibility, string>> = {
   pvtSupervisor: 'Supervisory overview of PVT work. Test assignment and workbook review stay with the PVT Team Lead.',
-  pvtTeamLead: 'Receives PVT work from the approved scope, assigns tests, reviews workbooks.',
-  chemicalTeamLead: 'Receives chemical work from the approved scope, assigns tests, reviews workbooks.',
+  pvtTeamLead: 'Receives PVT work from the approved scope, assigns tests, and approves finished tests (approval completes the test).',
+  chemicalTeamLead: 'Receives chemical work from the approved scope, assigns tests, and approves finished tests (approval completes the test).',
   finalApproval: 'Approves and signs the final report.',
-  qcReviewer: 'QC approval is separate from team-lead workbook approval and final approval. Team-lead-approved workbooks wait here until a reviewer is assigned.',
 };
 type Person = { id: string; name: string; role: string; departmentId: string; active: boolean };
 /** Who carries each workflow duty. Assigning a duty never grants a permission. */
@@ -25,7 +24,7 @@ function ResponsibilitySettings({ roles, employees, policy, onSave, error }: { r
     <div className="authorization-table-wrap"><table className="client-table"><thead><tr><th>Responsibility</th><th>Assigned employee</th><th>Status</th></tr></thead><tbody>
       {(Object.keys(responsibilityLabels) as Responsibility[]).map(key => {
         const id = draft[key], person = employees.find(e => e.id === id), permission = responsibilityPermission[key];
-        const status = !id ? (key === 'qcReviewer' ? 'QC reviewer not configured' : 'Not assigned · this step is blocked')
+        const status = !id ? 'Not assigned · this step is blocked'
           : invalid.includes(key) ? (person ? `Invalid: ${person.name} is inactive · this step is blocked` : `Invalid: employee record “${id}” no longer exists · this step is blocked`)
           : id !== administratorId && !policy[permission].includes(id) ? `Needs “${permissionLabels[permission]}” permission to act` : 'Ready';
         return <tr key={key}><th scope="row">{responsibilityLabels[key]}{roleNotes[key] && <small>{roleNotes[key]}</small>}</th>

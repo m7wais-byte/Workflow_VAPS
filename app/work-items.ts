@@ -1,5 +1,5 @@
 import type { JobRecord } from './page';
-import { phase2Undecided, phase2Ready, samplingWorkers, samplingStarted, jobFinished, jobCylinderSerials, operationsFor, samplingStatus, latestData, latest, labStatus, isDraft, canSeeDraft, samplingTeam, samplingApproved, finalReady, testsAwaitingQcApproval, assignmentEngineers, actorRoles, hasAccess, streamLead, additionalWorkPending, unplannedValidation, type Actor, type ActivityRecord, type Stream } from './operations-model';
+import { phase2Undecided, phase2Ready, samplingWorkers, samplingStarted, jobFinished, jobCylinderSerials, operationsFor, samplingStatus, latestData, latest, labStatus, isDraft, canSeeDraft, samplingTeam, samplingApproved, finalReady, testsAwaitingApproval, assignmentEngineers, actorRoles, hasAccess, streamLead, additionalWorkPending, unplannedValidation, type Actor, type ActivityRecord, type Stream } from './operations-model';
 import { containerLabel } from './sample-container';
 import { addDays as addDaysIso } from './local-date';
 import type { Responsibilities } from './authorization';
@@ -14,7 +14,7 @@ import { ukDate } from './uk-format';
  */
 export type ItemKind = 'returned' | 'review' | 'assignment' | 'task';
 /** Which part of the work a row belongs to: shown as a tag so PVT, Chemical and Sampling work are never confused. */
-export type Area = 'Sampling' | 'PVT' | 'Chemical' | 'Scope' | 'Final report' | 'Job setup' | 'QC';
+export type Area = 'Sampling' | 'PVT' | 'Chemical' | 'Scope' | 'Final report' | 'Job setup';
 /** The deadline a row shows: a test's own due date, or the overall job due date when the task has none of its own. */
 export type DueKind = 'Test due' | 'Job due';
 export type WorkItem = {
@@ -25,7 +25,7 @@ export type WorkItem = {
   /** Short name for the button that opens this action. */button: string;
   open: { tab: string } | { editor: 'type' | 'bottomhole' | 'report' | 'job'; sample?: string };
 };
-export type Setting = 'teams' | 'qcReviewer' | 'samplingApproval' | 'scopeSelector' | 'routing' | 'finalApproval' | 'pvtTeamLead' | 'chemicalTeamLead';
+export type Setting = 'teams' | 'samplingApproval' | 'scopeSelector' | 'routing' | 'finalApproval' | 'pvtTeamLead' | 'chemicalTeamLead';
 export type WaitingItem = {
   key: string; jobId: string; jobNumber: string; client: string; what: string; waitingOn: string; since?: string; open: { tab: string };
   /** Headline when "Waiting on {waitingOn}" does not read well, e.g. work this employee returned. */label?: string;
@@ -52,14 +52,12 @@ export function samplingEvents(job: JobRecord, me: string, approver: string): st
   return events;
 }
 /** Laboratory seen-marker keys (same format as the PVT Lab page). */
-export function labEvents(a: ActivityRecord, me: string, lead: string, qc: string): string[] {
+export function labEvents(a: ActivityRecord, me: string, lead: string): string[] {
   const v = a.files.length, events: string[] = [];
   const assignedAt = [...(a.history || [])].reverse().find((h) => h.to === me)?.at || a.start;
   if (a.owner === me && a.status !== 'Completed') events.push(`lab:assign:${a.id}:${assignedAt}`);
   if (a.owner === me && a.status === 'Changes Requested') events.push(`lab:return:${a.id}:${v}`);
   if (lead === me && a.status === 'Workbook Submitted') events.push(`lab:review:${a.id}:${v}`);
-  if (lead === me && a.status === 'QC Returned') events.push(`lab:qcret:${a.id}:${v}`);
-  if (qc === me && a.status === 'Awaiting QC') events.push(`lab:qc:${a.id}:${v}`);
   return events;
 }
 /** The sampling step that matches the job's current sampling status. */
@@ -78,9 +76,9 @@ export const sortItems = (items: WorkItem[], isNew: (i: WorkItem) => boolean) =>
   const score = (i: WorkItem) => i.overdue ? 0 : i.dueToday ? 1 : i.kind === 'returned' ? 2 : i.kind === 'review' ? 3 : 4;
   return score(a) - score(b) || (a.due || '9999').localeCompare(b.due || '9999') || Number(isNew(b)) - Number(isNew(a)) || a.jobNumber.localeCompare(b.jobNumber);
 });
-const areaOf = (key: string, stream?: Stream): Area => key.startsWith('draft:') ? 'Job setup' : /^(sampling|data-review|report-prep|report-review|report-fix):/.test(key) ? 'Sampling' : /^(scope|additions):/.test(key) ? 'Scope' : /^final/.test(key) ? 'Final report' : key.startsWith('qc:') ? 'QC' : stream || 'PVT';
+const areaOf = (key: string, stream?: Stream): Area => key.startsWith('draft:') ? 'Job setup' : /^(sampling|data-review|report-prep|report-review|report-fix):/.test(key) ? 'Sampling' : /^(scope|additions):/.test(key) ? 'Scope' : /^final/.test(key) ? 'Final report' : stream || 'PVT';
 /** Short employee responsibility labels, from configured duties. */
-export const dutyLabel: Record<string, string> = { scopeSelector: 'Scope selection', samplingApproval: 'Sampling approval', pvtSupervisor: 'PVT Supervisor', pvtTeamLead: 'PVT Team Lead', chemicalTeamLead: 'Chemistry Team Lead', reporting: 'Final report preparation', finalApproval: 'Final report approval', qcReviewer: 'QC review' };
+export const dutyLabel: Record<string, string> = { scopeSelector: 'Scope selection', samplingApproval: 'Sampling approval', pvtSupervisor: 'PVT Supervisor', pvtTeamLead: 'PVT Team Lead', chemicalTeamLead: 'Chemistry Team Lead', reporting: 'Final report preparation', finalApproval: 'Final report approval' };
 
 export function workItems(jobs: JobRecord[], actor: Actor, today: string) {
   const roles = actorRoles(actor), me = actor.id, name = (id?: string) => actor.employees.find((e) => e.id === id)?.name || 'Not assigned';
@@ -166,8 +164,8 @@ export function workItems(jobs: JobRecord[], actor: Actor, today: string) {
     }
     for (const a of lab) {
       const sample = job.samples?.find((s) => s.id === a.sampleId), streamLeadId = roles[streamLead(a.stream)];
-      const t = { ...base, sample: a.sampleId, container: sample ? containerLabel(sample) : undefined, test: a.title, stream: a.stream, status: labStatus(a), due: a.due || undefined, events: labEvents(a, me, streamLeadId, roles.qcReviewer), open: { tab: 'laboratory?activity=' + encodeURIComponent(a.id) } };
-      const history = a.history || [], lastReturn = [...history].reverse().find((h) => h.action === 'lead-returned'), lastQc = [...history].reverse().find((h) => h.action === 'qc-returned'), assigned = [...history].reverse().find((h) => h.to === a.owner);
+      const t = { ...base, sample: a.sampleId, container: sample ? containerLabel(sample) : undefined, test: a.title, stream: a.stream, status: labStatus(a), due: a.due || undefined, events: labEvents(a, me, streamLeadId), open: { tab: 'laboratory?activity=' + encodeURIComponent(a.id) } };
+      const history = a.history || [], lastReturn = [...history].reverse().find((h) => h.action === 'lead-returned'), assigned = [...history].reverse().find((h) => h.to === a.owner);
       const ext = a.external;
       if (ext && a.owner === me && hasAccess(actor, 'jobDetails') && (a.status === 'Scheduled' || a.status === 'In Progress')) {
         // Third-party work: the coordinator dispatches, waits on the provider, then submits the returned results for review.
@@ -180,22 +178,18 @@ export function workItems(jobs: JobRecord[], actor: Actor, today: string) {
         // A test planned to start later waits in Coming up; it can still be opened, and nothing blocks starting it early.
         else if (a.status === 'Scheduled' && a.start && a.start > today) soon({ key: `soon-test:${a.id}:${job.id}`, area: a.stream, role: `${teamName(a.stream)} test`, what: `${a.title} · Sample ${a.sampleId}`, after: `Planned start ${a.start}`, sample: a.sampleId, test: a.title, due: a.due || undefined, dueKind: 'Test due', open: t.open });
         else if (a.status === 'Scheduled' || a.status === 'In Progress' || a.status === 'Unassigned') add({ ...t, role: `${teamName(a.stream)} test`, button: a.status === 'Scheduled' ? 'Start test' : 'Mark as finished', key: `test:${a.id}:${job.id}`, kind: t.events.some((k) => k.includes(':assign:')) && a.status === 'Scheduled' ? 'assignment' : 'task', action: a.status === 'Scheduled' ? 'Start test and mark it finished' : 'Finish test and mark it finished', from: assigned?.by, fromLabel: 'Assigned by', comment: assigned?.comments || undefined });
-        else if (['Workbook Submitted', 'Awaiting QC', 'QC Returned'].includes(a.status)) wait({ ...base, key: `w-test:${a.id}:${job.id}`, sample: a.sampleId, test: a.title, what: `${a.title} · Sample ${a.sampleId} · workbook v${a.files.length}`, waitingOn: a.status === 'Awaiting QC' ? (roles.qcReviewer ? name(roles.qcReviewer) + ' (QC)' : 'QC (not configured)') : streamLeadId ? name(streamLeadId) + ' (team lead)' : 'Team lead (not configured)', blocked: a.status === 'Awaiting QC' && !roles.qcReviewer ? 'qcReviewer' : undefined, since: a.files.at(-1)?.submittedAt, open: t.open });
+        else if (a.status === 'Workbook Submitted') wait({ ...base, key: `w-test:${a.id}:${job.id}`, sample: a.sampleId, test: a.title, what: `${a.title} · Sample ${a.sampleId} · marked finished`, waitingOn: streamLeadId ? name(streamLeadId) + ' (team lead)' : 'Team lead (not configured)', since: a.files.at(-1)?.submittedAt, open: t.open });
       }
       if (streamLeadId === me && hasAccess(actor, 'analysis')) {
         if (a.status === 'Workbook Submitted') add({ ...t, role: `${teamName(a.stream)} Team Lead`, button: a.external ? 'Review results' : 'Review workbook', key: `review:${a.id}:${job.id}`, kind: 'review', action: a.external ? `Review external results v${a.files.length} (${a.external.provider})` : `Review workbook v${a.files.length}`, from: a.owner, fromLabel: 'Submitted by' });
         if (a.status === 'Workbook Submitted' && a.external) { const sub = [...(a.history || [])].reverse().find((h) => h.action === 'submitted'); alert({ key: `lab:ext:${a.id}:${a.files.length}`, kind: 'external', jobId: job.id, jobNumber: job.jobNumber, headline: 'External results submitted for review', samples: `Sample ${a.sampleId}${sample ? ' · ' + containerLabel(sample) : ''}`, scope: `${a.title} · External · ${a.external.provider}`, destination: a.stream, by: sub?.by || a.owner, at: sub?.at || a.files.at(-1)?.submittedAt || '', planner: me, assignee: a.owner, button: 'Review results', open: t.open, keys: [`lab:ext:${a.id}:${a.files.length}`, `lab:review:${a.id}:${a.files.length}`] }); }
-        if (a.status === 'QC Returned') add({ ...t, role: `${teamName(a.stream)} Team Lead`, button: 'Review QC return', key: `qcret:${a.id}:${job.id}`, kind: 'returned', action: 'Review QC return', from: lastQc?.by, fromLabel: 'Returned by QC', comment: [lastQc?.target, lastQc?.comments].filter(Boolean).join(' — ') });
         if (a.status === 'Changes Requested' && a.owner && a.owner !== me) wait({ ...base, key: `w-lead-ret:${a.id}:${job.id}`, sample: a.sampleId, test: a.title, label: `Waiting for ${name(a.owner)} to correct workbook`, what: `${a.title} · Sample ${a.sampleId} · you returned v${a.files.length}`, waitingOn: name(a.owner), since: lastReturn?.at, comment: [lastReturn?.target, lastReturn?.comments].filter(Boolean).join(' — ') || undefined, commentLabel: 'Your correction request', open: t.open });
-        if (a.status === 'Awaiting QC') wait({ ...base, key: `w-qc:${a.id}:${job.id}`, sample: a.sampleId, test: a.title, blocked: roles.qcReviewer ? undefined : 'qcReviewer', what: `${a.title} · Sample ${a.sampleId} · v${a.files.length} approved by you`, waitingOn: roles.qcReviewer ? name(roles.qcReviewer) + ' (QC)' : 'QC (not configured)', since: a.files.at(-1)?.leadApprovedAt, open: t.open });
       }
-      if (a.status === 'Awaiting QC' && roles.qcReviewer === me && hasAccess(actor, 'analysis')) add({ ...t, area: 'QC', role: 'QC review', button: 'QC review', key: `qc:${a.id}:${job.id}`, kind: 'review', action: `QC review workbook v${a.files.length}`, from: a.files.at(-1)?.leadApprovedBy, fromLabel: 'Team-lead approved by' });
-      if (a.status === 'Awaiting QC' && !roles.qcReviewer) block('qcReviewer', 'Team-lead-approved workbooks are waiting for a QC reviewer; final reporting is blocked.', job);
     }
     // Final laboratory report
     const final = latest(o.finalReports);
     if (roles.reporting === me && hasAccess(actor, 'analysis')) {
-      if (finalReady(job) && (!final || final.status === 'Draft')) add({ ...base, role: 'Final report preparation', button: final ? 'Submit final report' : 'Prepare final report', key: `final:${job.id}`, kind: 'task', action: final ? 'Submit final laboratory report' : 'Prepare final laboratory report', status: 'All tests QC approved', due: job.dueDate || undefined, events: [], open: { tab: 'reporting' } });
+      if (finalReady(job) && (!final || final.status === 'Draft')) add({ ...base, role: 'Final report preparation', button: final ? 'Submit final report' : 'Prepare final report', key: `final:${job.id}`, kind: 'task', action: final ? 'Submit final laboratory report' : 'Prepare final laboratory report', status: 'All tests approved', due: job.dueDate || undefined, events: [], open: { tab: 'reporting' } });
       if (final?.status === 'Changes Requested' && finalReady(job)) add({ ...base, role: 'Final report preparation', button: 'Correct final report', key: `final:${job.id}`, kind: 'returned', action: 'Correct final laboratory report', status: 'Final report returned', comment: final.comments, events: [], open: { tab: 'reporting' } });
       if (final?.status === 'Awaiting Approval') wait({ ...base, key: `w-final:${job.id}`, what: `Final laboratory report v${final.version}`, waitingOn: roles.finalApproval ? name(roles.finalApproval) : 'Final approval (not configured)', blocked: roles.finalApproval ? undefined : 'finalApproval', since: final.submittedAt, open: { tab: 'reporting' } });
     }
@@ -226,10 +220,9 @@ export function workItems(jobs: JobRecord[], actor: Actor, today: string) {
       const working = openLab.filter((a) => a.stream === stream && a.owner && ['Scheduled', 'In Progress', 'Changes Requested'].includes(a.status));
       if (working.length) soon({ key: `soon-review:${job.id}:${stream}`, area: stream, role: `${teamName(stream)} Team Lead`, what: `Review ${working.length} ${teamName(stream)} workbook(s)`, after: `After ${[...new Set(working.map((a) => name(a.owner)))].join(', ')} submit${working.length === 1 ? 's' : ''}`, open: { tab: 'laboratory?stream=' + stream } });
     }
-    if (roles.qcReviewer === me && hasAccess(actor, 'analysis') && openLab.some((a) => a.status !== 'Awaiting QC') && !openLab.some((a) => a.status === 'Awaiting QC')) soon({ key: `soon-qc:${job.id}`, area: 'QC', role: 'QC review', what: `QC review of ${openLab.length} test(s)`, after: 'After team-lead approval of each workbook', open: { tab: 'laboratory?view=qc' } });
     const final2 = latest(o.finalReports);
     if (o.scopeConfirmedAt && !finalReady(job) && openLab.length) {
-      if (roles.reporting === me && hasAccess(actor, 'analysis')) soon({ key: `soon-final:${job.id}`, area: 'Final report', role: 'Final report preparation', what: 'Prepare the final laboratory report', after: `After all ${lab.length} tests are QC approved (${lab.length - testsAwaitingQcApproval(job).length} done)`, open: { tab: 'reporting' } });
+      if (roles.reporting === me && hasAccess(actor, 'analysis')) soon({ key: `soon-final:${job.id}`, area: 'Final report', role: 'Final report preparation', what: 'Prepare the final laboratory report', after: `After all ${lab.length} tests are approved (${lab.length - testsAwaitingApproval(job).length} done)`, open: { tab: 'reporting' } });
       if (roles.finalApproval === me && hasAccess(actor, 'analysis')) soon({ key: `soon-final-approval:${job.id}`, area: 'Final report', role: 'Final report approval', what: 'Approve the final laboratory report', after: `After ${roles.reporting ? name(roles.reporting) : 'the report preparer'} submits it`, open: { tab: 'reporting' } });
     } else if (finalReady(job) && (!final2 || ['Draft', 'Changes Requested'].includes(final2.status)) && roles.finalApproval === me && roles.reporting !== me && hasAccess(actor, 'analysis')) soon({ key: `soon-final-approval:${job.id}`, area: 'Final report', role: 'Final report approval', what: 'Approve the final laboratory report', after: `After ${roles.reporting ? name(roles.reporting) : 'the report preparer'} submits it`, open: { tab: 'reporting' } });
     // Alerts: new or extended scope (to the configured planner of that team), assignments and reassignments.

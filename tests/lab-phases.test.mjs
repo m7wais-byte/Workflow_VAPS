@@ -11,7 +11,7 @@ const {initialDirectory}=await bundle('app/employee-directory.ts');
 
 const employees=initialDirectory().employees,policy=defaultAuthorization(employees.map(e=>e.id));
 const routing={'Black Oil — DL':'PVT','Gas Condensates (GC) — CCE':'PVT','Others — Water Analysis':'Chemical'};
-const roles={...defaultResponsibilities,qcReviewer:'AHAD',labReceipt:'SHEREIQI'};
+const roles={...defaultResponsibilities,labReceipt:'SHEREIQI'};
 const teams={PVT:['NASSER','RANJITH'],Chemical:['YAQEEN']};
 const actor=(id,extra={})=>({id,employees,policy,roles,routing,teams,...extra});
 let tick=0;const at=()=>new Date(Date.UTC(2026,10,2,6,0,tick++)).toISOString();const today='2026-11-02';
@@ -26,7 +26,7 @@ const acts=j=>operationsFor(j).activities;
 const view=(jobs,id,extra)=>workItems(jobs,actor(id,extra),today);
 const file=n=>({id:'f'+n+tick,name:`wb-${n}.xlsx`,size:10,type:''});
 const assign=(j,a,owner,start='2026-11-02',due='2026-11-06')=>step(j,{type:'schedule',id:a.id,owner,start,due,conditions:'',notes:'Use cell 2'},a.stream==='PVT'?'SHEREIQI':'BAHRI');
-const finish=(j,a)=>{const lead=a.stream==='PVT'?'SHEREIQI':'BAHRI';if(a.external){j=step(j,{type:'external-dispatch',id:a.id,sentOn:'2026-11-02',expectedReturn:'2026-11-10',notes:''},a.owner);j=step(j,{type:'external-results',id:a.id,receivedOn:'2026-11-09',notes:'',file:file(a.id)},a.owner);j=step(j,{type:'external-submit',id:a.id,notes:''},a.owner);}else j=step(j,{type:'workbook',id:a.id,file:file(a.id)},a.owner);j=step(j,{type:'lead-review',id:a.id,decision:'approve',target:'',comments:''},lead);return step(j,{type:'qc-review',id:a.id,decision:'approve',target:'',comments:''},'AHAD');};
+const finish=(j,a)=>{const lead=a.stream==='PVT'?'SHEREIQI':'BAHRI';if(a.external){j=step(j,{type:'external-dispatch',id:a.id,sentOn:'2026-11-02',expectedReturn:'2026-11-10',notes:''},a.owner);j=step(j,{type:'external-results',id:a.id,receivedOn:'2026-11-09',notes:'',file:file(a.id)},a.owner);j=step(j,{type:'external-submit',id:a.id,notes:''},a.owner);}else j=step(j,{type:'workbook',id:a.id,file:file(a.id)},a.owner);return step(j,{type:'lead-review',id:a.id,decision:'approve',target:'',comments:''},lead);};
 
 
 const p1=(j,samples,cond=conditions,reason='')=>step(j,{type:'lab-scope',action:'release',reason,conditions:cond,samples,phase:1},'SALIM');
