@@ -13,6 +13,9 @@ import { applyOperation, isTrashed, trashJob, restoreJob, operationComplete, lat
 import { readSavedRouting, effectiveRouting, storedTestRouting, testRoutingKey, type TestRouting, type SavedRouting } from './test-routing';
 import { readCustomTests, testCatalogueKey, catalogueIds, type CatalogueTest } from './test-catalogue';
 import { TestCatalogueSettings } from './test-settings';
+import { RequestsPanel } from './requests';
+import { RequestListSettings } from './request-settings';
+import { defaultRequestLists, readRequestLists, requestListsKey, type RequestLists } from './request-book';
 import { OverlapNotice } from './person-picker';
 import { readLabTeams, storedLabTeams, labTeamsKey, emptyLabTeams, type LabTeams } from './lab-teams';
 import { PvtLab, type LabTestProgress } from "./pvt-lab";
@@ -42,7 +45,7 @@ import { initialDirectory, loadDirectory, validateDirectory, directoryKey, type 
 import { SettingsShell, EmployeeSettings, OptionSettings, CompanySettings, defaultCompany, type Company } from "./settings-pages";
 import { BottleSettings } from "./bottle-settings";
 import { bottleStorageKey, validateBottle, type Bottle } from "./bottle-inventory";
-import { Bell, Inbox, BriefcaseBusiness, ChevronRight, FileText, FlaskConical, Gauge, LayoutDashboard, ListChecks, PackageSearch, Plus, Search, Settings, ShieldCheck, TriangleAlert } from "lucide-react";
+import { Bell, Inbox, BriefcaseBusiness, ChevronRight, ClipboardList, FileText, FlaskConical, Gauge, LayoutDashboard, ListChecks, PackageSearch, Plus, Search, Settings, ShieldCheck, TriangleAlert } from "lucide-react";
 import { DateInput, TimeInput, ukDate, ukDateTime } from "./uk-date";
 import { DOWNHOLE_TOOL, cylinderTypes, migrateJobNames, migrateCylinder, renameSource } from "./naming";
 
@@ -319,7 +322,7 @@ type CoordinationDetails = {
   requiredItems: string;
 };
 
-type WorkspaceView = "inventory" | "pvt-lab" | "dashboard" | "my-work" | "planning" | "overview" | "jobs" | "new-job" | "sampling" | "settings" | "profile";
+type WorkspaceView = "inventory" | "requests" | "pvt-lab" | "dashboard" | "my-work" | "planning" | "overview" | "jobs" | "new-job" | "sampling" | "settings" | "profile";
 
 const workflowStageNames = ["Job Setup", "Sampling Preparation", "Sampling Data", "Report Preview", "Final Report"];
 const samplingSources: SamplingSource[] = ["Open Hole – Field Sampling", "Open Hole – Lab Transfer", "Cased Hole (Bottomhole / Downhole Sampling)", "Wellhead Sampling", "Separator Sampling", "Station Sampling", "Other"];
@@ -403,8 +406,8 @@ const gorUnits = ["scf/STB", "Sm³/Sm³", "m³/m³", "Mscf/STB"];
 const cgrUnits = ["STB/MMscf", "bbl/MMscf", "Sm³/MSm³", "m³/m³"];
 const worUnits = ["bbl/bbl", "STB/STB", "m³/m³"];
 const bswUnits = ["% vol"];
-const navItems = ["Dashboard", "My work", "Jobs", "Sampling", "Laboratory", "Inventory", "Settings"];
-const navIcons = [LayoutDashboard, Inbox, BriefcaseBusiness, FlaskConical, ListChecks, PackageSearch, Settings];
+const navItems = ["Dashboard", "My work", "Jobs", "Sampling", "Laboratory", "Requests", "Inventory", "Settings"];
+const navIcons = [LayoutDashboard, Inbox, BriefcaseBusiness, FlaskConical, ListChecks, ClipboardList, PackageSearch, Settings];
 
 
 const emptySamples = (): Sample[] => ["1.01", "1.02", "1.03"].map((id) => ({
@@ -423,6 +426,8 @@ export default function Home() {
   const [legacyView,setLegacyView]=useState(false);
   const [dispatchReview,setDispatchReview]=useState(false);
   const [settingsPage, setSettingsPage] = useState('');
+  const [requestLists, setRequestLists] = useState<RequestLists>(defaultRequestLists);
+  const [requestListsError, setRequestListsError] = useState('');
   const [clientSearch, setClientSearch] = useState('');
   const [clientStatus, setClientStatus] = useState('all');
   useEffect(() => {
@@ -479,12 +484,12 @@ export default function Home() {
   const hasPermission = (permission: Permission) => !directoryError && !!demoEmployees.find(e=>e.id===currentEmployee?.id && e.active) && !authorizationError && allowed(authorization, currentEmployee?.id, permission);
   const assignedToSampling = () => { const j = storedJobs.find((item) => item.id === jobId); return !!j && !!currentEmployee && samplingWorkers(j).includes(currentEmployee.id); };
   const canView = (view: string) => {
-    if (view === "settings") return ["settings", "company", "employees", "authorization", "tests"].some(p=>hasPermission(p as Permission));
+    if (view === "settings") return ["settings", "company", "employees", "authorization", "tests", "requestsOverview"].some(p=>hasPermission(p as Permission));
     // Sampling team members assigned to this job reach its sampling sheets through the assignment, whatever their department.
     if (view === "new-job") return createdJobId ? hasPermission("jobDetails") && (stage === "job" || hasPermission("sampling") || assignedToSampling()) : hasPermission("createJob");
     // Company-wide figures need their own permission; job details alone grants personal views only.
     if (view === "overview") return hasPermission("companyOverview") && hasPermission("jobDetails");
-    const permission = ({ jobs: "jobDetails", workflow: "jobDetails", planning: "jobDetails", sampling: "sampling", "pvt-lab": "analysis", inventory: "inventory" } as Record<string, Permission>)[view];
+    const permission = ({ jobs: "jobDetails", workflow: "jobDetails", planning: "jobDetails", sampling: "sampling", "pvt-lab": "analysis", inventory: "inventory", requests: "requests" } as Record<string, Permission>)[view];
     return !permission || hasPermission(permission);
   };
   useEffect(() => {
@@ -502,6 +507,7 @@ export default function Home() {
       try { const custom = readCustomTests(window.localStorage.getItem(testCatalogueKey)); const raw = readSavedRouting(window.localStorage.getItem(testRoutingKey), catalogueIds(custom)); setCustomTests(custom); setSavedRoutingRaw(raw); setTestRouting(effectiveRouting(raw)); setTestRoutingError(""); }
       catch { setTestRouting({}); setTestRoutingError("Saved test catalogue or routing could not be loaded. Laboratory scope release is blocked until it is restored."); }
       setDemoSetupState(readDemoSetup());
+      try { setRequestLists(readRequestLists(window.localStorage.getItem(requestListsKey))); setRequestListsError(''); } catch { setRequestListsError('Request Book lists could not be read. Saved data has been preserved; the built-in lists are shown and cannot be changed until it is repaired.'); }
       try { setLabTeams(readLabTeams(window.localStorage.getItem(labTeamsKey), loadDirectory().employees.map(person => person.id))); setLabTeamsError(""); }
       catch { setLabTeams(emptyLabTeams()); setLabTeamsError("Saved laboratory teams could not be loaded. Test assignment is blocked until they are saved again."); }
     };
@@ -1877,7 +1883,7 @@ export default function Home() {
         </div>
         <nav aria-label="Primary navigation">
           <p className="nav-label">WORKSPACE</p>{hasPermission("createJob") && <button type="button" className="nav-item" onClick={startNewJob}><Plus size={18} /> Create new job</button>}
-          {navItems.map((item, index) => { const NavIcon = navIcons[index]; const view = ({ Dashboard: "dashboard", "My work": "my-work", Jobs: "jobs", Sampling: "sampling", Laboratory: "pvt-lab", Inventory: "inventory", Settings: "settings" } as Record<string, string>)[item]; if (!canView(view)) return null;
+          {navItems.map((item, index) => { const NavIcon = navIcons[index]; const view = ({ Dashboard: "dashboard", "My work": "my-work", Jobs: "jobs", Sampling: "sampling", Laboratory: "pvt-lab", Requests: "requests", Inventory: "inventory", Settings: "settings" } as Record<string, string>)[item]; if (!canView(view)) return null;
             // Inside a job, the view the employee came from stays highlighted.
             const here = workspaceView === "workflow" ? returnTo : workspaceView === "planning" ? "my-work" : workspaceView === "overview" ? "dashboard" : workspaceView;
             const badge = item === "Sampling" ? nowItems.filter((i) => i.area === "Sampling").length : item === "Laboratory" ? nowItems.filter((i) => ["PVT", "Chemical", "QC"].includes(i.area)).length : item === "My work" ? nowItems.length : 0;
@@ -1910,7 +1916,7 @@ export default function Home() {
       </div>; })()}<main className={workspaceView === "my-work" ? "inbox-main" : ""}>
         <header className="topbar">
           <button className="menu-button" type="button" aria-label="Open menu">☰</button>
-          <div className="breadcrumb"><span>{workspaceView === "inventory" ? "Inventory" : workspaceView === "settings" ? "Settings" : workspaceView === "profile" ? "Employee" : "Workspace"}</span><b>/</b><strong>{workspaceView === "workflow" ? (workflowJob?.jobNumber || "Job workflow") : workspaceView === "inventory" ? "Cylinder inventory" : workspaceView === "settings" ? ({company:"Company",clients:"Clients",employees:"Employees",authorization:"Authorization",tests:"Tests",departments:"Departments & Positions"}[settingsPage] || "Overview") : workspaceView === "profile" ? "My Profile" : workspaceView === "my-work" ? "My work" : workspaceView === "dashboard" ? "Dashboard" : workspaceView === "planning" ? "Weekly plan" : workspaceView === "overview" ? "Activity log" : workspaceView === "jobs" ? "Jobs" : workspaceView === "sampling" ? (samplingTab === "reports" ? "Sampling · Sampling Reports" : "Sampling") : workspaceView === "pvt-lab" ? "Laboratory" : client || currentJob ? displayJobId : "New job"}</strong></div>
+          <div className="breadcrumb"><span>{workspaceView === "inventory" ? "Inventory" : workspaceView === "requests" ? "Laboratory" : workspaceView === "settings" ? "Settings" : workspaceView === "profile" ? "Employee" : "Workspace"}</span><b>/</b><strong>{workspaceView === "workflow" ? (workflowJob?.jobNumber || "Job workflow") : workspaceView === "inventory" ? "Cylinder inventory" : workspaceView === "requests" ? "Requests" : workspaceView === "settings" ? ({company:"Company",clients:"Clients",employees:"Employees",authorization:"Authorization",tests:"Tests","request-lists":"Request Book lists",departments:"Departments & Positions"}[settingsPage] || "Overview") : workspaceView === "profile" ? "My Profile" : workspaceView === "my-work" ? "My work" : workspaceView === "dashboard" ? "Dashboard" : workspaceView === "planning" ? "Weekly plan" : workspaceView === "overview" ? "Activity log" : workspaceView === "jobs" ? "Jobs" : workspaceView === "sampling" ? (samplingTab === "reports" ? "Sampling · Sampling Reports" : "Sampling") : workspaceView === "pvt-lab" ? "Laboratory" : client || currentJob ? displayJobId : "New job"}</strong></div>
           <div className="top-actions">
             <button className="settings-shortcut" type="button" onClick={() => { setWorkspaceView("settings"); }}><Settings size={18} aria-hidden="true" />Settings</button>
             {workspaceView === "my-work" || workspaceView === "dashboard" ? <span className="top-date">{dashboardDate}</span> : <span className="local-pill"><span className="status-dot" /> Local demo</span>}
@@ -2009,6 +2015,8 @@ export default function Home() {
                 <section className="panel"><div className="panel-heading"><span className="section-number">02</span><div><h2>Activity history</h2><p>Your recent recorded actions.</p></div></div><div className="profile-history">{myActivities.slice(0, 8).map((item) => <article key={item.id}><span className="timeline-dot" /><div><strong>{item.action}</strong><p>{item.jobId}</p><small>{formatDateTime(item.timestamp)}</small></div></article>)}</div></section>
               </div>
             </>
+          ) : workspaceView === "requests" ? (
+            <RequestsPanel key={currentEmployee.id} me={{ id: currentEmployee.id, name: currentEmployee.name }} canOverview={hasPermission("requestsOverview")} lists={requestLists} />
           ) : workspaceView === "inventory" ? (
             <>
               <section className="page-intro inventory-intro"><div><span className="eyebrow">INVENTORY · CYLINDERS</span><h1>Inventory</h1><p>Manage cylinder types, serial numbers and capacities.</p></div></section>
@@ -2028,6 +2036,7 @@ export default function Home() {
               {settingsPage==='employees' && hasPermission('employees') && <EmployeeSettings directory={directory} onSave={saveDirectory} jobs={storedJobs} onReview={item=>{setWorkflowJobId(item.id);setWorkspaceView('workflow');}} />}
               {settingsPage==='departments' && hasPermission('employees') && <OptionSettings directory={directory} onSave={saveDirectory} />}
               {settingsPage==='company' && hasPermission('company') && <CompanySettings company={company} onSave={next=>{if(!hasPermission('company')) throw Error('You cannot manage company details.'); localStorage.setItem('vaps-company-v1',JSON.stringify(next));setCompany(next);}} />}
+              {settingsPage === "request-lists" && hasPermission("requestsOverview") && <RequestListSettings lists={requestLists} error={requestListsError} onSave={(next) => { if (!hasPermission("requestsOverview") || requestListsError) return false; try { window.localStorage.setItem(requestListsKey, JSON.stringify(next)); setRequestLists(next); return true; } catch { return false; } }} />}
               {settingsPage === "tests" && hasPermission("tests") && <TestCatalogueSettings key={JSON.stringify([customTests, savedRoutingRaw])} custom={customTests} saved={savedRoutingRaw} error={testRoutingError} demoActive={demoActive} onSave={(custom, routing) => {
                 if (!hasPermission("tests") || testRoutingError) return false;
                 try {

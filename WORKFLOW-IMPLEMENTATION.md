@@ -370,3 +370,18 @@ Model rules, permissions and stored records are unchanged; only the PVT Team Lea
 - **Start date and due date per step:** choosing an engineer proposes today as the start; the lead moves it later when the engineer is busy until then. The due date cannot be before the start. Dates and note are enabled once an engineer is chosen. The advisory schedule-overlap notice checks the start–due range on changed rows.
 - **Third-party** execution is a per-row link ("Send to third-party lab") with provider and expected return; the engineer is then the internal coordinator.
 - Other viewers see the same table read-only with status. The "Awaiting your assignment" list below is unchanged.
+
+## Requests (PVT request book)
+
+A separate panel, **Requests**, replaces the laboratory's Excel request book for liquid and gas samples sent for
+composition analysis. It does not read or change jobs.
+
+- `app/request-book.ts` holds the rules: single request = next base number, staged request = base × 100 + stage
+  (1–8 stages), one status per stage (Received → In progress → Completed → Delivered) with automatic completed and
+  delivered dates, the required H2S answer, and the dashboard figures.
+- `app/request-store.ts` keeps the records in this browser's IndexedDB; numbers are assigned inside the save
+  transaction. `app/request-import.ts` imports the Excel "Request Log" sheet in the browser and exports CSV.
+- Access (Settings → Authorization): `requests` adds and edits any request, works Open items and finds a request by
+  number; `requestsOverview` adds the Dashboard, All requests, import / export and Settings → Request Book lists.
+- Like the rest of the workspace, records are stored per browser until shared storage exists (see Remaining
+  production blockers). Use one laboratory computer for the request book and export regularly.
