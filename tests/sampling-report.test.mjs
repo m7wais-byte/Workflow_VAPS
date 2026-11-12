@@ -39,11 +39,13 @@ test('sample IDs and measurements match between listing and sheets; recorded uni
   assert.deepEqual(listing, ['1.01', '1.02', '1.03', '1.04']);
   assert.deepEqual(sheets, listing);
   const s = m.pages[5].sheet;
-  const all = Object.fromEntries([...s.identification.left, ...s.identification.right, ...s.shipping.left, ...s.shipping.right, ...s.matched.left, ...s.production.flat()]);
+  const all = Object.fromEntries([...s.identification.left, ...s.identification.right, ...s.shipping.left, ...s.shipping.right, ...s.matched.left, ...s.matched.right, ...s.production.flat()]);
   assert.equal(all['BHP:'], '13835 kPa');
   assert.equal(all['BHT:'], '64.9 °C');
   assert.equal(all['Final Pressure:'], '27579 kPa @ 64.9 °C');
-  assert.equal(all['Opening Pressure:'], '1034 kPa @ 25 °C');
+  assert.equal(all['Opening P @ Ambient:'], '1034 kPa @ 25 °C', 'a sheet saved before the split keeps its opening pressure as the ambient reading');
+  assert.equal(all['Opening P @ Res. Temp:'], 'Not recorded');
+  assert.equal(all['Sampling Point:'], '1520.4 MDBRT(m)', 'older sheets keep their combined point / depth entry');
   assert.equal(all['Cylinder No:'], 'PDS S1.01');
   assert.equal(all['Sampling Date:'], '7-Oct-26');
   assert.equal(all['WHP:'], 'N/A', 'N/A is shown as entered, without a unit');
@@ -125,7 +127,7 @@ test('the default summary is built only from recorded information and adapts to 
     'Vision Advanced Petroleum Solutions was contracted by PDO for open hole sample transfer (laboratory transfer).\n\nA total of Four samples were recorded in Four PDS.\n\nAll of the samples are recorded for the well W-1.');
   const wellhead = s({ samplingSource: 'Wellhead Sampling', samples: [{ id: 'A', containerType: 'Glass container', containerId: 'G1' }, { id: 'B', bottle: 'SSB', bottleSerial: '9' }, { id: 'C' }] });
   assert.match(wellhead, /for wellhead sampling\./);
-  assert.match(wellhead, /A total of Three samples were recorded in One glass container and One SSB\. The container type is not recorded for one sample\./);
+  assert.match(wellhead, /A total of Three samples were recorded in One glass bottle and One SSB\. The container type is not recorded for one sample\./);
   assert.doesNotMatch(wellhead, /MPSR|PDS|transfer/);
   const spmc = s({ samplingSource: 'Open Hole (SPMC - Field Sampling)', samples: [{ id: 'A', bottle: 'PDS', sampler: 'SPS' }, { id: 'B', bottle: 'PDS', sampler: 'SPS' }] });
   assert.match(spmc, /open hole field sampling\.[\s\S]*Two PDS\.[\s\S]*Samplers recorded: Two SPS\./);

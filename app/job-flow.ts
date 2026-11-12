@@ -151,6 +151,8 @@ function laboratorySection(job: JobRecord, roles: Responsibilities): FlowSection
       if (plan.length) { g.note = 'Steps for sample ' + [...new Set(plan.flatMap((p) => p.sampleIds))].join(', ') + ' are chosen by the PVT Team Lead.'; if (g.state === 'completed') g.state = 'in-progress'; }
       groups.push(g);
     }
+    // Validation steps done by Chemistry (GC) keep their own group under the Chemistry team.
+    if (stream === 'Chemical' && validation.length) groups.push(group({ id: 'lab:validation:Chemical', label: 'Validation · Chemistry', stream, kind: 'validation', steps: validation.map((a) => activityStep(a, roles, isAdditional(a))) }));
     const tests = list.filter((a) => a.kind !== 'validation').sort(sampleOrder);
     if (tests.length) groups.push(group({ id: 'lab:tests:' + stream, label: stream + ' tests', stream, kind: 'tests', steps: tests.map((a) => activityStep(a, roles, isAdditional(a))) }));
   }

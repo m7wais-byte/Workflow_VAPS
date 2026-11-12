@@ -51,8 +51,8 @@ export function readCylinderStatus(raw?: string | null): CylinderStatusMap {
   } catch { return {}; }
 }
 
-/** Cylinder serials a job holds (glass containers are not in the cylinder inventory). */
-export const jobCylinders = (job: CylinderJob) => [...new Set((job.samples || []).filter((s) => s.containerType !== 'Glass container' && s.bottleSerial?.trim()).map((s) => s.bottleSerial!.trim()))];
+/** Cylinder serials a job holds (glass bottles and IATA cans are not in the cylinder inventory). */
+export const jobCylinders = (job: CylinderJob) => [...new Set((job.samples || []).filter((s) => s.containerType !== 'Glass container' && s.containerType !== 'IATA can' && s.bottleSerial?.trim()).map((s) => s.bottleSerial!.trim()))];
 
 export type EffectiveStatus = { state: CylinderState; job?: { id: string; jobNumber: string; sampleIds: string[] }; record?: CylinderRecord; releasedAt?: string };
 

@@ -87,3 +87,19 @@ test('older single-phase scopes keep their view and cannot be released as phases
  assert.equal(phasedScope(j),false);assert.deepEqual(phase2Undecided(j),[]);
  assert.throws(()=>p1(j,released(j).samples.map(strip)),/released in one step/);
 });
+
+test('Phase 1: GC is a Validation step done by Chemistry; the Chemistry Team Lead assigns it and Phase 2 waits for it',()=>{
+ let j=p1(approved(),[e('1.01',{fluidType:'Black Oil',validation:true,validationSteps:['Flash','GC','PV']}),e('1.02',{fluidType:'STO',destination:'Chemical'}),e('1.03',{fluidType:'Black Oil'})]);
+ const val=acts(j).filter(a=>a.kind==='validation');
+ assert.deepEqual(val.map(a=>[a.title,a.stream]),[['Flash','PVT'],['GC','Chemical'],['PV','PVT']],'GC follows Flash and belongs to Chemistry');
+ const gc=val.find(a=>a.title==='GC');
+ assert.throws(()=>step(j,{type:'schedule',id:gc.id,owner:'NASSER',start:'2026-11-02',due:'2026-11-06',conditions:'',notes:''},'SHEREIQI'),'the PVT Team Lead does not assign GC');
+ assert.ok(view([j],'BAHRI').actions.some(i=>i.stream==='Chemical'),'the Chemistry Team Lead is asked to assign GC');
+ // The PVT Team Lead re-planning the PVT steps never removes or duplicates the Chemistry step.
+ j=step(j,{type:'validation-plan',scopeId:gc.scopeId,steps:[{title:'Flash'}]},'SHEREIQI');
+ assert.deepEqual(acts(j).filter(a=>a.kind==='validation').map(a=>a.title).sort(),['Flash','GC']);
+ for(const a of acts(j).filter(a=>a.title==='Flash')){j=assign(j,a,'NASSER');j=finish(j,acts(j).find(x=>x.id===a.id));}
+ assert.equal(phase2Ready(j,'1.01'),false,'Validation is not complete until GC is done');
+ j=assign(j,acts(j).find(a=>a.title==='GC'),'YAQEEN');j=finish(j,acts(j).find(a=>a.title==='GC'));
+ assert.equal(phase2Ready(j,'1.01'),true);
+});

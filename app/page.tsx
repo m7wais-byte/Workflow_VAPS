@@ -27,9 +27,9 @@ import { localDate } from "./local-date";
 import { nextJobSequence, nextJobRecordId, assertJobNumberAvailable } from "./job-numbering";
 import { workItems, inboxRows, sortItems, jobsNeedingAction, samplingStage, samplingEvents as samplingEventsFor, labEvents as labEventsFor, type WorkItem } from "./work-items";
 import { readDemoSetup, saveDemoSetup, type DemoSetup } from "./demo-setup";
-import { standardSheetErrors, samplingIssues, samplingSummary } from "./sampling-validation";
-import { defaultFieldData } from "./sample-defaults";
-import { containerComplete, containerId, containerLabel, containerNoun, containerTypes, isGlass, type ContainerType } from "./sample-container";
+import { standardSheetErrors, samplingIssues, samplingSummary, matchedFields, productionFields } from "./sampling-validation";
+import { defaultFieldData, samplingPointFor, samplingPointOptions } from "./sample-defaults";
+import { containerComplete, containerId, containerLabel, containerNoun, containerTypeName, containerTypes, containerVolumes, isAtmospheric, type ContainerType } from "./sample-container";
 import { buildDemoJobs, demoClient, demoLogin, demoConfiguration } from "./demo-data";
 import { storeWorkbook } from "./workbook-storage";
 import { cylinderStatusKey, cylinderStatuses, readCylinderStatus, selectable, cylinderStateLabel, type CylinderStatusMap, type EffectiveStatus } from "./cylinder-status";
@@ -53,12 +53,12 @@ function ReviewData({ value }: { value: Record<string, unknown> }) {
   return <dl className="review-data-grid">{Object.entries(value).filter(([key]) => key !== "dataUrl").map(([key, entry]) => <div key={key}><dt>{key.replace(/([a-z])([A-Z])/g, "$1 $2")}</dt><dd>{entry && typeof entry === "object" ? <ReviewData value={entry as Record<string, unknown>} /> : typeof entry === "boolean" ? (entry ? "Yes" : "No") : String(entry ?? "") || "Not recorded"}</dd></div>)}</dl>;
 }
 
-function CylinderPicker({ sample, onSelect, onField, inventory, status, jobId }: { inventory: Bottle[]; status: (serial: string) => EffectiveStatus; jobId: string; sample: { id: string; bottle: string; bottleSerial: string; bottleCapacity: string; containerType?: ContainerType; containerId?: string }; onSelect: (serial: string) => void; onField: (field: "containerType" | "containerId", value: string) => void }) {
-  const typeSelect = <label><span>Container Type *</span><select value={sample.containerType || "Bottle"} onChange={(event) => onField("containerType", event.target.value)} aria-label={`Container type for sample ${sample.id}`}>{containerTypes.map((type) => <option key={type} value={type}>{type === "Bottle" ? "Cylinder" : type}</option>)}</select></label>;
-  if (isGlass(sample)) return <div className="cylinder-picker">{typeSelect}
-    <label><span>Glass Container ID *</span><input value={sample.containerId || ""} onChange={(event) => onField("containerId", event.target.value)} aria-label={`Glass container ID for sample ${sample.id}`} placeholder="ID or label written on the container" /></label>
-    <p className="cylinder-selection-details">Glass containers are not part of the cylinder inventory, so no cylinder type or serial is needed.</p>
-  </div>;
+function CylinderPicker({ sample, onSelect, onField, inventory, status, jobId }: { inventory: Bottle[]; status: (serial: string) => EffectiveStatus; jobId: string; sample: { id: string; bottle: string; bottleSerial: string; bottleCapacity: string; containerType?: ContainerType; containerId?: string; containerVolume?: string }; onSelect: (serial: string) => void; onField: (field: "containerType" | "containerVolume", value: string) => void }) {
+  const typeSelect = <label><span>Container Type *</span><select value={sample.containerType || "Bottle"} onChange={(event) => onField("containerType", event.target.value)} aria-label={`Container type for sample ${sample.id}`}>{containerTypes.map((type) => <option key={type} value={type}>{containerTypeName[type]}</option>)}</select></label>;
+  if (isAtmospheric(sample)) { const noun = containerNoun(sample), volumes = containerVolumes[sample.containerType as keyof typeof containerVolumes]; return <div className="cylinder-picker">{typeSelect}
+    <label><span>{noun} Volume *</span><select value={sample.containerVolume || ""} onChange={(event) => onField("containerVolume", event.target.value)} aria-label={`${noun} volume for sample ${sample.id}`}><option value="">Select volume</option>{volumes.map((volume) => <option key={volume}>{volume}</option>)}</select></label>
+    <p className="cylinder-selection-details">{sample.containerId ? `Recorded container ID: ${sample.containerId}. ` : ""}{noun}s are not part of the cylinder inventory, so no cylinder type or serial number is needed.</p>
+  </div>; }
   return <BottlePicker sample={sample} onSelect={onSelect} inventory={inventory} typeSelect={typeSelect} status={status} jobId={jobId} />;
 }
 
@@ -96,6 +96,8 @@ type Sample = {
   bottleCapacity: string;
   /** Missing on records saved before glass containers were supported; those are bottles. */
   containerType?: ContainerType;
+  /** Glass bottle / IATA can volume, e.g. "500 mL". */
+  containerVolume?: string;
   /** Glass-container identifier. Bottles keep using bottleSerial from the inventory. */
   containerId?: string;
   calibrationStatus: string;
@@ -1194,7 +1196,10 @@ export default function Home() {
 
 
   function updateSampleFieldData(id: string, field: string, value: string) {
-    setSamples((current) => current.map((sample) => sample.id === id ? {
+    // Production conditions of a separator set are one record: an entry on any cylinder is written to the whole set.
+    const source = samples.find((sample) => sample.id === id);
+    const setWide = !!source && inSeparatorSet(source) && productionFields.includes(field.replace(/Unit$/, ""));
+    setSamples((current) => current.map((sample) => sample.id === id || (setWide && inSeparatorSet(sample) && sample.set === source.set) ? {
       ...sample,
       depth: field === "depth" ? value : sample.depth,
       notes: field === "notes" ? value : sample.notes,
@@ -1261,7 +1266,11 @@ export default function Home() {
   }
 
 
-  function standardDataSheetForm(sample: Sample): ReactNode {
+  /** Separator cylinders of one set share the production conditions during sampling. */
+  function inSeparatorSet(sample: Sample) { return !!sample.set && (sample.samplingSource || samplingType) === "Separator Sampling"; }
+
+  /** Full data sheet of one sample, or only its production conditions (shown once per separator set). */
+  function standardDataSheetForm(sample: Sample, only?: "production"): ReactNode {
     const U = (label: string, field: string, units: string[], unitField = field + "Unit", placeholder?: string) => samplingUnitField(sample, label, field, unitField, units, { required: true, placeholder, na: true });
     const T = (label: string, field: string, placeholder = "Value") => samplingTextField(sample, label, field, { required: true, placeholder, na: true });
     const filled = (field: string) => Boolean((field === "depth" ? sample.depth : sample.fieldData[field] || "").trim());
@@ -1275,34 +1284,40 @@ export default function Home() {
     const group = (title: string, body: ReactNode) => <div className="sheet-group"><h4>{title}</h4><div className="technical-field-grid">{body}</div></div>;
     const natureValue = sample.fieldData.sampleNature || "";
     const natureList = sampleNatureOptions.some(([code]) => code === natureValue) || !natureValue ? sampleNatureOptions : [[natureValue, natureValue] as [string, string], ...sampleNatureOptions];
-    return <>
-      <div className="standard-sheet-toolbar"><div><strong>Sample data sheet</strong><small>Fill every field and pick its unit. If a condition does not apply, press <span className="na-toggle is-sample">N/A</span> beside that field. Nothing is set to N/A automatically.</small></div></div>
-      {section("1", "Identification", "When, where and what was sampled", ["samplingDate", "samplingTime", "sampleNature", "depth", "flowPeriod", "formation", "perforations"], <div className="technical-field-grid">
-        {samplingTextField(sample, "Sampling Date", "samplingDate", { required: true, type: "date" })}
-        {samplingTextField(sample, "Sampling Time", "samplingTime", { required: true, type: "time" })}
-        <label><span>Sample Nature *</span><select value={natureValue} onChange={(event) => updateSampleFieldData(sample.id, "sampleNature", event.target.value)}><option value="">Select sample nature</option>{natureList.map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select></label>
-        {U("Sampling Point / Depth", "depth", depthUnits, "depthUnit", "Depth, or point description")}
-        {U("Flow Period", "flowPeriod", flowPeriodUnits)}
-        {T("Formation", "formation")}
-        {U("Perforations", "perforations", depthUnits, "perforationsUnit", "e.g. 2500–2510")}
-      </div>, true)}
-      {section("2", "Shipping conditions", "Cylinder and sample volumes and the final cylinder condition", ["sampleBottleVolume", "sampleVolume", "fluidRemaining", "gasCapCreated", "finalPressure", "finalTemperature"], <div className="technical-field-grid">
-        {U("Sample Cylinder Volume", "sampleBottleVolume", volumeUnits)}{U("Sample Volume", "sampleVolume", volumeUnits)}{U("Fluid Remaining", "fluidRemaining", volumeUnits)}
-        {samplingSelectField(sample, "Gas Cap Created", "gasCapCreated", ["Yes", "No", "N/A"])}
-        {U("Final Cylinder Pressure", "finalPressure", pressureUnits)}{U("Final Cylinder Temperature", "finalTemperature", temperatureUnits)}
-      </div>)}
-      {section("3", "Transfer conditions", "Opening and transfer conditions for the sample cylinder and the receiving cylinder", ["initialOpeningPressure", "initialOpeningTemperature", "receivingBottleOpeningPressure", "receivingBottleOpeningTemperature", "transferPressure", "transferTemperature", "transferDuration"], <>
-        {group("Sample cylinder (opening)", <>{U("Sample Opening Pressure", "initialOpeningPressure", pressureUnits)}{U("Sample Opening Temperature", "initialOpeningTemperature", temperatureUnits)}</>)}
-        {group("Receiving cylinder (opening)", <>{U("Receiving Cylinder Opening Pressure", "receivingBottleOpeningPressure", pressureUnits)}{U("Receiving Cylinder Opening Temperature", "receivingBottleOpeningTemperature", temperatureUnits)}</>)}
-        {group("Transfer", <>{U("Transfer Pressure", "transferPressure", pressureUnits)}{U("Transfer Temperature", "transferTemperature", temperatureUnits)}{U("Transfer Duration", "transferDuration", durationUnits)}</>)}
-      </>)}
-      {section("4", "Production conditions during sampling", "Measured values with units, or N/A where a condition does not apply", ["bhp", "bht", "whp", "wht", "chokeSize", "stableSince", "h2s", "co2", "separatorPressure", "separatorTemperature", "gasRate", "gasGravity", "gasDifferentialPressure", "gasPressure", "gasTemperature", "fbFactor", "fpvFactor", "oilRate", "correctedBy", "condensateGravity", "oilLineTemperature", "waterRate", "gor", "cgr", "wor", "bsw"], <>
+    const pointValue = sample.fieldData.samplingPoint || "";
+    const pointList = !pointValue || samplingPointOptions.includes(pointValue) ? samplingPointOptions : [pointValue, ...samplingPointOptions];
+    const shared = inSeparatorSet(sample), atmospheric = isAtmospheric(sample);
+    const production = section(shared ? `S${sample.set}` : "4", shared ? `Set ${sample.set} · Separator sampling conditions` : "Production conditions during sampling", shared ? "Entered once for the set; applies to every cylinder of the set" : "Measured values with units, or N/A where a condition does not apply", productionFields, <>
         {group("Well", <>{U("Bottomhole Pressure (BHP)", "bhp", pressureUnits)}{U("Bottomhole Temperature (BHT)", "bht", temperatureUnits)}{U("Wellhead Pressure (WHP)", "whp", pressureUnits)}{U("Wellhead Temperature (WHT)", "wht", temperatureUnits)}{U("Choke Size", "chokeSize", chokeUnits)}{T("Stable Since", "stableSince", "Date/time")}</>)}
         {group("Gas composition", <>{U("H₂S", "h2s", concentrationUnits)}{U("CO₂", "co2", concentrationUnits)}</>)}
         {group("Separator & gas", <>{U("Separator Pressure", "separatorPressure", pressureUnits)}{U("Separator Temperature", "separatorTemperature", temperatureUnits)}{U("Gas Rate (std)", "gasRate", gasRateUnits)}{U("Gas Gravity", "gasGravity", gasGravityUnits)}{U("Gas Differential Pressure", "gasDifferentialPressure", pressureUnits)}{U("Gas Pressure", "gasPressure", pressureUnits)}{U("Gas Temperature", "gasTemperature", temperatureUnits)}{T("Fb Factor (dimensionless)", "fbFactor")}{T("Fpv Factor (dimensionless)", "fpvFactor")}</>)}
         {group("Oil & water", <>{U("Oil Rate", "oilRate", liquidRateUnits)}{T("Corrected By", "correctedBy", "Name or reference")}{U("Oil Gravity", "condensateGravity", liquidGravityUnits)}{U("Oil Line Temperature", "oilLineTemperature", temperatureUnits)}{U("Water Rate", "waterRate", liquidRateUnits)}</>)}
         {group("Ratios", <>{U("GOR", "gor", gorUnits)}{U("CGR", "cgr", cgrUnits)}{U("WOR", "wor", worUnits)}{U("BSW", "bsw", bswUnits)}</>)}
+      </>);
+    if (only === "production") return production;
+    return <>
+      <div className="standard-sheet-toolbar"><div><strong>Sample data sheet</strong><small>Fill every field and pick its unit. If a condition does not apply, press <span className="na-toggle is-sample">N/A</span> beside that field. Nothing is set to N/A automatically.</small></div></div>
+      {section("1", "Identification", "When, where and what was sampled", ["samplingDate", "samplingTime", "sampleNature", "samplingPoint", "depth", "flowPeriod", "formation", "perforations"], <div className="technical-field-grid">
+        {samplingTextField(sample, "Sampling Date", "samplingDate", { required: true, type: "date" })}
+        {samplingTextField(sample, "Sampling Time", "samplingTime", { required: true, type: "time" })}
+        <label><span>Sample Nature *</span><select value={natureValue} onChange={(event) => updateSampleFieldData(sample.id, "sampleNature", event.target.value)}><option value="">Select sample nature</option>{natureList.map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select></label>
+        <label><span>Sampling Point *</span><select value={pointValue} onChange={(event) => updateSampleFieldData(sample.id, "samplingPoint", event.target.value)}><option value="">Select sampling point</option>{pointList.map((point) => <option key={point}>{point}</option>)}</select></label>
+        {U("Depth", "depth", depthUnits, "depthUnit", "Depth")}
+        {U("Flow Period", "flowPeriod", flowPeriodUnits)}
+        {T("Formation", "formation")}
+        {U("Perforations", "perforations", depthUnits, "perforationsUnit", "e.g. 2500–2510")}
+      </div>, true)}
+      {section("2", "Shipping conditions", atmospheric ? "Container and sample volumes and the final container condition. Press N/A where a pressure does not apply" : "Cylinder and sample volumes and the final cylinder condition", ["sampleBottleVolume", "sampleVolume", "fluidRemaining", "gasCapCreated", "finalPressure", "finalTemperature"], <div className="technical-field-grid">
+        {U(atmospheric ? "Container Volume" : "Sample Cylinder Volume", "sampleBottleVolume", volumeUnits)}{U("Sample Volume", "sampleVolume", volumeUnits)}{U("Fluid Remaining", "fluidRemaining", volumeUnits)}
+        {samplingSelectField(sample, "Gas Cap Created", "gasCapCreated", ["Yes", "No", "N/A"])}
+        {U(atmospheric ? "Final Container Pressure" : "Final Cylinder Pressure", "finalPressure", pressureUnits)}{U(atmospheric ? "Final Container Temperature" : "Final Cylinder Temperature", "finalTemperature", temperatureUnits)}
+      </div>)}
+      {section("3", "Transfer conditions", "Opening pressure at reservoir temperature and at ambient, and the transfer conditions", matchedFields, <>
+        {group("Opening pressure @ reservoir temperature", <>{U("Opening Pressure", "openingPressureReservoir", pressureUnits)}{U("Reservoir Temperature", "openingTemperatureReservoir", temperatureUnits)}</>)}
+        {group("Opening pressure @ ambient temperature", <>{U("Opening Pressure", "openingPressureAmbient", pressureUnits)}{U("Ambient Temperature", "openingTemperatureAmbient", temperatureUnits)}</>)}
+        {group("Transfer", <>{U("Transfer Pressure", "transferPressure", pressureUnits)}{U("Transfer Temperature", "transferTemperature", temperatureUnits)}{U("Transfer Duration", "transferDuration", durationUnits)}</>)}
       </>)}
+      {shared ? <p className="set-conditions-note">Separator sampling conditions are entered once for Set {sample.set}, above this set’s samples.</p> : production}
       <label className="sample-remarks"><span>Remarks</span><textarea rows={4} value={sample.notes} onChange={(event) => updateSampleFieldData(sample.id, "notes", event.target.value)} placeholder="Record the data source, sample condition, observations, or exceptions…" /></label>
     </>;
   }
@@ -1391,9 +1406,11 @@ export default function Home() {
     const cylinder = field === "bottleSerial" ? bottleInventory.find((item) => item.serial === value) : undefined;
     const bottleDetails = cylinder ? { bottle: cylinder.type, bottleCapacity: cylinder.capacity } : field === "bottleSerial" && !value ? { bottle: "", bottleCapacity: "" }
       // Switching container type clears the other type's identifier so a stale serial or ID is never reported.
-      : field === "containerType" ? (value === "Glass container" ? { bottle: "", bottleSerial: "", bottleCapacity: "" } : { containerId: "" }) : {};
-    const nextSamples = samples.map((sample) => sample.id === id ? { ...sample, [field]: value, ...bottleDetails, dataComplete: false, dataCompletedBy: "", dataCompletedAt: "", preparedBy: currentEmployee?.id || sample.preparedBy, preparedAt: sample.preparedAt || now } : sample);
-    const nextTasks = coordinationTasks.map((task) => ["bottle", "bottleSerial", "bottleCapacity", "containerType", "containerId"].includes(field) && task.label === "Assign the required cylinders" ? { ...task, completed: false, completedBy: undefined, completedAt: undefined } : task);
+      : field === "containerType" ? (value === "Bottle" ? { containerId: "", containerVolume: "" } : { bottle: "", bottleSerial: "", bottleCapacity: "", containerId: "", containerVolume: "" }) : {};
+    // A glass bottle or IATA can volume is also the container volume on the data sheet.
+    const [volume, volumeUnit] = field === "containerVolume" ? value.split(" ") : [];
+    const nextSamples = samples.map((sample) => sample.id === id ? { ...sample, [field]: value, ...bottleDetails, ...(volume ? { fieldData: { ...sample.fieldData, sampleBottleVolume: volume, sampleBottleVolumeUnit: volumeUnit } } : {}), dataComplete: false, dataCompletedBy: "", dataCompletedAt: "", preparedBy: currentEmployee?.id || sample.preparedBy, preparedAt: sample.preparedAt || now } : sample);
+    const nextTasks = coordinationTasks.map((task) => ["bottle", "bottleSerial", "bottleCapacity", "containerType", "containerId", "containerVolume"].includes(field) && task.label === "Assign the required cylinders" ? { ...task, completed: false, completedBy: undefined, completedAt: undefined } : task);
     setSamples(nextSamples);
     setCoordinationTasks(nextTasks);
     if (currentJob) updateCurrentJob(currentJob.currentStage, currentJob.nextAction, {}, undefined, { samples: nextSamples, coordinationTasks: nextTasks });
@@ -1419,17 +1436,17 @@ export default function Home() {
       if (!coordinationDetails.samplingPointType.trim()) errors.push("Sampling Point Type is required.");
       if (!coordinationDetails.samplingPointSize.trim()) errors.push("Sampling Point Size is required.");
       if (!coordinationDetails.requiredSampleKit.trim()) errors.push("Required Sample Kit must be recorded.");
-      if (!samples.length || samples.some((sample) => !containerComplete(sample))) errors.push("Complete each receiving cylinder type and serial number, or glass container ID.");
+      if (!samples.length || samples.some((sample) => !containerComplete(sample))) errors.push("Complete each receiving cylinder type and serial number, or the glass bottle / IATA can volume.");
       if (coordinationDetails.toolsRequired === "To Be Confirmed") errors.push("Confirm whether tools are required.");
       if (coordinationDetails.toolsRequired === "Required" && coordinationDetails.toolsAvailability === "To Be Confirmed") errors.push("Confirm tools availability.");
       if (samplingType === "Separator Sampling" && !job.samplingPoint.trim()) errors.push("Separator Sampling Point is required.");
     } else if (samplingType && samplingType !== "Other") {
       if (!coordinationDetails.requiredSampleKit.trim()) errors.push("Required Sample Kit must be recorded.");
-      if (!samples.length || samples.some((sample) => !containerComplete(sample))) errors.push("Complete each receiving cylinder type and serial number, or glass container ID.");
+      if (!samples.length || samples.some((sample) => !containerComplete(sample))) errors.push("Complete each receiving cylinder type and serial number, or the glass bottle / IATA can volume.");
       if (coordinationDetails.toolsRequired === "To Be Confirmed") errors.push("Confirm whether tools are required.");
     }
     // Each cylinder must be Ready and not held by another job (Sampling → Cylinders).
-    for (const sample of samples) if (!isGlass(sample) && sample.bottleSerial?.trim()) { const st = cylStatus(sample.bottleSerial); if (!selectable(st, currentJob?.id || jobId, sample.id)) errors.push(`Sample ${sample.id}: cylinder ${sample.bottleSerial} is ${cylinderStateLabel[st.state]}${st.job && st.job.id !== (currentJob?.id || jobId) ? ` on job ${st.job.jobNumber}` : st.job ? " (chosen for more than one sample)" : ""}. Choose a Ready cylinder.`); }
+    for (const sample of samples) if (!isAtmospheric(sample) && sample.bottleSerial?.trim()) { const st = cylStatus(sample.bottleSerial); if (!selectable(st, currentJob?.id || jobId, sample.id)) errors.push(`Sample ${sample.id}: cylinder ${sample.bottleSerial} is ${cylinderStateLabel[st.state]}${st.job && st.job.id !== (currentJob?.id || jobId) ? ` on job ${st.job.jobNumber}` : st.job ? " (chosen for more than one sample)" : ""}. Choose a Ready cylinder.`); }
     return errors;
   }
 
@@ -1478,24 +1495,25 @@ export default function Home() {
     if (currentJob) updateCurrentJob("Sampling Preparation", "Complete pre-job coordination", { "Sampling Preparation": "In Progress" }, field === "toolsRequired" && value !== "To Be Confirmed" ? `confirmed tools requirement as ${value}` : undefined, { coordinationTasks: nextTasks, coordinationDetails: nextDetails, events: nextEvents });
   }
 
-  function toggleCoordinationTask(taskId: string, completed: boolean) {
-    if (!currentEmployee) return;
+  /** Ticks or unticks a checklist item. Returns false when the tick is refused because its details are missing. */
+  function toggleCoordinationTask(taskId: string, completed: boolean): boolean {
+    if (!currentEmployee) return false;
     const target = coordinationTasks.find((task) => task.id === taskId);
     if (completed && target) {
       let error = "";
-      if (target.label === "Assign the required sample kit" && !coordinationDetails.requiredSampleKit.trim()) error = "Enter the sample kit details before confirming Ready.";
-      if (target.label === "Assign the required cylinders" && (!samples.length || samples.some((sample) => !containerComplete(sample)))) error = "Enter the cylinder type and serial number, or the glass container ID, for every sample before confirming Ready.";
+      if (target.label === "Assign the required sample kit" && !coordinationDetails.requiredSampleKit.trim()) error = "Enter the sample kit details before ticking this item.";
+      if (target.label === "Assign the required cylinders" && (!samples.length || samples.some((sample) => !containerComplete(sample)))) error = "Enter the cylinder type and serial number, or the glass bottle / IATA can volume, for every sample before ticking this item.";
       if (target.label.includes("sampling point") && target.label.includes("type") && !coordinationDetails.samplingPointType.trim()) error = "Enter the sampling point type.";
       if (target.label.includes("sampling point") && target.label.includes("size") && !coordinationDetails.samplingPointSize.trim()) error = "Enter the sampling point size.";
       if (target.label === "Confirm separator sampling point" && !job.samplingPoint.trim()) error = "Enter the separator sampling point.";
-      if (error) { setPreparationError([error]); return; }
+      if (error) { setPreparationError([error]); return false; }
     }
     const now = new Date();
     const timestamp = now.toISOString();
     const nextTasks = coordinationTasks.map((item) => item.id === taskId ? { ...item, completed, completedBy: completed ? currentEmployee.id : undefined, completedAt: completed ? timestamp : undefined } : item);
     setCoordinationTasks(nextTasks);
     setPreparationError([]);
-    if (!currentJob) return;
+    if (!currentJob) return true;
     const task = nextTasks.find((item) => item.id === taskId);
     let nextEvents = events;
     if (completed && task) {
@@ -1505,6 +1523,7 @@ export default function Home() {
       setEvents(nextEvents);
     }
     updateCurrentJob("Sampling Preparation", "Complete pre-job coordination", { "Sampling Preparation": "In Progress" }, completed && task ? `completed pre-job task: ${task.label}` : undefined, { coordinationTasks: nextTasks, coordinationDetails, events: nextEvents });
+    return true;
   }
 
   /** Job Setup: ticks or unticks a sampling type. The first type in the plan is the primary one used for preparation. */
@@ -1688,7 +1707,7 @@ export default function Home() {
         // Preparation is recorded later by whoever prepares the sample, never by the job creator.
         ...(samples[index] || emptySamples()[0]), preparedBy: "", preparedAt: "", id: record.id, samplingSource: source, phase: record.phase, set: record.set,
         sampler: isSpmcFieldSampling(source) || isCasedHoleSampling(source) ? DOWNHOLE_TOOL : "",
-        fieldData: { ...(samples[index]?.fieldData || defaultFieldData()), sampleNature: natureOf(source) },
+        fieldData: { ...(samples[index]?.fieldData || defaultFieldData()), sampleNature: natureOf(source), samplingPoint: samples[index]?.fieldData.samplingPoint || samplingPointFor(record.phase) },
       };
     });
     const crew = [`Accountable: ${employeeName(job.assignedEngineerId)}`, ...job.samplingTeamIds.filter((id) => id !== job.assignedEngineerId).map((id) => `Backup: ${employeeName(id)}`), `Driver: ${employeeName(job.assignedDriverId)}`].join(" · ");
@@ -2122,7 +2141,7 @@ export default function Home() {
 
           {samplingFlow && dataReview?.status === "Returned" && <section className="panel returned-box" role="status"><h2>Returned for correction</h2><p>{employeeName(dataReview.reviewedBy)} returned the sampling data on {formatDateTime(dataReview.reviewedAt)}.</p><p className="instructions-text">{dataReview.general}</p><ul>{dataReview.comments.map((comment, index) => <li key={index}><strong>{comment.label}</strong>: {comment.text} <button type="button" className="text-button" onClick={() => { const sample = comment.target.startsWith("sample:") ? comment.target.split(":")[1] : ""; setStage(comment.target === "preparation" || comment.target === "job" ? "type" : "bottomhole"); if (sample) setExpanded(sample); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Open section →</button></li>)}</ul>{currentEmployee.id === currentJob!.assignedEngineerId ? <button type="button" className="primary-button" onClick={() => setStage("report")}>Review &amp; resubmit</button> : <p>You can help correct the data. {employeeName(currentJob!.assignedEngineerId)} resubmits it.</p>}</section>}
 
-          {samplingFlow && (stage === "type" || stage === "bottomhole") && <section className="panel step-guide"><div><span className="eyebrow">STEP {stage === "type" ? 1 : 2} OF 4</span><h2>{stage === "type" ? (transferFlow ? "Transfer preparation" : "Preparation") : (transferFlow ? "Sample transfer data" : "Sample records & sampling data")}</h2><p>{stage === "type" ? "Complete the coordination checklist and prepare the equipment and container for each sample. Glass containers need only their own ID." : "Fill the standard data sheet for every sample and mark each one complete. Use N/A only where a condition does not apply."}</p><p className="required-legend"><strong>Required:</strong> fields marked * · <strong>Optional:</strong> remarks and notes · Your entries are kept when you move between steps; use Save Draft to store them.</p></div><div className="step-guide-status"><small>STATUS</small><strong>{currentSamplingStatus!.label}</strong><span>Next: {currentSamplingStatus!.next}</span>{samplingDataLocked(currentJob!) ? <button type="button" className="outline-button" onClick={() => setStage("report")}>View submission</button> : stage === "type" ? <button type="button" className="outline-button" onClick={() => setStage("bottomhole")}>Continue to sample data →</button> : <button type="button" className="outline-button" onClick={() => setStage("report")}>Continue to review &amp; submit →</button>}</div></section>}
+          {samplingFlow && (stage === "type" || stage === "bottomhole") && <section className="panel step-guide"><div><span className="eyebrow">STEP {stage === "type" ? 1 : 2} OF 4</span><h2>{stage === "type" ? (transferFlow ? "Transfer preparation" : "Preparation") : (transferFlow ? "Sample transfer data" : "Sample records & sampling data")}</h2><p>{stage === "type" ? "Complete the coordination checklist and prepare the equipment and container for each sample. Glass bottles and IATA cans need only their volume." : "Fill the standard data sheet for every sample and mark each one complete. Use N/A only where a condition does not apply."}</p><p className="required-legend"><strong>Required:</strong> fields marked * · <strong>Optional:</strong> remarks and notes · Your entries are kept when you move between steps; use Save Draft to store them.</p></div><div className="step-guide-status"><small>STATUS</small><strong>{currentSamplingStatus!.label}</strong><span>Next: {currentSamplingStatus!.next}</span>{samplingDataLocked(currentJob!) ? <button type="button" className="outline-button" onClick={() => setStage("report")}>View submission</button> : stage === "type" ? <button type="button" className="outline-button" onClick={() => setStage("bottomhole")}>Continue to sample data →</button> : <button type="button" className="outline-button" onClick={() => setStage("report")}>Continue to review &amp; submit →</button>}</div></section>}
 
 
           {stage !== "job" && stage !== "type" && stage !== "bottomhole" && currentJob && <details className="workflow-details"><summary><span>Workflow responsibility</span><strong>{currentJob.currentStage} · {currentJob.stages.filter((item) => item.status === "Completed" || item.status === "Skipped").length} of {workflowStageNames.length} stages resolved</strong><i>⌄</i></summary><section className="stage-tracking" aria-label="Workflow responsibility">{currentJob.stages.map((item) => <article key={item.name} className={item.status.toLowerCase().replace(" ", "-")}><div><span>{item.status === "Completed" ? "✓" : item.status === "Skipped" ? "—" : "•"}</span><strong>{item.name}</strong></div><dl><div><dt>Assigned to</dt><dd>{employeeName(item.assignedTo)}</dd></div><div><dt>Status</dt><dd>{item.status}</dd></div><div><dt>Started</dt><dd>{formatDateTime(item.started)}</dd></div><div><dt>Completed</dt><dd>{formatDateTime(item.completed)}</dd></div><div><dt>Last updated by</dt><dd>{employeeName(item.lastUpdatedBy)}</dd></div></dl></article>)}</section></details>}
@@ -2261,7 +2280,7 @@ export default function Home() {
             return <>
               {preparationError.length > 0 && <div className="preparation-validation" role="alert"><span>!</span><div><strong>Preparation cannot be completed</strong><ul>{preparationError.map((error) => <li key={error}>{error}</li>)}</ul></div></div>}
               {samplingType && <section className="panel coordination-panel prep-step">
-                <div className="panel-heading premium-heading"><span className="prep-step-num">1</span><div><span className="eyebrow">STEP 1</span><h2>Pre-job checklist {prepChip(coordinationTasks.filter((item) => item.completed).length, coordinationTasks.length)}</h2><p>Open each item, fill in what it asks and confirm it. Each confirmation is recorded with your name and time.</p></div></div>
+                <div className="panel-heading premium-heading"><span className="prep-step-num">1</span><div><span className="eyebrow">STEP 1</span><h2>Pre-job checklist {prepChip(coordinationTasks.filter((item) => item.completed).length, coordinationTasks.length)}</h2><p>Tick each item when it is done. Items that need details open so you can fill them in first. Each tick is recorded with your name and time.</p></div></div>
                 {samplingIsRequired(samplingType) ? <div className="readiness-actions">
                   {coordinationTasks.map((task, index) => {
                     const contact = task.label === "Contact the field focal point";
@@ -2273,15 +2292,14 @@ export default function Home() {
                     const notApplicable = availability && coordinationDetails.toolsRequired === "Not Required";
                     const title = contact ? "Contact field focal point" : tools ? "Confirm tools required" : kit ? "Prepare sample kit" : cylinders ? "Prepare cylinders" : task.label;
                     return <details key={task.id} className={"readiness-action " + (notApplicable ? "is-na" : task.completed ? "is-done" : "is-pending")}>
-                      <summary><span className="readiness-number">{task.completed ? "✓" : index + 1}</span><div><strong>{title}</strong><small>{task.completed ? `${employeeName(task.completedBy)} · ${formatDateTime(task.completedAt)}` : "Open to fill the required details"}</small></div><em className={"section-state " + (notApplicable ? "st-not-started" : task.completed ? "st-completed" : "st-in-progress")}>{notApplicable ? "Not applicable" : task.completed ? "✓ Done" : "To do"}</em></summary>
+                      <summary><input type="checkbox" className="readiness-check" checked={task.completed} disabled={tools || availability} title={tools || availability ? "Ticked automatically when you select the answer" : undefined} aria-label={title} onChange={(event) => { const row = event.currentTarget.closest("details"); if (!toggleCoordinationTask(task.id, event.target.checked) && row) row.open = true; }} /><span className="readiness-number">{index + 1}</span><div><strong>{title}</strong><small>{task.completed ? `${employeeName(task.completedBy)} · ${formatDateTime(task.completedAt)}` : tools || availability ? "Open and select the answer" : contact ? "Tick when done" : "Open to fill the details, then tick"}</small></div><em className={"section-state " + (notApplicable ? "st-not-started" : task.completed ? "st-completed" : "st-in-progress")}>{notApplicable ? "Not applicable" : task.completed ? "✓ Done" : "To do"}</em></summary>
                       <div className="readiness-body">
                         {contact && <><div className="job-details-grid"><div><small>CLIENT FOCAL POINT</small><strong>{job.clientFocalPoint || "Not specified"}</strong></div><div><small>CONTACT NUMBER</small><strong>{job.clientFocalPointContact || "Not specified"}</strong></div><div><small>EMAIL</small><strong>{job.clientFocalPointEmail || "Not specified"}</strong></div></div><label>Contact notes (optional)<textarea rows={2} value={coordinationDetails.contactNotes || ""} onChange={(event) => updateCoordinationDetail("contactNotes", event.target.value)} /></label></>}
                         {tools && <label>Are tools required?<select value={coordinationDetails.toolsRequired} onChange={(event) => updateCoordinationDetail("toolsRequired", event.target.value)}>{["To Be Confirmed", "Required", "Not Required"].map((value) => <option key={value}>{value}</option>)}</select></label>}
                         {availability && (notApplicable ? <p>No tools are required. This check is not applicable.</p> : <><label>Tools availability<select disabled={coordinationDetails.toolsRequired !== "Required"} value={coordinationDetails.toolsAvailability === "Not Available" ? "Unavailable" : coordinationDetails.toolsAvailability} onChange={(event) => updateCoordinationDetail("toolsAvailability", event.target.value)}>{["To Be Confirmed", "Available", "Partially Available", "Unavailable"].map((value) => <option key={value}>{value}</option>)}</select></label>{coordinationDetails.toolsRequired !== "Required" && <p>Confirm whether tools are required first.</p>}{["Partially Available", "Unavailable", "Not Available"].includes(coordinationDetails.toolsAvailability) && <label>Missing tools / items<textarea rows={3} value={coordinationDetails.missingTools || ""} onChange={(event) => updateCoordinationDetail("missingTools", event.target.value)} /></label>}</>)}
                         {kit && <label>Sample kit details *<textarea rows={3} value={coordinationDetails.requiredSampleKit} onChange={(event) => updateCoordinationDetail("requiredSampleKit", event.target.value)} placeholder="Kit type, quantity and reference" /></label>}
-                        {cylinders && <><p>Receiving cylinders from the sample records. Complete their details below before confirming Ready.</p><div className="readiness-bottles">{samples.map((sample) => <div key={sample.id}><strong>Sample {sample.id}</strong><CylinderPicker inventory={bottleInventory} status={cylStatus} jobId={currentJob?.id || jobId} sample={sample} onSelect={(serial) => updatePreparationSample(sample.id, "bottleSerial", serial)} onField={(field, value) => updatePreparationSample(sample.id, field, value)} />{isSpmcFieldSampling(samplingType) && <section className="cylinder-record-notes"><label>Remarks<input value={sample.preparationRemarks} onChange={(event) => updatePreparationSample(sample.id, "preparationRemarks", event.target.value)} placeholder="Equipment condition, exceptions, or handling notes" /></label><div><small>PREPARED BY</small><strong>{employeeName(sample.preparedBy || currentEmployee.id)}</strong><small>PREPARATION DATE / TIME</small><strong>{formatDateTime(sample.preparedAt || preparationStartedAt)}</strong></div><button type="button" className="remove-sample-button" onClick={() => removeSample(sample.id)}>Remove sample</button></section>}</div>)}</div></>}
+                        {cylinders && <><p>Receiving containers from the sample records. Complete their details below, then tick this item.</p><div className="readiness-bottles">{samples.map((sample) => <div key={sample.id}><strong>Sample {sample.id}</strong><CylinderPicker inventory={bottleInventory} status={cylStatus} jobId={currentJob?.id || jobId} sample={sample} onSelect={(serial) => updatePreparationSample(sample.id, "bottleSerial", serial)} onField={(field, value) => updatePreparationSample(sample.id, field, value)} />{isSpmcFieldSampling(samplingType) && <section className="cylinder-record-notes"><label>Remarks<input value={sample.preparationRemarks} onChange={(event) => updatePreparationSample(sample.id, "preparationRemarks", event.target.value)} placeholder="Equipment condition, exceptions, or handling notes" /></label><div><small>PREPARED BY</small><strong>{employeeName(sample.preparedBy || currentEmployee.id)}</strong><small>PREPARATION DATE / TIME</small><strong>{formatDateTime(sample.preparedAt || preparationStartedAt)}</strong></div><button type="button" className="remove-sample-button" onClick={() => removeSample(sample.id)}>Remove sample</button></section>}</div>)}</div></>}
                         {point && <>{task.label.includes("type") && <label>Sampling point type *<input value={coordinationDetails.samplingPointType} onChange={(event) => updateCoordinationDetail("samplingPointType", event.target.value)} /></label>}{task.label.includes("size") && <label>Sampling point size *<input value={coordinationDetails.samplingPointSize} onChange={(event) => updateCoordinationDetail("samplingPointSize", event.target.value)} /></label>}{task.label === "Confirm separator sampling point" && <label>Separator sampling point *<input value={job.samplingPoint} onChange={(event) => { updateJob("samplingPoint", event.target.value); if (task.completed) toggleCoordinationTask(task.id, false); }} /></label>}</>}
-                        {!tools && !availability && <button type="button" className={task.completed ? "outline-button" : "primary-button"} onClick={() => toggleCoordinationTask(task.id, !task.completed)}>{task.completed ? "Reopen" : contact ? "Contacted" : kit || cylinders ? "Ready" : "Confirm"}</button>}
                       </div>
                     </details>;
                   })}
@@ -2369,7 +2387,7 @@ export default function Home() {
                     </button>
                     {expanded === sample.id && <div className="sampling-data-body">
                       <section className="preparation-reference"><header><div><small>READ-ONLY REFERENCE</small><h3>Sampling Preparation</h3></div><span>Locked</span></header><div className="preparation-reference-grid">
-                        <div><small>SAMPLE</small><strong>{sample.id}</strong></div><div><small>SAMPLER TYPE</small><strong>{sample.sampler}</strong></div><div><small>SAMPLER SERIAL</small><strong>{sample.samplerSerial || "Not specified"}</strong></div>{isGlass(sample) ? <><div><small>CONTAINER TYPE</small><strong>Glass container</strong></div><div><small>CONTAINER ID</small><strong>{containerId(sample) || "Not specified"}</strong></div></> : <><div><small>CYLINDER TYPE</small><strong>{sample.bottle}</strong></div><div><small>CYLINDER SERIAL</small><strong>{sample.bottleSerial || "Not specified"}</strong></div><div><small>CYLINDER CAPACITY</small><strong>{sample.bottleCapacity || "Not specified"}</strong></div></>}<div><small>PREPARED BY</small><strong>{employeeName(sample.preparedBy)}</strong></div><div><small>PREPARED DATE / TIME</small><strong>{formatDateTime(sample.preparedAt)}</strong></div>
+                        <div><small>SAMPLE</small><strong>{sample.id}</strong></div><div><small>SAMPLER TYPE</small><strong>{sample.sampler}</strong></div><div><small>SAMPLER SERIAL</small><strong>{sample.samplerSerial || "Not specified"}</strong></div>{isAtmospheric(sample) ? <><div><small>CONTAINER TYPE</small><strong>{containerNoun(sample)}</strong></div><div><small>CONTAINER VOLUME</small><strong>{sample.containerVolume || containerId(sample) || "Not specified"}</strong></div></> : <><div><small>CYLINDER TYPE</small><strong>{sample.bottle}</strong></div><div><small>CYLINDER SERIAL</small><strong>{sample.bottleSerial || "Not specified"}</strong></div><div><small>CYLINDER CAPACITY</small><strong>{sample.bottleCapacity || "Not specified"}</strong></div></>}<div><small>PREPARED BY</small><strong>{employeeName(sample.preparedBy)}</strong></div><div><small>PREPARED DATE / TIME</small><strong>{formatDateTime(sample.preparedAt)}</strong></div>
                       </div></section>
 
                       {standardDataSheetForm(sample)}
@@ -2392,7 +2410,7 @@ export default function Home() {
                 {samplingType === "Separator Sampling" && <>{contextUnitField("Separator Pressure if known", "separatorPressure", pressureUnits)}{contextUnitField("Separator Temperature if known", "separatorTemperature", temperatureUnits)}{contextUnitField("Choke Size", "chokeSize", chokeUnits)}{contextUnitField("Oil Rate", "oilRate", liquidRateUnits)}{contextUnitField("Gas Rate", "gasRate", gasRateUnits)}{contextUnitField("Water Rate", "waterRate", liquidRateUnits)}{contextTextField("Sampling Point", "samplingPoint", "e.g. 1st stage separator, gas outlet")}</>}
                 {samplingType === "Other" && <><label><span>Location / Facility</span><input value={job.facility} onChange={(event) => updateJob("facility", event.target.value)} /></label><label><span>Sampling Point</span><input value={job.samplingPoint} onChange={(event) => updateJob("samplingPoint", event.target.value)} /></label><label className="full-field"><span>Description</span><textarea rows={5} value={job.otherDescription} onChange={(event) => updateJob("otherDescription", event.target.value)} /></label></>}
               </div></section>
-              <section className="panel generic-samples-panel prep-step"><div className="panel-heading premium-heading"><span className="prep-step-num">2</span><div><span className="eyebrow">STEP 2</span><h2>Sample data sheets {stepChip(samples.filter((sample) => sample.dataComplete).length, samples.length)}</h2><p>Fill in the data sheet for every sample, with values and units, then mark it complete.</p></div><button type="button" className="outline-button" onClick={addSample}>+ Add Sample</button></div><div className="generic-sample-list">{samples.map((sample) => <article key={sample.id} className={expanded === sample.id ? "is-open" : undefined}><header><button type="button" className="generic-sample-toggle" aria-expanded={expanded === sample.id} onClick={() => setExpanded(expanded === sample.id ? "" : sample.id)}><strong>Sample {sample.id}</strong><small>{[sample.set ? `Set ${sample.set}` : "", sample.phase, containerLabel(sample, "Container not selected")].filter(Boolean).join(" · ")}</small></button>{dataChip(sampleDataStatus(sample))}<button type="button" onClick={() => removeSample(sample.id)}>Remove</button></header>{expanded === sample.id && <><section className="data-section generic-bottle-reference"><header><span>00</span><div><small>SAMPLE CONTAINER</small><h3>Cylinder / Container Reference</h3></div></header><CylinderPicker inventory={bottleInventory} status={cylStatus} jobId={currentJob?.id || jobId} sample={sample} onSelect={(serial) => updatePreparationSample(sample.id, "bottleSerial", serial)} onField={(field, value) => updatePreparationSample(sample.id, field, value)} /></section>{standardDataSheetForm(sample)}{sampleDataErrors[sample.id]?.length > 0 && <div className="sample-data-errors" role="alert"><strong>Complete the following:</strong><ul>{sampleDataErrors[sample.id].map((error) => <li key={error}>{error}</li>)}</ul></div>}<footer className="sample-completion-bar"><div><small>DATA ENTRY TRACKING</small><strong>{sample.dataComplete ? `Completed by ${employeeName(sample.dataCompletedBy)}` : `Data entered by ${currentEmployee.name}`}</strong><span>{sample.dataComplete ? formatDateTime(sample.dataCompletedAt) : "Complete every standard data-sheet section to finish this record."}</span></div><button type="button" className={sample.dataComplete ? "outline-button completed-button" : "primary-button"} onClick={() => markSampleComplete(sample.id)}>{sample.dataComplete ? "✓ Sample Complete" : "Mark Sample Complete"}</button></footer></>}</article>)}</div></section>
+              <section className="panel generic-samples-panel prep-step"><div className="panel-heading premium-heading"><span className="prep-step-num">2</span><div><span className="eyebrow">STEP 2</span><h2>Sample data sheets {stepChip(samples.filter((sample) => sample.dataComplete).length, samples.length)}</h2><p>Fill in the data sheet for every sample, with values and units, then mark it complete.</p></div><button type="button" className="outline-button" onClick={addSample}>+ Add Sample</button></div><div className="generic-sample-list">{samples.map((sample, index) => <Fragment key={sample.id}>{inSeparatorSet(sample) && !samples.slice(0, index).some((other) => inSeparatorSet(other) && other.set === sample.set) && <div className="set-conditions">{standardDataSheetForm(sample, "production")}</div>}<article className={expanded === sample.id ? "is-open" : undefined}><header><button type="button" className="generic-sample-toggle" aria-expanded={expanded === sample.id} onClick={() => setExpanded(expanded === sample.id ? "" : sample.id)}><strong>Sample {sample.id}</strong><small>{[sample.set ? `Set ${sample.set}` : "", sample.phase, containerLabel(sample, "Container not selected")].filter(Boolean).join(" · ")}</small></button>{dataChip(sampleDataStatus(sample))}<button type="button" onClick={() => removeSample(sample.id)}>Remove</button></header>{expanded === sample.id && <><section className="data-section generic-bottle-reference"><header><span>00</span><div><small>SAMPLE CONTAINER</small><h3>Cylinder / Container Reference</h3></div></header><CylinderPicker inventory={bottleInventory} status={cylStatus} jobId={currentJob?.id || jobId} sample={sample} onSelect={(serial) => updatePreparationSample(sample.id, "bottleSerial", serial)} onField={(field, value) => updatePreparationSample(sample.id, field, value)} /></section>{standardDataSheetForm(sample)}{sampleDataErrors[sample.id]?.length > 0 && <div className="sample-data-errors" role="alert"><strong>Complete the following:</strong><ul>{sampleDataErrors[sample.id].map((error) => <li key={error}>{error}</li>)}</ul></div>}<footer className="sample-completion-bar"><div><small>DATA ENTRY TRACKING</small><strong>{sample.dataComplete ? `Completed by ${employeeName(sample.dataCompletedBy)}` : `Data entered by ${currentEmployee.name}`}</strong><span>{sample.dataComplete ? formatDateTime(sample.dataCompletedAt) : "Complete every standard data-sheet section to finish this record."}</span></div><button type="button" className={sample.dataComplete ? "outline-button completed-button" : "primary-button"} onClick={() => markSampleComplete(sample.id)}>{sample.dataComplete ? "✓ Sample Complete" : "Mark Sample Complete"}</button></footer></>}</article></Fragment>)}</div></section>
               <section className="sampling-data-footer"><div><small>SAMPLING DATA TRACKING</small><strong>Entered by {currentEmployee.name}</strong><span>{locationSummary(job, samplingType)}</span></div><div><button type="button" className="text-button" onClick={() => setStage("type")}>← Back to Preparation</button><button type="button" className="outline-button" onClick={saveSamplingDataDraft}>Save Draft</button><button type="button" className="primary-button" onClick={completeSamplingData}>Complete Sampling Data &amp; Continue <span>→</span></button></div></section>
             </>
           )}

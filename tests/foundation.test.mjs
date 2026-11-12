@@ -7,7 +7,7 @@ const {applyOperation,operationsFor,pendingActions}=await bundle('app/operations
 const auth=await bundle('app/authorization.ts');
 const {initialDirectory,migrateDirectory,loadDirectory,directoryKey}=await bundle('app/employee-directory.ts');
 const {eligibleForTeam}=await bundle('app/team-workflow.ts');
-const {containerId,containerComplete,containerLabel}=await bundle('app/sample-container.ts');
+const {containerId,containerComplete,containerLabel,containerNoun,isAtmospheric}=await bundle('app/sample-container.ts');
 const {defaultAuthorization,defaultResponsibilities,readResponsibilities,invalidResponsibilities,roleHolder,storedResponsibilities,responsibilitiesKey,migrateDriverAccess,authorizationKey}=auth;
 
 const employees=initialDirectory().employees,policy=defaultAuthorization(employees.map(e=>e.id));
@@ -86,8 +86,13 @@ test('Humaid is a driver only: cannot edit sampling data, run lab work or approv
 test('legacy bottles and glass containers pass validation and labels',()=>{
  const legacy={bottle:'PDS',bottleSerial:'B1'},glass={containerType:'Glass container',containerId:'G-07',bottle:'',bottleSerial:''};
  assert.equal(containerId(legacy),'B1');assert.equal(containerComplete(legacy),true);assert.equal(containerLabel(legacy),'PDS · B1');
- assert.equal(containerId(glass),'G-07');assert.equal(containerComplete(glass),true,'no bottle type or serial needed');assert.equal(containerLabel(glass),'Glass container · G-07');
+ assert.equal(containerId(glass),'G-07');assert.equal(containerComplete(glass),true,'no bottle type or serial needed');assert.equal(containerLabel(glass),'Glass bottle · G-07');
  assert.equal(containerComplete({containerType:'Glass container',containerId:' '}),false);assert.equal(containerComplete({bottleSerial:'B1'}),false,'bottles still need a type');
+ // Glass bottles and IATA cans carry no serial or ID: selecting the volume completes them.
+ const bottle={containerType:'Glass container',containerVolume:'500 mL'},can={containerType:'IATA can',containerVolume:'5 L'};
+ assert.equal(containerComplete(bottle),true);assert.equal(containerId(bottle),'');assert.equal(containerLabel(bottle),'Glass bottle · 500 mL');
+ assert.equal(containerComplete(can),true);assert.equal(isAtmospheric(can),true);assert.equal(containerNoun(can),'IATA can');assert.equal(containerLabel(can),'IATA can · 5 L');
+ assert.equal(containerComplete({containerType:'IATA can'}),false,'an IATA can needs its volume');
  // A glass container without its ID is now caught when the sampling data is submitted, before any report.
  assert.throws(()=>approvedSampling(fixture([{id:'S1',bottle:'PDS',bottleSerial:'B1',dataComplete:true,fieldData:{}},{id:'S2',containerType:'Glass container',containerId:'',dataComplete:true,fieldData:{}}])),/record the container for sample S2/);
 });

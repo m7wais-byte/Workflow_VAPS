@@ -108,7 +108,7 @@ test('release refuses wrong routing, undecided samples and unsupported destinati
 
 test('bottles and glass containers are snapshotted without bottle fields for glass',()=>{
  const v=release(approved()).operations.labScopes[0];
- assert.deepEqual(v.samples.map(s=>[s.sampleId,s.containerType,s.containerLabel]),[['1.01','Bottle','PDS · B-11'],['1.02','Glass container','Glass container · G-07'],['1.03','Bottle','SPS · B-13']]);
+ assert.deepEqual(v.samples.map(s=>[s.sampleId,s.containerType,s.containerLabel]),[['1.01','Bottle','PDS · B-11'],['1.02','Glass container','Glass bottle · G-07'],['1.03','Bottle','SPS · B-13']]);
 });
 
 test('drafts carry no approval; released versions and routing never change after revision or settings changes',()=>{
