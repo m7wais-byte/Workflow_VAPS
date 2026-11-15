@@ -88,6 +88,8 @@ export const responsibilityLabels = {
   qcReviewer: 'QC review',
 };
 export type Responsibility = keyof typeof responsibilityLabels;
+/** Duties no longer used by the workflow: kept in saved settings for reports already in flight, not shown or assignable. */
+export const retiredResponsibilities: Responsibility[] = ['samplingReportChecker'];
 export type Responsibilities = Record<Responsibility, string>;
 /** Permission each duty needs in order to act; shown as a warning, never granted automatically. */
 export const responsibilityPermission: Record<Responsibility, Permission> = { scopeSelector: 'analysis', samplingApproval: 'sampling', samplingReportChecker: 'sampling', pvtSupervisor: 'analysis', pvtTeamLead: 'analysis', chemicalTeamLead: 'analysis', reporting: 'analysis', finalApproval: 'analysis', qcReviewer: 'analysis' };

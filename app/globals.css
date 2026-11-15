@@ -3768,3 +3768,9 @@ main .rq .rq-plain select:has(option[value=""]:checked),main .rq .rq-plain input
 .point-size select,.point-size input { width:100%; min-height:42px; padding:10px; border:1px solid #abc1c9; border-radius:6px; background:white; font-size:1rem; }
 .point-size .text-button { grid-column:1 / -1; justify-self:start; }
 @media(max-width:760px) { .point-size { grid-template-columns:1fr; } }
+
+/* Data sheet: one click sets the empty fields of a group to N/A */
+.sheet-group h4 { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.group-na { font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; padding:4px 10px; border:1px dashed #abc1c9; border-radius:6px; background:white; color:#4d636d; cursor:pointer; }
+.group-na:hover:not(:disabled) { border-color:var(--teal,#0f766e); color:var(--teal,#0f766e); }
+.group-na:disabled { opacity:.45; cursor:default; }

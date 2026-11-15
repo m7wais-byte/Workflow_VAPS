@@ -1,7 +1,7 @@
 import { useUnsaved } from './settings-pages';
 import { useEffect, useState } from 'react';
 import type { LabTeams } from './lab-teams';
-import { administratorId, explicitPermissions, permissionLabels, responsibilityLabels, responsibilityPermission, invalidResponsibilities, driverOnlyIds, type Authorization, type Permission, type Responsibilities, type Responsibility } from './authorization';
+import { administratorId, explicitPermissions, permissionLabels, responsibilityLabels, retiredResponsibilities, responsibilityPermission, invalidResponsibilities, driverOnlyIds, type Authorization, type Permission, type Responsibilities, type Responsibility } from './authorization';
 import { teamName } from './team-name';
 
 const roleNotes: Partial<Record<Responsibility, string>> = {
@@ -23,7 +23,7 @@ function ResponsibilitySettings({ roles, employees, policy, onSave, error }: { r
     <div className="panel-heading"><div><span className="eyebrow">WORKFLOW DUTIES</span><h2>Responsibilities</h2><p>Name the employee who carries each duty. A duty does not grant access: the person also needs the listed permission below.</p></div></div>
     {error && <p role="alert">{error}</p>}
     <div className="authorization-table-wrap"><table className="client-table"><thead><tr><th>Responsibility</th><th>Assigned employee</th><th>Status</th></tr></thead><tbody>
-      {(Object.keys(responsibilityLabels) as Responsibility[]).map(key => {
+      {(Object.keys(responsibilityLabels) as Responsibility[]).filter(key => !retiredResponsibilities.includes(key)).map(key => {
         const id = draft[key], person = employees.find(e => e.id === id), permission = responsibilityPermission[key];
         const status = !id ? (key === 'qcReviewer' ? 'QC reviewer not configured' : 'Not assigned · this step is blocked')
           : invalid.includes(key) ? (person ? `Invalid: ${person.name} is inactive · this step is blocked` : `Invalid: employee record “${id}” no longer exists · this step is blocked`)

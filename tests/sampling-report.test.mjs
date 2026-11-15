@@ -50,8 +50,8 @@ test('sample IDs and measurements match between listing and sheets; recorded uni
   assert.equal(all['Cylinder No:'], 'PDS S1.01');
   assert.equal(all['Sampling Date:'], '7-Oct-26');
   assert.equal(all['WHP:'], 'N/A', 'N/A is shown as entered, without a unit');
-  assert.equal(all['At Depth:'], model.NOT_RECORDED, 'no data source: never copied from another field');
-  assert.equal(all['Oil rate (sep cond):'], model.NOT_RECORDED);
+  assert.equal('At Depth:' in all, false, 'no data source: the line is not printed');
+  assert.equal('Oil rate (sep cond):' in all, false);
   assert.equal(m.header.date, '7/10/2026', 'report date is the first recorded sampling date');
 });
 test('missing optional values read Not recorded and nothing is invented', () => {
@@ -117,8 +117,8 @@ test('the generic Oil Rate keeps its own label; std/sep-condition rates are not 
   const col = m.pages.find((p) => p.kind === 'sheet').sheet.production[2];
   const rows = Object.fromEntries(col);
   assert.equal(rows['Oil Rate:'], '850 bbl/d', 'value and units as entered');
-  assert.equal(rows['Oil Rate (std cond):'], model.NOT_RECORDED);
-  assert.equal(rows['Oil rate (sep cond):'], model.NOT_RECORDED);
+  assert.equal('Oil Rate (std cond):' in rows, false, 'lines the data sheet does not ask for are not printed');
+  assert.equal('Oil rate (sep cond):' in rows, false);
   assert.equal(rows['BSW:'], '0.5 %');
   assert.ok(!col.some(([label]) => label === 'BSW (Choke):'), 'no sampling-point basis is claimed for BSW');
 });
@@ -189,4 +189,11 @@ test('the workflow saves the letterhead with the draft, refreshes it on submissi
   k = step(k, { type: 'data-submit', note: '' }, 'MOHSIN'); k = step(k, { type: 'data-approve' }, 'SALIM');
   k = step(k, { type: 'report-draft', kind: 'sampling', text: 'v1', checker: '',file:GS }, 'MOHSIN');
   assert.equal('letterhead' in ops.latest(k.operations.samplingReports), false);
+});
+
+test('the sampling point type and size confirmed in preparation is printed on the sample data sheet', () => {
+  const base = { jobNumber: 'J', clientName: 'C', company: {}, source: 'Wellhead Sampling', events: [], summary: 's', samples: [{ id: '1.01', bottle: 'PDS', bottleSerial: 'B1', fieldData: { samplingPoint: 'Wellhead sampling port' } }] };
+  const fields = (input) => Object.fromEntries(model.buildSamplingReport(input).pages.filter(p => p.kind === 'sheet').flatMap(p => [...p.sheet.identification.left, ...p.sheet.identification.right]));
+  assert.equal(fields({ ...base, samplingPointSize: '1/2 in NPT Female' })['Point Type & Size:'], '1/2 in NPT Female');
+  assert.equal('Point Type & Size:' in fields(base), false, 'not printed when it was not recorded');
 });

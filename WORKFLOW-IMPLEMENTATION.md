@@ -15,6 +15,7 @@ PVT and Chemical work can run in parallel. Weekly views support multi-day and cr
 - **Client units.** Settings → Clients holds the units each client works in (Field or Metric preset, each quantity adjustable). New data sheets and the job sampling context open in those units; other units stay selectable, and a value already entered keeps its unit.
 - **Validation.** The PVT Team Lead picks one engineer (and optional start/due dates) per sample; it fills every Validation step, and each step can still be changed.
 - **Data sheet.** "Stable Since" is now the question "Stable?" (Yes / No). The sampling point is free text for Wellhead Sampling. Sampling point type and size are one entry (one preparation task), chosen as connection, size and male/female: Wellhead — NPT 1/4, 3/8, 1/2 in; Separator — Swagelok 1/4, 3/8, 1/2 in, High pressure autoclave 1/4, 3/8, 1/2, 1 in, Quick connect 1/4, 3/8, 1/2 in; Other lets the engineer type one that is not listed.
+- **From the first walkthrough.** The client focal point name and contact number are required on every job. The data sheet has a "Mark group N/A" button per group (fills only empty fields). The sampling report prints the sampling point type and size and no longer prints lines the data sheet does not ask for (At Depth, Oil Rate std/sep cond). The "Sampling report check & review" duty is retired: it is hidden in Settings and kept only for reports already in flight.
 
 ## Responsibilities
 
