@@ -3759,3 +3759,12 @@ main .rq .rq-plain select:has(option[value=""]:checked),main .rq .rq-plain input
 .ops-panel .assign-all select,.ops-panel .assign-all input { min-height:38px; padding:7px 10px; font-size:14px; }
 .assign-all small { grid-column:1 / -1; color:#4d636d; }
 @media(max-width:800px) { .assign-all { grid-template-columns:1fr; } }
+
+/* Sampling point size: connection, size and male/female */
+.point-size { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr); gap:8px 12px; align-items:end; grid-column:1 / -1; min-width:0; }
+.point-size-label { grid-column:1 / -1; font-weight:600; }
+.point-size label { display:flex; flex-direction:column; gap:6px; min-width:0; font-weight:400; }
+.point-size label span { font-size:.85rem; color:var(--muted,#5b6b73); }
+.point-size select,.point-size input { width:100%; min-height:42px; padding:10px; border:1px solid #abc1c9; border-radius:6px; background:white; font-size:1rem; }
+.point-size .text-button { grid-column:1 / -1; justify-self:start; }
+@media(max-width:760px) { .point-size { grid-template-columns:1fr; } }

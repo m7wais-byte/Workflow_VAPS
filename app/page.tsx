@@ -411,15 +411,39 @@ const emptyJobDetails = (): JobDetails => ({
 
 const samplerTypes = [DOWNHOLE_TOOL];
 // Units the sampling engineer can choose for each measurement on the data sheet. Values are stored as entered with their unit.
-/** Standard sampling point sizes; Other lets the engineer type a size that is not listed. */
-const pointSizes = ["1/4 in", "3/8 in", "1/2 in", "3/4 in", "1 in"];
-function PointSizeSelect({ label, value, onChange }: { label: ReactNode; value: string; onChange: (value: string) => void }) {
-  const [other, setOther] = useState(false);
-  const custom = other || (!!value && !pointSizes.includes(value));
-  return <label>{label}
-    <select value={custom ? "Other" : value} aria-label="Sampling point size" onChange={(event) => { const next = event.target.value; setOther(next === "Other"); onChange(next === "Other" ? "" : next); }}><option value="">Select size</option>{pointSizes.map((size) => <option key={size}>{size}</option>)}<option>Other</option></select>
-    {custom && <input value={value} onChange={(event) => onChange(event.target.value)} placeholder="Type the size, e.g. 3/16 in" aria-label="Other sampling point size" />}
-  </label>;
+/**
+ * Sampling point connections and sizes by sampling type. The size is saved as one text, e.g. "1/2 in NPT Male".
+ * Other lets the engineer type a connection or size that is not listed.
+ */
+const pointConnections: Record<string, Record<string, string[]>> = {
+  "Wellhead Sampling": { NPT: ["1/4 in", "3/8 in", "1/2 in"] },
+  "Separator Sampling": { Swagelok: ["1/4 in", "3/8 in", "1/2 in"], "High pressure autoclave": ["1/4 in", "3/8 in", "1/2 in", "1 in"], "Quick connect": ["1/4 in", "3/8 in", "1/2 in"] },
+};
+const pointGenders = ["Male", "Female"];
+function parsePointSize(value: string, connections: Record<string, string[]>) {
+  for (const [connection, sizes] of Object.entries(connections)) for (const size of sizes) for (const gender of pointGenders) if (value === `${size} ${connection} ${gender}`) return { connection, size, gender };
+  return undefined;
+}
+function PointSizeSelect({ label, source, value, onChange }: { label: ReactNode; source: string; value: string; onChange: (value: string) => void }) {
+  const connections = pointConnections[source] || pointConnections["Wellhead Sampling"];
+  const names = Object.keys(connections), saved = parsePointSize(value, connections);
+  const [pick, setPick] = useState({ connection: saved?.connection || (names.length === 1 ? names[0] : ""), size: saved?.size || "", gender: saved?.gender || "" });
+  const [other, setOther] = useState(!!value && !saved);
+  const choose = (change: Partial<typeof pick>) => {
+    const next = { ...pick, ...change };
+    if (change.connection !== undefined && !(connections[next.connection] || []).includes(next.size)) next.size = "";
+    setPick(next);
+    onChange(next.connection && next.size && next.gender ? `${next.size} ${next.connection} ${next.gender}` : "");
+  };
+  return <div className="point-size">
+    <span className="point-size-label">{label}</span>
+    {other ? <label><span>Connection and size</span><input value={value} onChange={(event) => onChange(event.target.value)} placeholder="e.g. 3/4 in NPT Male" aria-label="Other sampling point size" /></label> : <>
+      <label><span>Connection</span><select value={pick.connection} aria-label="Sampling point connection" onChange={(event) => choose({ connection: event.target.value })}>{names.length > 1 && <option value="">Select connection</option>}{names.map((name) => <option key={name}>{name}</option>)}</select></label>
+      <label><span>Size</span><select value={pick.size} disabled={!pick.connection} aria-label="Sampling point size" onChange={(event) => choose({ size: event.target.value })}><option value="">Select size</option>{(connections[pick.connection] || []).map((size) => <option key={size}>{size}</option>)}</select></label>
+      <label><span>Male / Female</span><select value={pick.gender} aria-label="Sampling point male or female" onChange={(event) => choose({ gender: event.target.value })}><option value="">Select</option>{pointGenders.map((gender) => <option key={gender}>{gender}</option>)}</select></label>
+    </>}
+    <button type="button" className="text-button" onClick={() => { setOther(!other); setPick({ connection: names.length === 1 ? names[0] : "", size: "", gender: "" }); onChange(""); }}>{other ? "← Choose from the list" : "Other: type it"}</button>
+  </div>;
 }
 const pressureUnits = ["psi", "psia", "psig", "bar", "barg", "kPa", "MPa"];
 const temperatureUnits = ["°C", "°F", "K"];
@@ -2331,7 +2355,7 @@ export default function Home() {
                         {availability && (notApplicable ? <p>No tools are required. This check is not applicable.</p> : <><label>Tools availability<select disabled={coordinationDetails.toolsRequired !== "Required"} value={coordinationDetails.toolsAvailability === "Not Available" ? "Unavailable" : coordinationDetails.toolsAvailability} onChange={(event) => updateCoordinationDetail("toolsAvailability", event.target.value)}>{["To Be Confirmed", "Available", "Partially Available", "Unavailable"].map((value) => <option key={value}>{value}</option>)}</select></label>{coordinationDetails.toolsRequired !== "Required" && <p>Confirm whether tools are required first.</p>}{["Partially Available", "Unavailable", "Not Available"].includes(coordinationDetails.toolsAvailability) && <label>Missing tools / items<textarea rows={3} value={coordinationDetails.missingTools || ""} onChange={(event) => updateCoordinationDetail("missingTools", event.target.value)} /></label>}</>)}
                         {kit && <label>Sample kit details *<textarea rows={3} value={coordinationDetails.requiredSampleKit} onChange={(event) => updateCoordinationDetail("requiredSampleKit", event.target.value)} placeholder="Kit type, quantity and reference" /></label>}
                         {cylinders && <><p>Receiving containers from the sample records. Complete their details below, then tick this item.</p><div className="readiness-bottles">{samples.map((sample) => <div key={sample.id}><strong>Sample {sample.id}</strong><CylinderPicker inventory={bottleInventory} status={cylStatus} jobId={currentJob?.id || jobId} sample={sample} onSelect={(serial) => updatePreparationSample(sample.id, "bottleSerial", serial)} onField={(field, value) => updatePreparationSample(sample.id, field, value)} />{isSpmcFieldSampling(samplingType) && <section className="cylinder-record-notes"><label>Remarks<input value={sample.preparationRemarks} onChange={(event) => updatePreparationSample(sample.id, "preparationRemarks", event.target.value)} placeholder="Equipment condition, exceptions, or handling notes" /></label><div><small>PREPARED BY</small><strong>{employeeName(sample.preparedBy || currentEmployee.id)}</strong><small>PREPARATION DATE / TIME</small><strong>{formatDateTime(sample.preparedAt || preparationStartedAt)}</strong></div><button type="button" className="remove-sample-button" onClick={() => removeSample(sample.id)}>Remove sample</button></section>}</div>)}</div><BackupCylinders inventory={bottleInventory} status={cylStatus} value={coordinationDetails.backupCylinders || ""} sampleSerials={samples.map((sample) => sample.bottleSerial).filter(Boolean)} onChange={(value) => updateCoordinationDetail("backupCylinders", value)} /></>}
-                        {point && <>{task.label.includes("type") && <label>Sampling point type *<input value={coordinationDetails.samplingPointType} onChange={(event) => updateCoordinationDetail("samplingPointType", event.target.value)} /></label>}{task.label.includes("size") && <PointSizeSelect label="Sampling point size *" value={coordinationDetails.samplingPointSize} onChange={(value) => updateCoordinationDetail("samplingPointSize", value)} />}{task.label === "Confirm separator sampling point" && <label>Separator sampling point *<input value={job.samplingPoint} onChange={(event) => { updateJob("samplingPoint", event.target.value); if (task.completed) toggleCoordinationTask(task.id, false); }} /></label>}</>}
+                        {point && <>{task.label.includes("type") && <label>Sampling point type *<input value={coordinationDetails.samplingPointType} onChange={(event) => updateCoordinationDetail("samplingPointType", event.target.value)} /></label>}{task.label.includes("size") && <PointSizeSelect label="Sampling point size *" source={samplingType} value={coordinationDetails.samplingPointSize} onChange={(value) => updateCoordinationDetail("samplingPointSize", value)} />}{task.label === "Confirm separator sampling point" && <label>Separator sampling point *<input value={job.samplingPoint} onChange={(event) => { updateJob("samplingPoint", event.target.value); if (task.completed) toggleCoordinationTask(task.id, false); }} /></label>}</>}
                       </div>
                     </details>;
                   })}
@@ -2345,7 +2369,7 @@ export default function Home() {
                     </> : <>
                       <label><span>Tools Required? *</span><select value={coordinationDetails.toolsRequired} onChange={(event) => updateCoordinationDetail("toolsRequired", event.target.value)}>{["To Be Confirmed", "Required", "Not Required"].map((option) => <option key={option}>{option}</option>)}</select>{coordinationDetails.toolsConfirmedBy && <small className="field-confirmation">Confirmed by {employeeName(coordinationDetails.toolsConfirmedBy)} · {formatDateTime(coordinationDetails.toolsConfirmedAt)}</small>}</label>
                       <label><span>Tools Availability</span><select value={coordinationDetails.toolsAvailability} onChange={(event) => updateCoordinationDetail("toolsAvailability", event.target.value)}>{["To Be Confirmed", "Available", "Not Available", "Not Applicable"].map((option) => <option key={option}>{option}</option>)}</select></label>
-                      {(samplingType === "Wellhead Sampling" || samplingType === "Separator Sampling") && <><label><span>Sampling Point Type *</span><input value={coordinationDetails.samplingPointType} onChange={(event) => updateCoordinationDetail("samplingPointType", event.target.value)} placeholder="e.g. valve, port, probe" /></label><PointSizeSelect label={<span>Sampling Point Size *</span>} value={coordinationDetails.samplingPointSize} onChange={(value) => updateCoordinationDetail("samplingPointSize", value)} /></>}
+                      {(samplingType === "Wellhead Sampling" || samplingType === "Separator Sampling") && <><label><span>Sampling Point Type *</span><input value={coordinationDetails.samplingPointType} onChange={(event) => updateCoordinationDetail("samplingPointType", event.target.value)} placeholder="e.g. valve, port, probe" /></label><PointSizeSelect label="Sampling Point Size *" source={samplingType} value={coordinationDetails.samplingPointSize} onChange={(value) => updateCoordinationDetail("samplingPointSize", value)} /></>}
                       {samplingType === "Separator Sampling" && <label className="full-field"><span>Separator Sampling Point *</span><input value={job.samplingPoint} onChange={(event) => updateJob("samplingPoint", event.target.value)} placeholder="Describe the exact separator sampling point" /></label>}
                       <label><span>Required Sample Kit *</span><input value={coordinationDetails.requiredSampleKit} onChange={(event) => updateCoordinationDetail("requiredSampleKit", event.target.value)} placeholder="Kit type, quantity, or reference" /></label>
                       <label><span>Required Cylinders *</span><input value={coordinationDetails.requiredCylinders} onChange={(event) => updateCoordinationDetail("requiredCylinders", event.target.value)} placeholder="Cylinder type and quantity" /></label>
