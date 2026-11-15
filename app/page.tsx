@@ -83,6 +83,10 @@ function BottlePicker({ sample, onSelect, inventory, typeSelect, status, jobId }
   </div>;
 }
 
+/** The data sheet's Sample Cylinder Volume from a cylinder capacity such as "700 cc"; empty when the capacity is not a volume. */
+const capacityVolume = (capacity?: string): Record<string, string> => { const match = /^\s*([\d.]+)\s*(cc|mL|L)\b/i.exec(capacity || ""); return match ? { sampleBottleVolume: match[1], sampleBottleVolumeUnit: volumeUnitNames.find((unit) => unit.toLowerCase() === match[2].toLowerCase()) || "cc" } : {}; };
+const volumeUnitNames = ["cc", "mL", "L"];
+
 /** Backup cylinders the sampling engineer takes to the field: reserved for the job, not attached to a sample. */
 function BackupCylinders({ inventory, status, value, sampleSerials, onChange }: { inventory: Bottle[]; status: (serial: string) => EffectiveStatus; value: string; sampleSerials: string[]; onChange: (value: string) => void }) {
   const [type, setType] = useState(""), [serial, setSerial] = useState("");
@@ -907,7 +911,8 @@ export default function Home() {
     setJob((current) => ({ ...current, samplingPlan: legacyPlan({ ...item, samplingSource: normalizedSource || undefined }) }));
     setHoleType(item.holeType || "");
     setScopeAttachment(item.scopeOfWorkAttachment || null);
-    const loadedSamples = item.samples || [];
+    // An empty Sample Cylinder Volume is filled from the capacity of the cylinder chosen in preparation (still editable).
+    const loadedSamples = (item.samples || []).map((sample) => !isAtmospheric(sample) && sample.bottleCapacity && !(sample.fieldData?.sampleBottleVolume || "").trim() && capacityVolume(sample.bottleCapacity).sampleBottleVolume ? { ...sample, fieldData: { ...sample.fieldData, ...capacityVolume(sample.bottleCapacity) } } : sample);
     setSamples(isSpmcFieldSampling(normalizedSource) && loadedSamples.length ? loadedSamples.map((sample) => ({ ...sample, sampler: DOWNHOLE_TOOL, samplerSerial: loadedSamples[0].samplerSerial, calibrationStatus: loadedSamples[0].calibrationStatus, pressureTestStatus: loadedSamples[0].pressureTestStatus, equipmentCondition: loadedSamples[0].equipmentCondition })) : loadedSamples);
     setEvents(item.events || []);
     setCoordinationTasks(createCoordinationTasks(normalizedSource, item.coordinationTasks || []));
@@ -1366,6 +1371,8 @@ export default function Home() {
         {U("Perforations", "perforations", depthUnits, "perforationsUnit", "e.g. 2500–2510")}
       </div>, true)}
       {section("2", "Shipping conditions", atmospheric ? "Container and sample volumes and the final container condition. Press N/A where a pressure does not apply" : "Cylinder and sample volumes and the final cylinder condition", ["sampleBottleVolume", "sampleVolume", "fluidRemaining", "gasCapCreated", "finalPressure", "finalTemperature"], <div className="technical-field-grid">
+        {!atmospheric && sample.bottleSerial && (() => { const backups = (coordinationDetails.backupCylinders || "").split(",").map((item) => item.trim()).filter((item) => item && !samples.some((other) => other.bottleSerial === item)); const describe = (serial: string) => { const bottle = bottleInventory.find((item) => item.serial === serial); return serial + (bottle ? ` · ${bottle.type} · ${bottle.capacity}` : ""); };
+          return <label className="full-field"><span>Cylinder used *</span><select value={sample.bottleSerial} disabled={!backups.length} aria-label={`Cylinder used for sample ${sample.id}`} onChange={(event) => changeSampleCylinder(sample.id, event.target.value)}><option value={sample.bottleSerial}>{describe(sample.bottleSerial)} · cylinder of this sample</option>{backups.map((serial) => <option key={serial} value={serial}>{describe(serial)} · backup cylinder</option>)}</select><small className="field-help">{backups.length ? "If the sample was taken in a backup cylinder, select it here. The cylinder volume follows the cylinder and the replaced cylinder stays reserved as a backup." : "This job has no backup cylinders. The cylinder volume below comes from this cylinder and can still be edited."}</small></label>; })()}
         {U(atmospheric ? "Container Volume" : "Sample Cylinder Volume", "sampleBottleVolume", volumeUnits)}{U("Sample Volume", "sampleVolume", volumeUnits)}{U("Fluid Remaining", "fluidRemaining", volumeUnits)}
         {samplingSelectField(sample, "Gas Cap Created", "gasCapCreated", ["Yes", "No", "N/A"])}
         {U(atmospheric ? "Final Container Pressure" : "Final Cylinder Pressure", "finalPressure", pressureUnits)}{U(atmospheric ? "Final Container Temperature" : "Final Cylinder Temperature", "finalTemperature", temperatureUnits)}
@@ -1456,6 +1463,21 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  /**
+   * Data sheet: the sample was taken in another cylinder of this job. The chosen backup cylinder becomes the sample's
+   * cylinder (with its capacity as the cylinder volume) and the cylinder it replaces stays reserved as a backup.
+   */
+  function changeSampleCylinder(id: string, serial: string) {
+    const sample = samples.find((item) => item.id === id), cylinder = bottleInventory.find((item) => item.serial === serial);
+    if (!sample || !cylinder || serial === sample.bottleSerial) return;
+    const backups = (coordinationDetails.backupCylinders || "").split(",").map((item) => item.trim()).filter(Boolean);
+    if (!backups.includes(serial)) return;
+    const nextDetails: CoordinationDetails = { ...coordinationDetails, backupCylinders: [...backups.filter((item) => item !== serial), ...(sample.bottleSerial ? [sample.bottleSerial] : [])].join(", ") };
+    const nextSamples = samples.map((item) => item.id === id ? { ...item, bottleSerial: serial, bottle: cylinder.type, bottleCapacity: cylinder.capacity, fieldData: { ...item.fieldData, ...capacityVolume(cylinder.capacity) }, dataComplete: false, dataCompletedBy: "", dataCompletedAt: "" } : item);
+    setSamples(nextSamples); setCoordinationDetails(nextDetails);
+    if (currentJob) updateCurrentJob(currentJob.currentStage, currentJob.nextAction, {}, `changed the cylinder of sample ${id} from ${sample.bottleSerial || "none"} to backup cylinder ${serial}`, { samples: nextSamples, coordinationDetails: nextDetails });
+  }
+
   function updatePreparationSample(id: string, field: keyof Sample, value: string) {
     const now = preparationStartedAt || new Date().toISOString();
     if (!preparationStartedAt) setPreparationStartedAt(now);
@@ -1465,7 +1487,7 @@ export default function Home() {
       : field === "containerType" ? (value === "Bottle" ? { containerId: "", containerVolume: "" } : { bottle: "", bottleSerial: "", bottleCapacity: "", containerId: "", containerVolume: "" }) : {};
     // A glass bottle or IATA can volume is also the container volume on the data sheet.
     const [volume, volumeUnit] = field === "containerVolume" ? value.split(" ") : [];
-    const nextSamples = samples.map((sample) => sample.id === id ? { ...sample, [field]: value, ...bottleDetails, ...(volume ? { fieldData: { ...sample.fieldData, sampleBottleVolume: volume, sampleBottleVolumeUnit: volumeUnit } } : {}), dataComplete: false, dataCompletedBy: "", dataCompletedAt: "", preparedBy: currentEmployee?.id || sample.preparedBy, preparedAt: sample.preparedAt || now } : sample);
+    const nextSamples = samples.map((sample) => sample.id === id ? { ...sample, [field]: value, ...bottleDetails, ...(volume ? { fieldData: { ...sample.fieldData, sampleBottleVolume: volume, sampleBottleVolumeUnit: volumeUnit } } : cylinder && capacityVolume(cylinder.capacity).sampleBottleVolume ? { fieldData: { ...sample.fieldData, ...capacityVolume(cylinder.capacity) } } : {}), dataComplete: false, dataCompletedBy: "", dataCompletedAt: "", preparedBy: currentEmployee?.id || sample.preparedBy, preparedAt: sample.preparedAt || now } : sample);
     const nextTasks = coordinationTasks.map((task) => ["bottle", "bottleSerial", "bottleCapacity", "containerType", "containerId", "containerVolume"].includes(field) && task.label === "Assign the required cylinders" ? { ...task, completed: false, completedBy: undefined, completedAt: undefined } : task);
     setSamples(nextSamples);
     setCoordinationTasks(nextTasks);
