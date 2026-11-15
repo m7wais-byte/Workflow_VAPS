@@ -8,6 +8,14 @@ The job workspace now separates overview, scope, sampling, sampling reports, phy
 
 PVT and Chemical work can run in parallel. Weekly views support multi-day and cross-week assignments, individual dashboards, workbooks, corrections, and completed-work filtering. Sampling reports have named checking and approval stages with version snapshots. Physical dispatch and receipt are separate records. Final reports collect completed work, require an attached document, and retain earlier approved versions when additional work reopens a job.
 
+## Sampling procedure update (November 2026)
+
+- **No separate data submission.** Once every data sheet is complete, the backup sampling engineer confirms the review (`data-review`); on a job with no backup the accountable engineer confirms it himself. The accountable engineer then generates the sampling report, attaches the G-sheet file (any file type, mandatory) and sends it to the sampling approver. Approval publishes the final sampling report directly; the approver can still return it with comments. There is no separate report-check stage for new reports. Submissions and checks already in flight under the earlier workflow keep working.
+- **Backup cylinders.** In preparation the sampling engineer can reserve backup cylinders for the job (no sample attached). They show as In use on the job, can be selected as the cylinder of one of its samples, and are released with the job's other cylinders.
+- **Client units.** Settings → Clients holds the units each client works in (Field or Metric preset, each quantity adjustable). New data sheets and the job sampling context open in those units; other units stay selectable, and a value already entered keeps its unit.
+- **Validation.** The PVT Team Lead picks one engineer (and optional start/due dates) per sample; it fills every Validation step, and each step can still be changed.
+- **Data sheet.** "Stable Since" is now the question "Stable?" (Yes / No). The sampling point is free text for Wellhead Sampling. Sampling point size is a dropdown (1/4, 3/8, 1/2, 3/4, 1 in, Other).
+
 ## Responsibilities
 
 Duties are assigned to employee IDs in Settings → Authorization → Responsibilities (`vaps-responsibilities-v1`). Defaults apply only at first setup or migration; a cleared duty stays empty and blocks its step. A duty never grants a permission; both must pass.

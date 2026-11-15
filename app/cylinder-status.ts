@@ -38,6 +38,8 @@ type SampleRef = { id: string; bottleSerial?: string; containerType?: string };
 export type CylinderJob = {
   id: string; jobNumber: string; trash?: unknown; status?: string;
   samples?: SampleRef[];
+  /** Backup cylinders reserved for the job with no sample attached: serial numbers separated by commas. */
+  coordinationDetails?: { backupCylinders?: string };
   operations?: { cylindersReleased?: { by: string; at: string } };
 };
 
@@ -52,7 +54,10 @@ export function readCylinderStatus(raw?: string | null): CylinderStatusMap {
 }
 
 /** Cylinder serials a job holds (glass bottles and IATA cans are not in the cylinder inventory). */
-export const jobCylinders = (job: CylinderJob) => [...new Set((job.samples || []).filter((s) => s.containerType !== 'Glass container' && s.containerType !== 'IATA can' && s.bottleSerial?.trim()).map((s) => s.bottleSerial!.trim()))];
+const sampleCylinders = (job: CylinderJob) => (job.samples || []).filter((s) => s.containerType !== 'Glass container' && s.containerType !== 'IATA can' && s.bottleSerial?.trim()).map((s) => s.bottleSerial!.trim());
+/** Backup cylinders of a job: reserved for it, not attached to a sample. One that a sample now uses is no longer a backup. */
+export const backupCylinders = (job: CylinderJob) => { const used = new Set(sampleCylinders(job).map(key)); return [...new Set((job.coordinationDetails?.backupCylinders || '').split(',').map((s) => s.trim()).filter(Boolean))].filter((s) => !used.has(key(s))); };
+export const jobCylinders = (job: CylinderJob) => [...new Set([...sampleCylinders(job), ...backupCylinders(job)])];
 
 export type EffectiveStatus = { state: CylinderState; job?: { id: string; jobNumber: string; sampleIds: string[] }; record?: CylinderRecord; releasedAt?: string };
 
@@ -79,10 +84,10 @@ export function cylinderStatuses(jobs: CylinderJob[], records: CylinderStatusMap
   };
 }
 
-/** Whether a cylinder may be chosen for a sample: Ready and not used by any job, or already this sample's own cylinder. */
+/** Whether a cylinder may be chosen for a sample: Ready and not used by any job, already this sample's own cylinder, or a backup cylinder of this job. */
 export function selectable(status: EffectiveStatus, jobId: string, sampleId: string) {
   if (status.state === 'ready') return true;
-  return status.state === 'in-use' && status.job?.id === jobId && status.job.sampleIds.length === 1 && status.job.sampleIds[0] === sampleId;
+  return status.state === 'in-use' && status.job?.id === jobId && (status.job.sampleIds.length === 0 || status.job.sampleIds.length === 1 && status.job.sampleIds[0] === sampleId);
 }
 
 /** Records a new status set by the sampling team. Ready needs every check; maintenance and damage need a note. */

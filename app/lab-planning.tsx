@@ -52,6 +52,10 @@ function SamplePlan({ actor, job, record, steps, run, isLead }: { actor: Actor; 
   // Choosing an engineer proposes today as the start; the lead moves it when the engineer is busy until later.
   const change = (t: string, c: Partial<Row>) => setRows((list) => { const next = { ...row(t), ...c }; if (next.owner && !next.start) next.start = today; return { ...list, [t]: next }; });
     const list = [...chosen].sort((x, y) => order(x) - order(y));
+  // One engineer for the whole Validation of this sample: fills every step that can still change. Each step stays editable below.
+  const fillable = (t: string) => { const a = existing(t); return a?.status !== 'Completed' && !underReview(a); };
+  const fill = (c: Partial<Row>) => setRows((current) => { const next = { ...current }; for (const t of list.filter(fillable)) { const x = { ...(current[t] || saved(t)), ...c }; if (x.owner && !x.start) x.start = today; if (x.start && x.due && x.due < x.start) x.due = ''; next[t] = x; } return next; });
+  const same = (k: 'owner' | 'start' | 'due') => { const values = [...new Set(list.filter(fillable).map((t) => row(t)[k]))]; return values.length === 1 ? values[0] : ''; };
   const addable = selectableValidationSteps.filter((t) => !chosen.includes(t) && validationStream(t) === 'PVT');
   const removed = steps.filter((a) => !chosen.includes(a.title)).map((a) => a.title), added = list.filter((t) => !existing(t));
   const execChanged = list.some((t) => !!existing(t) && JSON.stringify(exec[t] || null) !== JSON.stringify(savedExec[t] || null));
@@ -79,6 +83,12 @@ function SamplePlan({ actor, job, record, steps, run, isLead }: { actor: Actor; 
   </div>}</>;
 
   return <form className="plan-form" onSubmit={(e) => { e.preventDefault(); save(); }}>{head}
+    {list.some(fillable) && <div className="assign-all" role="group" aria-label={'Validation engineer for Sample ' + sid}>
+      <label><span>Validation engineer for this sample</span><select aria-label={'Validation engineer for Sample ' + sid} value={same('owner')} onChange={(e) => { if (e.target.value) fill({ owner: e.target.value }); }}><option value="">{list.filter(fillable).some((t) => row(t).owner) ? 'Different engineers per step' : 'Select engineer'}</option><PersonOptions employees={actor.employees} departments={actor.departments} me={actor.id} first={[...(actor.teams?.PVT || []), holder(actor, 'pvtTeamLead')]} firstLabel="PVT team" /></select></label>
+      <label><span>Start date (all steps)</span><DateInput aria-label={'Start date for all steps of Sample ' + sid} value={same('start')} onChange={(e) => fill({ start: e.target.value })} /></label>
+      <label><span>Due date (all steps)</span><DateInput aria-label={'Due date for all steps of Sample ' + sid} value={same('due')} onChange={(e) => fill({ due: e.target.value })} /></label>
+      <small>Fills every step below with one engineer. Change any single step afterwards if another engineer takes it.</small>
+    </div>}
     {list.length > 0 ? <div className="assign-table" role="table" aria-label={'Assign Validation steps for Sample ' + sid}>
       <div className="assign-head" role="row"><span>#</span><span>Step</span><span>Engineer</span><span>Start date</span><span>Due date</span><span>Note for the engineer</span><span /></div>
       {list.map((t, i) => { const a = existing(t), x = row(t), ext = exec[t]; const locked = !!a && touched(a); const done = a?.status === 'Completed'; const untouched = !a || (a.status === 'Unassigned' && !a.files.length);

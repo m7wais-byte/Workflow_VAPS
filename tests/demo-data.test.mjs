@@ -33,8 +33,8 @@ test('the demo covers PVT-only, Chemical-only and Both destinations through the 
 });
 test('each demo job sits at a coherent stage, including Validation added to a completed job', () => {
  assert.equal(current(byId['OM-X-26-001']), 'sampling');
- assert.equal(current(byId['OM-X-26-002']), 'sampling-report');
- assert.equal(byId['OM-X-26-002'].operations.samplingData.at(-1).status, 'Submitted', 'waiting for the data review');
+ assert.equal(current(byId['OM-X-26-002']), 'sampling');
+ assert.equal(byId['OM-X-26-002'].operations.samplingData, undefined, 'data sheets complete, waiting for the data review');
  assert.equal(samplingApproved(byId['OM-X-26-003']), true);
  const j4 = byId['OM-X-26-004'], o4 = j4.operations;
  assert.ok(o4.finalReports.some(r => r.status === 'Approved' && r.approvedBy === 'WILFRED'), 'the approved report version is kept');
@@ -51,7 +51,7 @@ test('demo assignments always match the demo team setup, and QC is independent o
 test('demo jobs show assigned work, review, returns, QC, new scope alerts and coming-up responsibilities', () => {
  const lab = byId['OM-X-26-003'].operations.activities;
  for (const status of ['Completed', 'Workbook Submitted', 'Changes Requested', 'Awaiting QC', 'In Progress', 'Scheduled']) assert.ok(lab.some(a => a.status === status), status);
- assert.ok(work('SALIM').actions.some(i => i.action === 'Review sampling data'));
+ assert.ok(work('HUSSEINI').actions.some(i => /^Confirm the sampling data review/.test(i.action)), 'no backup on the job: the accountable engineer confirms the review');
  assert.ok(work('SHEREIQI').actions.some(i => /^Review workbook/.test(i.action)), 'team lead review');
  assert.ok(work('RANJITH').actions.some(i => i.kind === 'returned'), 'returned work');
  assert.ok(work('AHAD').actions.some(i => i.area === 'QC'), 'QC review');

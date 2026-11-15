@@ -3733,3 +3733,29 @@ main .rq .rq-plain select:has(option[value=""]:checked),main .rq .rq-plain input
 .rq-list .text-button { display:inline-flex; align-items:center; gap:5px; color:#b4232c; white-space:nowrap; }
 @media (max-width:1050px) { .rq-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); } .rq-two,.rq-lists { grid-template-columns:minmax(0,1fr); } }
 @media (max-width:860px) { .rq-stage,.rq-stages.editing .rq-stage { grid-template-columns:repeat(2,minmax(0,1fr)); } .rq-stage-head { display:none; } .rq-find input { width:140px; } }
+
+/* Backup cylinders reserved for a job (Sampling preparation) */
+.backup-cylinders { display:grid; gap:10px; margin-top:12px; padding:14px; border:1px dashed #abc1c9; border-radius:8px; background:#f7fafb; }
+.backup-cylinders header { display:grid; gap:4px; }
+.backup-cylinders header small { color:var(--muted,#5b6b73); }
+.backup-cylinders ul { list-style:none; margin:0; padding:0; display:grid; gap:6px; }
+.backup-cylinders li { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:8px 12px; border:1px solid var(--line); border-radius:6px; background:white; }
+.backup-add { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto; gap:12px; align-items:end; }
+.backup-add label { display:flex; flex-direction:column; gap:6px; min-width:0; }
+.backup-add select { width:100%; min-height:42px; padding:10px; border:1px solid #abc1c9; border-radius:6px; background:white; font-size:1rem; }
+@media(max-width:760px) { .backup-add { grid-template-columns:1fr; } }
+
+/* Client units (Settings → Clients) */
+.client-units { border:1px solid var(--line); border-radius:8px; padding:14px; display:grid; gap:12px; min-width:0; }
+.client-units legend { font-weight:700; padding:0 6px; }
+.client-units p { margin:0; color:var(--muted,#5b6b73); }
+.client-units-presets { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+.client-units-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
+.client-units-grid label { display:flex; flex-direction:column; gap:6px; min-width:0; }
+
+/* Validation: one engineer for the whole sample (fills every step) */
+.assign-all { display:grid; grid-template-columns:minmax(220px,1.4fr) 180px 180px; gap:10px 14px; align-items:end; margin-top:12px; padding:12px 14px; border:1px solid var(--line); border-radius:8px; background:#f1f6f7; }
+.assign-all label { display:flex; flex-direction:column; gap:6px; min-width:0; font-size:13px; font-weight:600; }
+.ops-panel .assign-all select,.ops-panel .assign-all input { min-height:38px; padding:7px 10px; font-size:14px; }
+.assign-all small { grid-column:1 / -1; color:#4d636d; }
+@media(max-width:800px) { .assign-all { grid-template-columns:1fr; } }

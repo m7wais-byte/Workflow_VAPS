@@ -70,7 +70,7 @@ test('sampling job: saved sampling type label, location and stage status from th
   const s = row(v, 'Wellhead Sampling');
   assert.equal(s.group, 'sampling'); assert.equal(s.status, 'in-progress'); assert.match(s.detail, /DEMO-WH-07/);
   assert.equal(v.currentStage, 'Sampling');
-  assert.equal(row(view(byId['OM-X-26-002']), 'Separator Sampling').status, 'under-review', 'submitted sampling data awaiting review');
+  assert.equal(row(view(byId['OM-X-26-002']), 'Separator Sampling').status, 'in-progress', 'data sheets complete, waiting for the data review');
 });
 
 test('samples delivered to the laboratory show Sample receipt instead of Sampling', () => {

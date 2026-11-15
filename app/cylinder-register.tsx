@@ -56,7 +56,7 @@ export function CylinderRegister({ cylinders, status, records, canEdit, me, name
           <span className="cyl-serial"><strong>{c.serial}</strong><small>{c.type} · {c.capacity}</small></span>
           <span className="cyl-spec">{c.specification}</span>
           <span className="cyl-state"><StateChip state={st.state} />
-            {st.job && <button type="button" className="text-button" onClick={() => onOpenJob(st.job!.id)}>{st.state === "in-use" ? "Job" : "From job"} {st.job.jobNumber}{st.state === "in-use" ? ` · sample ${st.job.sampleIds.join(", ")}` : ""}</button>}
+            {st.job && <button type="button" className="text-button" onClick={() => onOpenJob(st.job!.id)}>{st.state === "in-use" ? "Job" : "From job"} {st.job.jobNumber}{st.state === "in-use" ? (st.job.sampleIds.length ? ` · sample ${st.job.sampleIds.join(", ")}` : " · backup cylinder") : ""}</button>}
             <small>{st.state === "returned" ? `Released ${ukDateTime(st.releasedAt)}` : rec ? `${name(rec.by)} · ${ukDateTime(rec.at)}` : "Never checked"}</small>
             {rec?.note && st.state !== "returned" && <small className="cyl-note">{rec.note}</small>}</span>
           {canEdit && st.state !== "in-use" && <button type="button" className={st.state === "returned" || st.state === "not-checked" ? "attention-button" : "outline-button"} aria-expanded={isOpen} onClick={() => open(c.serial, st)}>{isOpen ? "Close" : st.state === "returned" || st.state === "not-checked" ? "Check cylinder" : "Update status"}</button>}

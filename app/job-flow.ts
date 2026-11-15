@@ -9,7 +9,7 @@ import type { JobRecord } from './page';
 import type { Responsibilities } from './authorization';
 import { storedResponsibilities, roleHolder } from './authorization';
 import {
-  operationsFor, isDraft, latestData, latest, samplingApproved, legacyDispatch, dataReviewRequired, unplannedValidation,
+  operationsFor, dataReviewers, isDraft, latestData, latest, samplingApproved, legacyDispatch, dataReviewRequired, unplannedValidation,
   validationScopes, allWorkDone, finalReady, operationComplete, additionalWorkPending, externalStage, validationCatalogue,
   streamLead, latestLabScope, type ActivityRecord, type Stream,
 } from './operations-model';
@@ -100,16 +100,19 @@ function samplingSection(job: JobRecord, roles: Responsibilities): FlowSection {
       : submitted || (!reviewed && (r || legacy)) ? { state: 'completed', detail: approved || d ? 'Submitted' : sheetText, at: d?.submittedAt }
       : prepDone ? { state: 'in-progress', detail: d?.status === 'Reopened' ? 'Reopened for correction · ' + sheetText : sheetText }
       : { state: 'not-started', detail: 'After preparation' }) } as FlowStep);
-  if (reviewed) steps.push({ id: 'sampling:data-review', label: 'Data review & approval', team: 'Sampling approval', owner: approver,
-    ...(dataApproved ? { state: 'completed', detail: 'Data approved', at: d?.reviewedAt }
+  // The backup engineer confirms the data review; a submission from the earlier workflow still waits for the sampling approver.
+  const earlier = d?.status === 'Submitted' || d?.status === 'Returned', reviewer = earlier ? approver : dataReviewers(job)[0];
+  if (reviewed) steps.push({ id: 'sampling:data-review', label: 'Backup engineer review', team: earlier ? 'Sampling approval' : team, owner: reviewer,
+    ...(dataApproved ? { state: 'completed', detail: 'Data reviewed', at: d?.reviewedAt }
       : d?.status === 'Submitted' ? (approver ? { state: 'in-progress', detail: 'Awaiting review' } : { state: 'blocked', setting: true, detail: 'Sampling approver not configured' })
       : d?.status === 'Returned' ? { state: 'not-started', detail: 'Waiting for the corrected data' }
-      : { state: 'not-started', detail: 'After the data is submitted' }) } as FlowStep);
+      : prepDone && samples.length > 0 && sheets === samples.length ? { state: 'in-progress', detail: 'Awaiting backup review' }
+      : { state: 'not-started', detail: 'After the data sheets are complete' }) } as FlowStep);
   steps.push({ id: 'sampling:report', label: 'Sampling report preparation', team, owner: r?.preparedBy || lead,
     ...(reportSubmitted ? { state: 'completed', detail: 'Submitted for approval', at: r?.submittedAt }
       : r?.status === 'Changes Requested' ? { state: 'blocked', correction: true, detail: 'Returned for correction' }
       : dataApproved || (!reviewed && dispatched) ? { state: 'in-progress', detail: r?.status === 'Draft' ? 'Draft in preparation' : 'Ready to prepare' }
-      : { state: 'not-started', detail: 'After the data is approved' }) } as FlowStep);
+      : { state: 'not-started', detail: 'After the backup review' }) } as FlowStep);
   steps.push({ id: 'sampling:approval', label: 'Sampling report approval', team: r?.status === 'Checking' ? 'Report checker' : 'Sampling approval', owner: r?.status === 'Checking' ? r.checker : approver,
     ...(approved ? { state: 'completed', detail: 'Approved', at: r?.approvedAt || job.report?.approvedAt }
       : r?.status === 'Awaiting Approval' ? (approver ? { state: 'in-progress', detail: 'Awaiting approval' } : { state: 'blocked', setting: true, detail: 'Sampling approver not configured' })

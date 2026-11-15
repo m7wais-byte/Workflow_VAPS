@@ -9,7 +9,7 @@ import { canOpenJob, jobsInWork, applyJobOperation, noJobAccessMessage } from '.
 import { StatusBadge, OverdueBadge, MiniTracker } from './flow-ui';
 import { OperationsWorkspace, WeeklyWork, ClarificationReview, LabWorkspace } from './operations-workspace';
 import { SamplingReportDocument, exportSamplingReportPdf, downloadSamplingReportPdf, samplingReportInput, type ReportContext } from './sampling-report';
-import { applyOperation, isTrashed, trashJob, restoreJob, operationComplete, latest, operationsFor, streamLead, labStatus, labStatuses, type ActivityRecord, isDraft, canSeeDraft, samplingTeam, samplingWorkers, samplingStarted, samplingStatus, latestData, samplingDataLocked, dataReviewRequired, type Actor, type Operations, type Command } from './operations-model';
+import { applyOperation, dataReviewers, isTrashed, trashJob, restoreJob, operationComplete, latest, operationsFor, streamLead, labStatus, labStatuses, type ActivityRecord, isDraft, canSeeDraft, samplingTeam, samplingWorkers, samplingStarted, samplingStatus, latestData, samplingDataLocked, dataReviewRequired, type Actor, type Operations, type Command } from './operations-model';
 import { readSavedRouting, effectiveRouting, storedTestRouting, testRoutingKey, type TestRouting, type SavedRouting } from './test-routing';
 import { readCustomTests, testCatalogueKey, catalogueIds, type CatalogueTest } from './test-catalogue';
 import { TestCatalogueSettings } from './test-settings';
@@ -29,6 +29,7 @@ import { workItems, inboxRows, sortItems, jobsNeedingAction, samplingStage, samp
 import { readDemoSetup, saveDemoSetup, type DemoSetup } from "./demo-setup";
 import { standardSheetErrors, samplingIssues, samplingSummary, matchedFields, productionFields } from "./sampling-validation";
 import { defaultFieldData, samplingPointFor, samplingPointOptions } from "./sample-defaults";
+import { applyClientUnits, clientUnitFor, presetOf, unitPresets, unitQuantities, unitsSummary, type ClientUnits } from "./client-units";
 import { containerComplete, containerId, containerLabel, containerNoun, containerTypeName, containerTypes, containerVolumes, isAtmospheric, type ContainerType } from "./sample-container";
 import { buildDemoJobs, demoClient, demoLogin, demoConfiguration } from "./demo-data";
 import { storeWorkbook } from "./workbook-storage";
@@ -82,6 +83,24 @@ function BottlePicker({ sample, onSelect, inventory, typeSelect, status, jobId }
   </div>;
 }
 
+/** Backup cylinders the sampling engineer takes to the field: reserved for the job, not attached to a sample. */
+function BackupCylinders({ inventory, status, value, sampleSerials, onChange }: { inventory: Bottle[]; status: (serial: string) => EffectiveStatus; value: string; sampleSerials: string[]; onChange: (value: string) => void }) {
+  const [type, setType] = useState(""), [serial, setSerial] = useState("");
+  const backups = [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))].filter((item) => !sampleSerials.includes(item));
+  // Only Ready cylinders that no job holds can be reserved.
+  const free = inventory.filter((item) => item.type === type && !backups.includes(item.serial) && !sampleSerials.includes(item.serial) && status(item.serial).state === "ready");
+  const save = (list: string[]) => onChange(list.join(", "));
+  return <section className="backup-cylinders" aria-label="Backup cylinders">
+    <header><strong>Backup cylinders</strong><small>Extra cylinders taken to the field. They are reserved for this job and released with its other cylinders. To use one, select it as the cylinder of a sample.</small></header>
+    {backups.length > 0 ? <ul>{backups.map((item) => { const bottle = inventory.find((entry) => entry.serial === item); return <li key={item}><span><strong>{item}</strong>{bottle ? ` · ${bottle.type} · ${bottle.capacity}` : ""}</span><button type="button" className="text-button" onClick={() => save(backups.filter((entry) => entry !== item))} aria-label={`Remove backup cylinder ${item}`}>Remove</button></li>; })}</ul> : <p className="cylinder-selection-details">No backup cylinders added.</p>}
+    <div className="backup-add">
+      <label><span>Cylinder Type</span><select value={type} onChange={(event) => { setType(event.target.value); setSerial(""); }} aria-label="Backup cylinder type"><option value="">Select cylinder type</option>{cylinderTypes.map((item) => <option key={item}>{item}</option>)}</select></label>
+      <label><span>Serial Number</span><select disabled={!type} value={serial} onChange={(event) => setSerial(event.target.value)} aria-label="Backup cylinder serial number"><option value="">{type ? (free.length ? "Select serial number" : "No Ready cylinder free") : "Choose cylinder type first"}</option>{free.map((item) => <option key={item.serial} value={item.serial}>{item.serial}</option>)}</select></label>
+      <button type="button" className="outline-button" disabled={!serial} onClick={() => { save([...backups, serial]); setSerial(""); }}>+ Add backup cylinder</button>
+    </div>
+  </section>;
+}
+
 type Stage = "job" | "type" | "bottomhole" | "scope" | "report";
 type HoleType = "Open Hole" | "Cased Hole" | "";
 type JobStatus = "Draft" | "Job Created" | "Sampling In Progress" | "Sampling Completed" | "Report Draft" | "Awaiting Approval" | "Completed";
@@ -128,6 +147,8 @@ type Client = {
   shortName: string;
   country: string;
   notes: string;
+  /** Units this client works in; the sampling data sheet opens in them. Not set = the standard defaults. */
+  units?: ClientUnits;
   active: boolean;
 };
 
@@ -318,6 +339,8 @@ type CoordinationDetails = {
   samplingPointSize: string;
   requiredSampleKit: string;
   requiredCylinders: string;
+  /** Backup cylinders reserved for the job with no sample attached: serial numbers separated by commas. */
+  backupCylinders?: string;
   sampleOwner: string;
   requiredItems: string;
 };
@@ -388,6 +411,16 @@ const emptyJobDetails = (): JobDetails => ({
 
 const samplerTypes = [DOWNHOLE_TOOL];
 // Units the sampling engineer can choose for each measurement on the data sheet. Values are stored as entered with their unit.
+/** Standard sampling point sizes; Other lets the engineer type a size that is not listed. */
+const pointSizes = ["1/4 in", "3/8 in", "1/2 in", "3/4 in", "1 in"];
+function PointSizeSelect({ label, value, onChange }: { label: ReactNode; value: string; onChange: (value: string) => void }) {
+  const [other, setOther] = useState(false);
+  const custom = other || (!!value && !pointSizes.includes(value));
+  return <label>{label}
+    <select value={custom ? "Other" : value} aria-label="Sampling point size" onChange={(event) => { const next = event.target.value; setOther(next === "Other"); onChange(next === "Other" ? "" : next); }}><option value="">Select size</option>{pointSizes.map((size) => <option key={size}>{size}</option>)}<option>Other</option></select>
+    {custom && <input value={value} onChange={(event) => onChange(event.target.value)} placeholder="Type the size, e.g. 3/16 in" aria-label="Other sampling point size" />}
+  </label>;
+}
 const pressureUnits = ["psi", "psia", "psig", "bar", "barg", "kPa", "MPa"];
 const temperatureUnits = ["°C", "°F", "K"];
 const volumeUnits = ["cc", "mL", "L"];
@@ -929,7 +962,7 @@ export default function Home() {
     if(currentJob && !coordinator(currentEmployee.id) && samplingTeam(currentJob).includes(currentEmployee.id) && !samplingWorkers(currentJob).includes(currentEmployee.id)){setNotice("You are a backup on this job with view-only access. Ask the job coordinator to give you work access in Job access.");return false; }
     if(currentJob && stage !== "job" && !coordinator(currentEmployee.id) && !samplingStarted(currentJob)){setNotice("Start the job first: open the job briefing and press Start job.");return false; }
     if(currentJob && !coordinator(currentEmployee.id) && !samplingWorkers(currentJob).includes(currentEmployee.id) && !canWork(currentJob,"sampling",currentEmployee.id)){setNotice("Only the accepted sampling owner or a job coordinator can update this job workspace.");return false; }
-    if(currentJob && stage !== "job" && samplingDataLocked(currentJob)){setNotice(latestData(currentJob)?.status==="Submitted"?"The sampling data is submitted for review and is read-only until it is returned.":"The sampling data is approved and read-only. To correct it, reopen it with a reason in Sampling review & report.");return false; }
+    if(currentJob && stage !== "job" && samplingDataLocked(currentJob)){setNotice(latestData(currentJob)?.status==="Submitted"?"The sampling data is submitted for review and is read-only until it is returned.":"The sampling data is reviewed and read-only. To correct it, reopen it with a reason in Sampling review & report.");return false; }
     if(currentJob?.operations?.samplingReports.some(r=>["Checking","Awaiting Approval","Approved"].includes(r.status)) && !["Draft","Changes Requested"].includes(currentJob.operations.samplingReports.at(-1)!.status)){setNotice("Submitted sampling data is locked. Request a report revision before editing.");return false; }
     if (!currentJob?.operations && currentJob?.report?.reportStatus !== "Draft" && currentJob?.report && !(currentEmployee.id === samplingApprover && currentJob.report.reportStatus === "Awaiting Approval" && recordUpdates.report)) { setNotice(`Reviewed data is locked. ${employeeName(samplingApprover)} must request changes before editing.`); return false; }
     if(currentJob?.operations && (JSON.stringify(job.requiredTests)!==JSON.stringify(currentJob.requiredTests||[]) || job.otherTests!==(currentJob.otherTests||''))){setNotice('The original request is preserved. Record scope changes in Scope → Request additional work, with a reason.');return false; }
@@ -1226,9 +1259,10 @@ export default function Home() {
     return <label><span>{label}</span><div className={"value-unit" + (isNA ? " is-na" : "")}><input value={isNA ? "N/A" : value} disabled={isNA} onChange={(event) => updateJob(field, event.target.value)} placeholder={placeholder} />{contextNaToggle(field, label, isNA)}</div></label>;
   }
   function contextUnitField(label: string, field: keyof JobDetails, units: string[]): ReactNode {
-    const unit = job.contextUnits[field] || units[0];
+    const preferred = clientUnitFor(String(field), selectedClient?.units);
+    const unit = job.contextUnits[field] || (preferred && units.includes(preferred) ? preferred : units[0]);
     const value = String(job[field] ?? ""), isNA = value.trim().toUpperCase() === "N/A";
-    return <label><span>{label}</span><div className={"value-unit" + (isNA ? " is-na" : "")}><input inputMode="decimal" value={isNA ? "N/A" : value} disabled={isNA} onChange={(event) => updateJob(field, event.target.value)} placeholder="Value if known" /><select aria-label={`${label} unit`} disabled={isNA} value={unit} onChange={(event) => { const value = event.target.value; setJob((current) => ({ ...current, contextUnits: { ...current.contextUnits, [field]: value } })); }}>{units.map((u) => <option key={u}>{u}</option>)}</select>{contextNaToggle(field, label, isNA)}</div></label>;
+    return <label><span>{label}</span><div className={"value-unit" + (isNA ? " is-na" : "")}><input inputMode="decimal" value={isNA ? "N/A" : value} disabled={isNA} onChange={(event) => { const value = event.target.value; setDispatchReview(false); setJob((current) => ({ ...current, [field]: value, contextUnits: { ...current.contextUnits, [field]: current.contextUnits[field] || unit } })); }} placeholder="Value if known" /><select aria-label={`${label} unit`} disabled={isNA} value={unit} onChange={(event) => { const value = event.target.value; setJob((current) => ({ ...current, contextUnits: { ...current.contextUnits, [field]: value } })); }}>{units.map((u) => <option key={u}>{u}</option>)}</select>{contextNaToggle(field, label, isNA)}</div></label>;
   }
 
   const dataChip = (status: string) => <span className={"section-state " + (status === "Complete" ? "st-completed" : status === "In Progress" ? "st-in-progress" : "st-not-started")}>{status === "Complete" ? "✓ Complete" : status === "In Progress" ? "In progress" : "Not started"}</span>;
@@ -1288,7 +1322,7 @@ export default function Home() {
     const pointList = !pointValue || samplingPointOptions.includes(pointValue) ? samplingPointOptions : [pointValue, ...samplingPointOptions];
     const shared = inSeparatorSet(sample), atmospheric = isAtmospheric(sample);
     const production = section(shared ? `S${sample.set}` : "4", shared ? `Set ${sample.set} · Separator sampling conditions` : "Production conditions during sampling", shared ? "Entered once for the set; applies to every cylinder of the set" : "Measured values with units, or N/A where a condition does not apply", productionFields, <>
-        {group("Well", <>{U("Bottomhole Pressure (BHP)", "bhp", pressureUnits)}{U("Bottomhole Temperature (BHT)", "bht", temperatureUnits)}{U("Wellhead Pressure (WHP)", "whp", pressureUnits)}{U("Wellhead Temperature (WHT)", "wht", temperatureUnits)}{U("Choke Size", "chokeSize", chokeUnits)}{T("Stable Since", "stableSince", "Date/time")}</>)}
+        {group("Well", <>{U("Bottomhole Pressure (BHP)", "bhp", pressureUnits)}{U("Bottomhole Temperature (BHT)", "bht", temperatureUnits)}{U("Wellhead Pressure (WHP)", "whp", pressureUnits)}{U("Wellhead Temperature (WHT)", "wht", temperatureUnits)}{U("Choke Size", "chokeSize", chokeUnits)}{(() => { const v = sample.fieldData.stableSince || ""; const list = !v || ["Yes", "No"].includes(v) ? ["Yes", "No"] : [v, "Yes", "No"]; return <label><span>Stable? *</span><select value={v} onChange={(event) => updateSampleFieldData(sample.id, "stableSince", event.target.value)} aria-label={`Stable flow for sample ${sample.id}`}><option value="">Select Yes or No</option>{list.map((option) => <option key={option}>{option}</option>)}</select></label>; })()}</>)}
         {group("Gas composition", <>{U("H₂S", "h2s", concentrationUnits)}{U("CO₂", "co2", concentrationUnits)}</>)}
         {group("Separator & gas", <>{U("Separator Pressure", "separatorPressure", pressureUnits)}{U("Separator Temperature", "separatorTemperature", temperatureUnits)}{U("Gas Rate (std)", "gasRate", gasRateUnits)}{U("Gas Gravity", "gasGravity", gasGravityUnits)}{U("Gas Differential Pressure", "gasDifferentialPressure", pressureUnits)}{U("Gas Pressure", "gasPressure", pressureUnits)}{U("Gas Temperature", "gasTemperature", temperatureUnits)}{T("Fb Factor (dimensionless)", "fbFactor")}{T("Fpv Factor (dimensionless)", "fpvFactor")}</>)}
         {group("Oil & water", <>{U("Oil Rate", "oilRate", liquidRateUnits)}{T("Corrected By", "correctedBy", "Name or reference")}{U("Oil Gravity", "condensateGravity", liquidGravityUnits)}{U("Oil Line Temperature", "oilLineTemperature", temperatureUnits)}{U("Water Rate", "waterRate", liquidRateUnits)}</>)}
@@ -1301,7 +1335,7 @@ export default function Home() {
         {samplingTextField(sample, "Sampling Date", "samplingDate", { required: true, type: "date" })}
         {samplingTextField(sample, "Sampling Time", "samplingTime", { required: true, type: "time" })}
         <label><span>Sample Nature *</span><select value={natureValue} onChange={(event) => updateSampleFieldData(sample.id, "sampleNature", event.target.value)}><option value="">Select sample nature</option>{natureList.map(([code, label]) => <option key={code} value={code}>{label}</option>)}</select></label>
-        <label><span>Sampling Point *</span><select value={pointValue} onChange={(event) => updateSampleFieldData(sample.id, "samplingPoint", event.target.value)}><option value="">Select sampling point</option>{pointList.map((point) => <option key={point}>{point}</option>)}</select></label>
+        {(sample.samplingSource || samplingType) === "Wellhead Sampling" ? <label><span>Sampling Point *</span><input value={pointValue} onChange={(event) => updateSampleFieldData(sample.id, "samplingPoint", event.target.value)} placeholder="Describe the wellhead sampling point" /></label> : <label><span>Sampling Point *</span><select value={pointValue} onChange={(event) => updateSampleFieldData(sample.id, "samplingPoint", event.target.value)}><option value="">Select sampling point</option>{pointList.map((point) => <option key={point}>{point}</option>)}</select></label>}
         {U("Depth", "depth", depthUnits, "depthUnit", "Depth")}
         {U("Flow Period", "flowPeriod", flowPeriodUnits)}
         {T("Formation", "formation")}
@@ -1339,7 +1373,6 @@ export default function Home() {
     updateCurrentJob("Sampling Data", "Complete remaining sample records", { "Sampling Data": "In Progress" }, `Completed Sample ${id} data`, { samples: nextSamples });
   }
 
-  const [submissionNote, setSubmissionNote] = useState("");
   function markSamplingSeen(item: JobRecord) { markSeen(samplingEvents(item)); }
   function markSeen(keys: string[]) {
     if (!currentEmployee || !keys.length) return;
@@ -1362,15 +1395,14 @@ export default function Home() {
     if (status.tab === "sampling" && (hasPermission("sampling") || hasPermission("jobDetails")) && samplingWorkers(item).includes(currentEmployee?.id || "") && samplingStarted(item)) { resumeJob(item); setStage(samplingStageFor(item)); return; }
     openOperation(item, status.tab === "sampling" ? "sampling" : status.tab);
   }
-  /** Saves the current entries, then submits them for data review against freshly read settings. */
-  function submitSamplingData() {
+  /** Saves the current entries, then records the backup engineer's review of the sampling data. */
+  function confirmDataReview() {
     if (!currentJob || !currentEmployee) return;
     updateCurrentJob(currentJob.currentStage === "Report Preview" ? "Report Preview" : "Sampling Data", "Sampling data review", {}, undefined, { samples, events });
     try {
-      runOperation(currentJob.id, { type: "data-submit", note: submissionNote });
-      setSubmissionNote("");
-      setNotice(`Sampling data submitted for review. Next: ${employeeName(samplingApprover)} reviews it. Status: Awaiting data review.`);
-      recordActivity(`Submitted sampling data for ${currentJob.id}`, currentJob.id);
+      runOperation(currentJob.id, { type: "data-review" });
+      setNotice(`Sampling data review confirmed. Next: ${employeeName(currentJob.assignedEngineerId)} generates the sampling report, attaches the G-sheet file and sends it to ${employeeName(samplingApprover)}.`);
+      recordActivity(`Confirmed the sampling data review for ${currentJob.id}`, currentJob.id);
     } catch (error) { setNotice((error as Error).message); }
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -1578,7 +1610,7 @@ export default function Home() {
       calibrationStatus: isSpmcFieldSampling(samplingType) ? shared?.calibrationStatus || "Not Checked" : "Not Checked",
       pressureTestStatus: isSpmcFieldSampling(samplingType) ? shared?.pressureTestStatus || "Not Checked" : "Not Checked",
       equipmentCondition: isSpmcFieldSampling(samplingType) ? shared?.equipmentCondition || "Not Checked" : "Not Checked",
-      fieldData: { ...defaultFieldData(), sampleNature: shared?.fieldData.sampleNature || "" },
+      fieldData: { ...applyClientUnits(defaultFieldData(), selectedClient?.units), sampleNature: shared?.fieldData.sampleNature || "" },
       preparedBy: currentEmployee?.id || "", preparedAt: now };
     const nextSamples = [...samples, extra];
     setSamples(nextSamples);
@@ -1707,7 +1739,7 @@ export default function Home() {
         // Preparation is recorded later by whoever prepares the sample, never by the job creator.
         ...(samples[index] || emptySamples()[0]), preparedBy: "", preparedAt: "", id: record.id, samplingSource: source, phase: record.phase, set: record.set,
         sampler: isSpmcFieldSampling(source) || isCasedHoleSampling(source) ? DOWNHOLE_TOOL : "",
-        fieldData: { ...(samples[index]?.fieldData || defaultFieldData()), sampleNature: natureOf(source), samplingPoint: samples[index]?.fieldData.samplingPoint || samplingPointFor(record.phase) },
+        fieldData: { ...applyClientUnits(samples[index]?.fieldData || defaultFieldData(), selectedClient?.units, samples[index]?.depth), sampleNature: natureOf(source), samplingPoint: samples[index]?.fieldData.samplingPoint || samplingPointFor(record.phase) },
       };
     });
     const crew = [`Accountable: ${employeeName(job.assignedEngineerId)}`, ...job.samplingTeamIds.filter((id) => id !== job.assignedEngineerId).map((id) => `Backup: ${employeeName(id)}`), `Driver: ${employeeName(job.assignedDriverId)}`].join(" · ");
@@ -1796,7 +1828,7 @@ export default function Home() {
   }
 
   function openEditClient(item: Client) {
-    setClientForm({ code: item.code, name: item.name, shortName: item.shortName, country: item.country, notes: item.notes, logo: item.logo });
+    setClientForm({ code: item.code, name: item.name, shortName: item.shortName, country: item.country, notes: item.notes, logo: item.logo, units: item.units });
     setClientError("");
     setClientModal({ mode: "edit", originalCode: item.code });
   }
@@ -1813,7 +1845,7 @@ export default function Home() {
     if (!/^[A-Z0-9]$/.test(code)) return setClientError("Client Code must be one letter or number.");
     if (clients.some((item) => item.code === code && item.code !== originalCode)) return setClientError(`Client code ${code} is already being used.`);
     if (clients.some((item) => item.name.toLowerCase() === name.toLowerCase() && item.code !== originalCode)) return setClientError("A client with this name already exists.");
-    const saved: Client = { code, name, shortName: shortName || name, country: clientForm.country.trim() || "Oman", notes: clientForm.notes.trim(), logo: clientForm.logo, active: true };
+    const saved: Client = { code, name, shortName: shortName || name, country: clientForm.country.trim() || "Oman", notes: clientForm.notes.trim(), logo: clientForm.logo, units: clientForm.units, active: true };
     const next = clientModal?.mode === "edit" ? clients.map((item) => item.code === originalCode ? { ...saved, active: item.active } : item) : [...clients, saved];
     try { persistClients(next); } catch(e) { setClientError(e instanceof Error?e.message:"Could not save client."); return; }
     if (clientModal?.mode === "add" || client === originalCode) setClient(code);
@@ -2066,8 +2098,8 @@ export default function Home() {
                 <div className="panel-heading"><span className="section-number">01</span><div><h2>Client directory</h2><p>Inactive clients remain in history but cannot be selected for new jobs.</p></div><button type="button" className="primary-button settings-add-button" onClick={openAddClient}>+ Add Client</button></div>
                 <p>Client codes are permanent identifiers used in job numbering. Editing client details never rewrites existing job numbers.</p><div className="settings-filters"><label>Search clients<input value={clientSearch} onChange={e=>setClientSearch(e.target.value)} placeholder="Name or code" /></label><label>Status<select value={clientStatus} onChange={e=>setClientStatus(e.target.value)}><option value="all">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select></label></div><div className="client-table-wrap">
                   <table className="client-table">
-                    <thead><tr><th>Code</th><th>Display Name</th><th>Client Name</th><th>Country</th><th>Status</th><th aria-label="Actions" /></tr></thead>
-                    <tbody>{clients.filter(item=>[item.name,item.shortName,item.code].join(" ").toLowerCase().includes(clientSearch.toLowerCase()) && (clientStatus==="all" || item.active===(clientStatus==="active"))).map((item) => <tr key={item.code} className={!item.active ? "inactive-row" : ""}><td><span className="table-code">{item.code}</span></td><td><ClientLogo client={item} /><strong>{item.shortName}</strong></td><td>{item.name}</td><td>{item.country}</td><td><span className={item.active ? "status-pill active" : "status-pill inactive"}>{item.active ? "Active" : "Inactive"}</span></td><td><div className="row-actions"><button type="button" onClick={() => openEditClient(item)}>Edit</button><button type="button" className={item.active ? "deactivate" : "reactivate"} onClick={() => toggleClientActive(item)}>{item.active ? "Deactivate" : "Reactivate"}</button></div></td></tr>)}{!clients.some(item=>[item.name,item.shortName,item.code].join(' ').toLowerCase().includes(clientSearch.toLowerCase()) && (clientStatus==='all'||item.active===(clientStatus==='active')))&&<tr><td colSpan={6}>No clients match. Try another search or status filter.</td></tr>}</tbody>
+                    <thead><tr><th>Code</th><th>Display Name</th><th>Client Name</th><th>Country</th><th>Units</th><th>Status</th><th aria-label="Actions" /></tr></thead>
+                    <tbody>{clients.filter(item=>[item.name,item.shortName,item.code].join(" ").toLowerCase().includes(clientSearch.toLowerCase()) && (clientStatus==="all" || item.active===(clientStatus==="active"))).map((item) => <tr key={item.code} className={!item.active ? "inactive-row" : ""}><td><span className="table-code">{item.code}</span></td><td><ClientLogo client={item} /><strong>{item.shortName}</strong></td><td>{item.name}</td><td>{item.country}</td><td>{unitsSummary(item.units)}</td><td><span className={item.active ? "status-pill active" : "status-pill inactive"}>{item.active ? "Active" : "Inactive"}</span></td><td><div className="row-actions"><button type="button" onClick={() => openEditClient(item)}>Edit</button><button type="button" className={item.active ? "deactivate" : "reactivate"} onClick={() => toggleClientActive(item)}>{item.active ? "Deactivate" : "Reactivate"}</button></div></td></tr>)}{!clients.some(item=>[item.name,item.shortName,item.code].join(' ').toLowerCase().includes(clientSearch.toLowerCase()) && (clientStatus==='all'||item.active===(clientStatus==='active')))&&<tr><td colSpan={7}>No clients match. Try another search or status filter.</td></tr>}</tbody>
                   </table>
                 </div>
               </section>}
@@ -2126,7 +2158,7 @@ export default function Home() {
             const steps = [
               { label: transferFlow ? "Transfer preparation" : "Preparation", stage: "type" as Stage, status: prep === "Completed" || prep === "Skipped" ? "Completed" : prep === "In Progress" ? "Saved · incomplete" : "Not started" },
               { label: transferFlow ? "Sample transfer data" : "Sample records & data", stage: "bottomhole" as Stage, status: samples.length && done === samples.length ? "Complete" : `${done} / ${samples.length} complete` },
-              { label: "Review & submit", stage: "report" as Stage, status: dataReview?.status === "Returned" ? "Returned" : reviewPhase ? "Submitted" : "Not submitted" },
+              { label: "Backup review", stage: "report" as Stage, status: dataReview?.status === "Returned" ? "Returned" : dataReview?.status === "Approved" ? "Reviewed" : reviewPhase ? "Submitted" : "Not reviewed" },
               { label: "Review status & report", stage: "report" as Stage, status: currentSamplingStatus!.label },
             ];
             return <ol className="stepper sampling-stepper" aria-label="Sampling steps">{steps.map((item, index) => <li key={item.label} className={index === samplingStepIndex ? "current" : index < samplingStepIndex ? "done" : ""}><button type="button" onClick={() => setStage(item.stage)} aria-current={index === samplingStepIndex ? "step" : undefined}><span>{index < samplingStepIndex ? "✓" : index + 1}</span><small>{item.label}</small><em>{item.status}</em></button></li>)}</ol>;
@@ -2141,7 +2173,7 @@ export default function Home() {
 
           {samplingFlow && dataReview?.status === "Returned" && <section className="panel returned-box" role="status"><h2>Returned for correction</h2><p>{employeeName(dataReview.reviewedBy)} returned the sampling data on {formatDateTime(dataReview.reviewedAt)}.</p><p className="instructions-text">{dataReview.general}</p><ul>{dataReview.comments.map((comment, index) => <li key={index}><strong>{comment.label}</strong>: {comment.text} <button type="button" className="text-button" onClick={() => { const sample = comment.target.startsWith("sample:") ? comment.target.split(":")[1] : ""; setStage(comment.target === "preparation" || comment.target === "job" ? "type" : "bottomhole"); if (sample) setExpanded(sample); window.scrollTo({ top: 0, behavior: "smooth" }); }}>Open section →</button></li>)}</ul>{currentEmployee.id === currentJob!.assignedEngineerId ? <button type="button" className="primary-button" onClick={() => setStage("report")}>Review &amp; resubmit</button> : <p>You can help correct the data. {employeeName(currentJob!.assignedEngineerId)} resubmits it.</p>}</section>}
 
-          {samplingFlow && (stage === "type" || stage === "bottomhole") && <section className="panel step-guide"><div><span className="eyebrow">STEP {stage === "type" ? 1 : 2} OF 4</span><h2>{stage === "type" ? (transferFlow ? "Transfer preparation" : "Preparation") : (transferFlow ? "Sample transfer data" : "Sample records & sampling data")}</h2><p>{stage === "type" ? "Complete the coordination checklist and prepare the equipment and container for each sample. Glass bottles and IATA cans need only their volume." : "Fill the standard data sheet for every sample and mark each one complete. Use N/A only where a condition does not apply."}</p><p className="required-legend"><strong>Required:</strong> fields marked * · <strong>Optional:</strong> remarks and notes · Your entries are kept when you move between steps; use Save Draft to store them.</p></div><div className="step-guide-status"><small>STATUS</small><strong>{currentSamplingStatus!.label}</strong><span>Next: {currentSamplingStatus!.next}</span>{samplingDataLocked(currentJob!) ? <button type="button" className="outline-button" onClick={() => setStage("report")}>View submission</button> : stage === "type" ? <button type="button" className="outline-button" onClick={() => setStage("bottomhole")}>Continue to sample data →</button> : <button type="button" className="outline-button" onClick={() => setStage("report")}>Continue to review &amp; submit →</button>}</div></section>}
+          {samplingFlow && (stage === "type" || stage === "bottomhole") && <section className="panel step-guide"><div><span className="eyebrow">STEP {stage === "type" ? 1 : 2} OF 4</span><h2>{stage === "type" ? (transferFlow ? "Transfer preparation" : "Preparation") : (transferFlow ? "Sample transfer data" : "Sample records & sampling data")}</h2><p>{stage === "type" ? "Complete the coordination checklist and prepare the equipment and container for each sample. Glass bottles and IATA cans need only their volume." : "Fill the standard data sheet for every sample and mark each one complete. Use N/A only where a condition does not apply."}</p><p className="required-legend"><strong>Required:</strong> fields marked * · <strong>Optional:</strong> remarks and notes · Your entries are kept when you move between steps; use Save Draft to store them.</p></div><div className="step-guide-status"><small>STATUS</small><strong>{currentSamplingStatus!.label}</strong><span>Next: {currentSamplingStatus!.next}</span>{samplingDataLocked(currentJob!) ? <button type="button" className="outline-button" onClick={() => setStage("report")}>View submission</button> : stage === "type" ? <button type="button" className="outline-button" onClick={() => setStage("bottomhole")}>Continue to sample data →</button> : <button type="button" className="outline-button" onClick={() => setStage("report")}>Continue to backup review →</button>}</div></section>}
 
 
           {stage !== "job" && stage !== "type" && stage !== "bottomhole" && currentJob && <details className="workflow-details"><summary><span>Workflow responsibility</span><strong>{currentJob.currentStage} · {currentJob.stages.filter((item) => item.status === "Completed" || item.status === "Skipped").length} of {workflowStageNames.length} stages resolved</strong><i>⌄</i></summary><section className="stage-tracking" aria-label="Workflow responsibility">{currentJob.stages.map((item) => <article key={item.name} className={item.status.toLowerCase().replace(" ", "-")}><div><span>{item.status === "Completed" ? "✓" : item.status === "Skipped" ? "—" : "•"}</span><strong>{item.name}</strong></div><dl><div><dt>Assigned to</dt><dd>{employeeName(item.assignedTo)}</dd></div><div><dt>Status</dt><dd>{item.status}</dd></div><div><dt>Started</dt><dd>{formatDateTime(item.started)}</dd></div><div><dt>Completed</dt><dd>{formatDateTime(item.completed)}</dd></div><div><dt>Last updated by</dt><dd>{employeeName(item.lastUpdatedBy)}</dd></div></dl></article>)}</section></details>}
@@ -2298,8 +2330,8 @@ export default function Home() {
                         {tools && <label>Are tools required?<select value={coordinationDetails.toolsRequired} onChange={(event) => updateCoordinationDetail("toolsRequired", event.target.value)}>{["To Be Confirmed", "Required", "Not Required"].map((value) => <option key={value}>{value}</option>)}</select></label>}
                         {availability && (notApplicable ? <p>No tools are required. This check is not applicable.</p> : <><label>Tools availability<select disabled={coordinationDetails.toolsRequired !== "Required"} value={coordinationDetails.toolsAvailability === "Not Available" ? "Unavailable" : coordinationDetails.toolsAvailability} onChange={(event) => updateCoordinationDetail("toolsAvailability", event.target.value)}>{["To Be Confirmed", "Available", "Partially Available", "Unavailable"].map((value) => <option key={value}>{value}</option>)}</select></label>{coordinationDetails.toolsRequired !== "Required" && <p>Confirm whether tools are required first.</p>}{["Partially Available", "Unavailable", "Not Available"].includes(coordinationDetails.toolsAvailability) && <label>Missing tools / items<textarea rows={3} value={coordinationDetails.missingTools || ""} onChange={(event) => updateCoordinationDetail("missingTools", event.target.value)} /></label>}</>)}
                         {kit && <label>Sample kit details *<textarea rows={3} value={coordinationDetails.requiredSampleKit} onChange={(event) => updateCoordinationDetail("requiredSampleKit", event.target.value)} placeholder="Kit type, quantity and reference" /></label>}
-                        {cylinders && <><p>Receiving containers from the sample records. Complete their details below, then tick this item.</p><div className="readiness-bottles">{samples.map((sample) => <div key={sample.id}><strong>Sample {sample.id}</strong><CylinderPicker inventory={bottleInventory} status={cylStatus} jobId={currentJob?.id || jobId} sample={sample} onSelect={(serial) => updatePreparationSample(sample.id, "bottleSerial", serial)} onField={(field, value) => updatePreparationSample(sample.id, field, value)} />{isSpmcFieldSampling(samplingType) && <section className="cylinder-record-notes"><label>Remarks<input value={sample.preparationRemarks} onChange={(event) => updatePreparationSample(sample.id, "preparationRemarks", event.target.value)} placeholder="Equipment condition, exceptions, or handling notes" /></label><div><small>PREPARED BY</small><strong>{employeeName(sample.preparedBy || currentEmployee.id)}</strong><small>PREPARATION DATE / TIME</small><strong>{formatDateTime(sample.preparedAt || preparationStartedAt)}</strong></div><button type="button" className="remove-sample-button" onClick={() => removeSample(sample.id)}>Remove sample</button></section>}</div>)}</div></>}
-                        {point && <>{task.label.includes("type") && <label>Sampling point type *<input value={coordinationDetails.samplingPointType} onChange={(event) => updateCoordinationDetail("samplingPointType", event.target.value)} /></label>}{task.label.includes("size") && <label>Sampling point size *<input value={coordinationDetails.samplingPointSize} onChange={(event) => updateCoordinationDetail("samplingPointSize", event.target.value)} /></label>}{task.label === "Confirm separator sampling point" && <label>Separator sampling point *<input value={job.samplingPoint} onChange={(event) => { updateJob("samplingPoint", event.target.value); if (task.completed) toggleCoordinationTask(task.id, false); }} /></label>}</>}
+                        {cylinders && <><p>Receiving containers from the sample records. Complete their details below, then tick this item.</p><div className="readiness-bottles">{samples.map((sample) => <div key={sample.id}><strong>Sample {sample.id}</strong><CylinderPicker inventory={bottleInventory} status={cylStatus} jobId={currentJob?.id || jobId} sample={sample} onSelect={(serial) => updatePreparationSample(sample.id, "bottleSerial", serial)} onField={(field, value) => updatePreparationSample(sample.id, field, value)} />{isSpmcFieldSampling(samplingType) && <section className="cylinder-record-notes"><label>Remarks<input value={sample.preparationRemarks} onChange={(event) => updatePreparationSample(sample.id, "preparationRemarks", event.target.value)} placeholder="Equipment condition, exceptions, or handling notes" /></label><div><small>PREPARED BY</small><strong>{employeeName(sample.preparedBy || currentEmployee.id)}</strong><small>PREPARATION DATE / TIME</small><strong>{formatDateTime(sample.preparedAt || preparationStartedAt)}</strong></div><button type="button" className="remove-sample-button" onClick={() => removeSample(sample.id)}>Remove sample</button></section>}</div>)}</div><BackupCylinders inventory={bottleInventory} status={cylStatus} value={coordinationDetails.backupCylinders || ""} sampleSerials={samples.map((sample) => sample.bottleSerial).filter(Boolean)} onChange={(value) => updateCoordinationDetail("backupCylinders", value)} /></>}
+                        {point && <>{task.label.includes("type") && <label>Sampling point type *<input value={coordinationDetails.samplingPointType} onChange={(event) => updateCoordinationDetail("samplingPointType", event.target.value)} /></label>}{task.label.includes("size") && <PointSizeSelect label="Sampling point size *" value={coordinationDetails.samplingPointSize} onChange={(value) => updateCoordinationDetail("samplingPointSize", value)} />}{task.label === "Confirm separator sampling point" && <label>Separator sampling point *<input value={job.samplingPoint} onChange={(event) => { updateJob("samplingPoint", event.target.value); if (task.completed) toggleCoordinationTask(task.id, false); }} /></label>}</>}
                       </div>
                     </details>;
                   })}
@@ -2313,10 +2345,11 @@ export default function Home() {
                     </> : <>
                       <label><span>Tools Required? *</span><select value={coordinationDetails.toolsRequired} onChange={(event) => updateCoordinationDetail("toolsRequired", event.target.value)}>{["To Be Confirmed", "Required", "Not Required"].map((option) => <option key={option}>{option}</option>)}</select>{coordinationDetails.toolsConfirmedBy && <small className="field-confirmation">Confirmed by {employeeName(coordinationDetails.toolsConfirmedBy)} · {formatDateTime(coordinationDetails.toolsConfirmedAt)}</small>}</label>
                       <label><span>Tools Availability</span><select value={coordinationDetails.toolsAvailability} onChange={(event) => updateCoordinationDetail("toolsAvailability", event.target.value)}>{["To Be Confirmed", "Available", "Not Available", "Not Applicable"].map((option) => <option key={option}>{option}</option>)}</select></label>
-                      {(samplingType === "Wellhead Sampling" || samplingType === "Separator Sampling") && <><label><span>Sampling Point Type *</span><input value={coordinationDetails.samplingPointType} onChange={(event) => updateCoordinationDetail("samplingPointType", event.target.value)} placeholder="e.g. valve, port, probe" /></label><label><span>Sampling Point Size *</span><input value={coordinationDetails.samplingPointSize} onChange={(event) => updateCoordinationDetail("samplingPointSize", event.target.value)} placeholder="e.g. 1/4 in, 1/2 in" /></label></>}
+                      {(samplingType === "Wellhead Sampling" || samplingType === "Separator Sampling") && <><label><span>Sampling Point Type *</span><input value={coordinationDetails.samplingPointType} onChange={(event) => updateCoordinationDetail("samplingPointType", event.target.value)} placeholder="e.g. valve, port, probe" /></label><PointSizeSelect label={<span>Sampling Point Size *</span>} value={coordinationDetails.samplingPointSize} onChange={(value) => updateCoordinationDetail("samplingPointSize", value)} /></>}
                       {samplingType === "Separator Sampling" && <label className="full-field"><span>Separator Sampling Point *</span><input value={job.samplingPoint} onChange={(event) => updateJob("samplingPoint", event.target.value)} placeholder="Describe the exact separator sampling point" /></label>}
                       <label><span>Required Sample Kit *</span><input value={coordinationDetails.requiredSampleKit} onChange={(event) => updateCoordinationDetail("requiredSampleKit", event.target.value)} placeholder="Kit type, quantity, or reference" /></label>
                       <label><span>Required Cylinders *</span><input value={coordinationDetails.requiredCylinders} onChange={(event) => updateCoordinationDetail("requiredCylinders", event.target.value)} placeholder="Cylinder type and quantity" /></label>
+                      <div className="full-field"><BackupCylinders inventory={bottleInventory} status={cylStatus} value={coordinationDetails.backupCylinders || ""} sampleSerials={samples.map((sample) => sample.bottleSerial).filter(Boolean)} onChange={(value) => updateCoordinationDetail("backupCylinders", value)} /></div>
                     </>}
                   </div>
                 </div>
@@ -2419,15 +2452,14 @@ export default function Home() {
           {samplingFlow && stage === "report" && (() => {
             const issues = samplingIssues({ samplingSource: samplingType, samples, stages: currentJob!.stages });
             const lead = currentJob!.assignedEngineerId;
-            const isLead = currentEmployee.id === lead;
+            const reviewers = dataReviewers(currentJob!), isReviewer = reviewers.includes(currentEmployee.id), reviewerNames = reviewers.map(employeeName).join(", ");
             const report = latest(currentJob!.operations?.samplingReports || []);
             const goTo = (target: string) => { const sample = target.startsWith("sample:") ? target.split(":")[1] : ""; setStage(target === "preparation" || target === "job" ? "type" : "bottomhole"); if (sample) setExpanded(sample); };
-            return !reviewPhase && !currentSamplingStatus!.key.startsWith("report") ? <section className="panel step-guide submit-step"><div><span className="eyebrow">STEP 3 OF 4</span><h2>Review &amp; submit sampling data</h2><p>Check that preparation, every sample’s container and every data sheet are complete. {employeeName(lead)} submits the data to {samplingApprover ? employeeName(samplingApprover) : "the sampling approver (not configured)"} for review. The sampling report is prepared only after the data is approved.</p>
+            return !reviewPhase && !currentSamplingStatus!.key.startsWith("report") ? <section className="panel step-guide submit-step"><div><span className="eyebrow">STEP 3 OF 4</span><h2>Review sampling data with the backup engineer</h2><p>Check that preparation, every sample’s container and every data sheet are complete. {reviewerNames} goes through the data with {employeeName(lead)} and confirms the review. {employeeName(lead)} then generates the sampling report, attaches the G-sheet file and sends it to {samplingApprover ? employeeName(samplingApprover) : "the sampling approver (not configured)"} for approval.</p>
               <ul className="completeness-list"><li className={issues.some((issue) => issue.target === "preparation") ? "missing" : "ok"}>{issues.some((issue) => issue.target === "preparation") ? "✗" : "✓"} Preparation</li>{samples.map((sample) => { const own = issues.filter((issue) => issue.target.startsWith(`sample:${sample.id}`)); return <li key={sample.id} className={own.length ? "missing" : "ok"}>{own.length ? "✗" : "✓"} Sample {sample.id} · {containerLabel(sample, "container not recorded")} · {sample.dataComplete ? "data sheet complete" : "data sheet not complete"}</li>; })}</ul>
-              {issues.length > 0 && <div className="preparation-validation" role="alert"><span>!</span><div><strong>Complete before submitting</strong><ul>{issues.map((issue, index) => <li key={index}>{issue.label}: {issue.text} <button type="button" className="text-button" onClick={() => goTo(issue.target)}>Open →</button></li>)}</ul></div></div>}
-              <label>Submission note (optional)<textarea value={submissionNote} onChange={(event) => setSubmissionNote(event.target.value)} placeholder="Anything the reviewer should know" /></label>
-              <div className="form-actions"><button type="button" className="outline-button" onClick={saveSamplingDataDraft}>Save Draft</button>{isLead ? <button type="button" className="primary-button" disabled={issues.length > 0} onClick={submitSamplingData}>{dataReview?.status === "Returned" ? "Resubmit sampling data" : "Submit sampling data for review"} <span>→</span></button> : <p className="required-legend">Only {employeeName(lead)} (accountable) can submit. You can still enter and save data.</p>}</div>
-            </div></section> : <section className="panel step-guide"><div><span className="eyebrow">STEP 4 OF 4</span><h2>Review status &amp; sampling report</h2><p><strong>{currentSamplingStatus!.label}</strong> · Next: {currentSamplingStatus!.next}{currentSamplingStatus!.owner ? ` (${employeeName(currentSamplingStatus!.owner)})` : ""}</p><dl className="ops-facts"><div><dt>Data submitted</dt><dd>{dataReview && dataReview.status !== "Reopened" ? `${employeeName(dataReview.submittedBy)} · ${formatDateTime(dataReview.submittedAt)}` : "—"}</dd></div><div><dt>Data review</dt><dd>{dataReview?.status === "Approved" ? `Approved by ${employeeName(dataReview.reviewedBy)} · ${formatDateTime(dataReview.reviewedAt)}` : dataReview?.status || "—"}</dd></div><div><dt>Sampling report</dt><dd>{report ? `Version ${report.version} · ${report.status}` : "Not generated"}</dd></div><div><dt>Report approval</dt><dd>{report?.approvedAt ? `${employeeName(report.approvedBy)} · ${formatDateTime(report.approvedAt)}` : "Pending"}</dd></div></dl></div><div className="step-guide-status"><button type="button" className="primary-button" onClick={() => openOperation(currentJob!, "sampling-report")}>Open sampling review &amp; report →</button></div></section>;
+              {issues.length > 0 && <div className="preparation-validation" role="alert"><span>!</span><div><strong>Complete before the review</strong><ul>{issues.map((issue, index) => <li key={index}>{issue.label}: {issue.text} <button type="button" className="text-button" onClick={() => goTo(issue.target)}>Open →</button></li>)}</ul></div></div>}
+              <div className="form-actions"><button type="button" className="outline-button" onClick={saveSamplingDataDraft}>Save Draft</button>{isReviewer ? <button type="button" className="primary-button" disabled={issues.length > 0} onClick={confirmDataReview}>Reviewed · data is correct <span>→</span></button> : <p className="required-legend">Waiting for {reviewerNames} (backup engineer) to confirm the review. You can still enter and save data.</p>}</div>
+            </div></section> : <section className="panel step-guide"><div><span className="eyebrow">STEP 4 OF 4</span><h2>Review status &amp; sampling report</h2><p><strong>{currentSamplingStatus!.label}</strong> · Next: {currentSamplingStatus!.next}{currentSamplingStatus!.owner ? ` (${employeeName(currentSamplingStatus!.owner)})` : ""}</p><dl className="ops-facts"><div><dt>Data entered</dt><dd>{dataReview && dataReview.status !== "Reopened" ? `${employeeName(dataReview.submittedBy)} · ${formatDateTime(dataReview.submittedAt)}` : "—"}</dd></div><div><dt>Data review</dt><dd>{dataReview?.status === "Approved" ? `Reviewed by ${employeeName(dataReview.reviewedBy)} · ${formatDateTime(dataReview.reviewedAt)}` : dataReview?.status || "—"}</dd></div><div><dt>Sampling report</dt><dd>{report ? `Version ${report.version} · ${report.status}` : "Not generated"}</dd></div><div><dt>Report approval</dt><dd>{report?.approvedAt ? `${employeeName(report.approvedBy)} · ${formatDateTime(report.approvedAt)}` : "Pending"}</dd></div></dl></div><div className="step-guide-status"><button type="button" className="primary-button" onClick={() => openOperation(currentJob!, "sampling-report")}>Open sampling review &amp; report →</button></div></section>;
           })()}
 
           {(stage === "report" || stage === "scope") && samplingType && !samplingFlow && (
@@ -2463,7 +2495,10 @@ export default function Home() {
   reader.onload = () => { setClientForm((current) => ({ ...current, logo: String(reader.result) })); setClientError(""); };
   reader.onerror = () => setClientError("The logo could not be read. Please try another image.");
   reader.readAsDataURL(file);
-}} /><small>PNG, JPG or WebP · up to 256 KB</small></label>{clientForm.logo && <button type="button" className="text-button" onClick={() => setClientForm((current) => ({ ...current, logo: undefined }))}>Reset logo</button>}</div><label className="modal-wide"><span>Notes <em>Optional</em></span><textarea rows={4} value={clientForm.notes} onChange={(e) => setClientForm((current) => ({ ...current, notes: e.target.value }))} placeholder="Add client-specific context…" /></label></div>{clientError && <div className="validation-message" role="alert"><span>!</span>{clientError}</div>}<footer><button type="button" className="text-button" onClick={() => setClientModal(null)}>Cancel</button><button type="submit" className="primary-button">{clientModal.mode === "add" ? "Add Client" : "Save Changes"}</button></footer></form></section></div>}
+}} /><small>PNG, JPG or WebP · up to 256 KB</small></label>{clientForm.logo && <button type="button" className="text-button" onClick={() => setClientForm((current) => ({ ...current, logo: undefined }))}>Reset logo</button>}</div><fieldset className="modal-wide client-units"><legend>Units used by this client</legend><p>The sampling data sheet opens in these units for this client&apos;s jobs. Other units stay available in each field.</p>
+<div className="client-units-presets" role="group" aria-label="Unit preset">{(["Field", "Metric"] as const).map((name) => <button type="button" key={name} className={presetOf(clientForm.units) === name ? "primary-button" : "outline-button"} onClick={() => setClientForm((current) => ({ ...current, units: { ...unitPresets[name] } }))}>{name}</button>)}<button type="button" className="text-button" disabled={!clientForm.units} onClick={() => setClientForm((current) => ({ ...current, units: undefined }))}>Not set</button><small>{clientForm.units ? (presetOf(clientForm.units) === "Custom" ? "Custom: one or more units changed" : presetOf(clientForm.units) + " preset") : "Not set: the standard default units are used"}</small></div>
+{clientForm.units && <div className="client-units-grid">{unitQuantities.map((quantity) => <label key={quantity.key}><span>{quantity.label}</span><select value={clientForm.units![quantity.key]} onChange={(e) => setClientForm((current) => ({ ...current, units: { ...current.units!, [quantity.key]: e.target.value } }))}>{quantity.options.map((option) => <option key={option}>{option}</option>)}</select></label>)}</div>}
+</fieldset><label className="modal-wide"><span>Notes <em>Optional</em></span><textarea rows={4} value={clientForm.notes} onChange={(e) => setClientForm((current) => ({ ...current, notes: e.target.value }))} placeholder="Add client-specific context…" /></label></div>{clientError && <div className="validation-message" role="alert"><span>!</span>{clientError}</div>}<footer><button type="button" className="text-button" onClick={() => setClientModal(null)}>Cancel</button><button type="submit" className="primary-button">{clientModal.mode === "add" ? "Add Client" : "Save Changes"}</button></footer></form></section></div>}
     </div>
   );
 }

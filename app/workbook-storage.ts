@@ -27,8 +27,10 @@ export function canAccessWorkbook(kind:WorkbookAccess):boolean{
 }
 export const workbookDenied=(kind:WorkbookAccess)=>kind==='view'?'You do not have the View workbook permission. Ask an administrator in Settings → Authorization.':'You do not have the Download workbook permission. Ask an administrator in Settings → Authorization.';
 
-export async function storeWorkbook(file:File){
- if(!/\.(xlsx?|xlsm|csv|pdf|docx?|ods)$/i.test(file.name)||file.size===0||file.size>20*1024*1024)throw Error('Choose a non-empty Excel, CSV, PDF, Word or ODS workbook up to 20 MB.');
+/** `anyType` accepts any file type (the G-sheet sent with a sampling report); workbooks keep their fixed formats. */
+export async function storeWorkbook(file:File,anyType=false){
+ if(anyType){if(file.size===0||file.size>20*1024*1024)throw Error('Choose a non-empty file up to 20 MB.');}
+ else if(!/\.(xlsx?|xlsm|csv|pdf|docx?|ods)$/i.test(file.name)||file.size===0||file.size>20*1024*1024)throw Error('Choose a non-empty Excel, CSV, PDF, Word or ODS workbook up to 20 MB.');
  const db=await openStore();const id=crypto.randomUUID();
  await new Promise<void>((resolve,reject)=>{const tx=db.transaction('files','readwrite');tx.objectStore('files').add(file,id);tx.oncomplete=()=>resolve();tx.onerror=()=>reject(Error('File could not be stored. Check browser storage space and retry.'));tx.onabort=()=>reject(Error('File storage was interrupted.'));});db.close();
  return {id,name:file.name,size:file.size,type:file.type};

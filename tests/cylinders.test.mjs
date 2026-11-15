@@ -58,3 +58,16 @@ test('release-cylinders: only after the job is finished, by the coordinator, onc
   assert.match(r.events.at(-1).description, /Cylinders released .* 812888\. Note: Shelf B/);
   assert.throws(() => applyOperation(r, { type: 'release-cylinders' }, actor('SALIM')), /already released/);
 });
+
+test('backup cylinders are reserved for their job, can be chosen for one of its samples, and are released with the job', async () => {
+  const { backupCylinders, jobCylinders } = await bundle('app/cylinder-status.ts');
+  const withBackups = (released) => ({ ...job('J1', ['A1'], released), coordinationDetails: { backupCylinders: 'B1, B2, A1' } });
+  assert.deepEqual(backupCylinders(withBackups()), ['B1', 'B2'], 'a cylinder a sample uses is not listed as a backup');
+  assert.deepEqual(jobCylinders(withBackups()), ['A1', 'B1', 'B2']);
+  let st = cylinderStatuses([withBackups()], {});
+  assert.equal(st('B1').state, 'in-use'); assert.deepEqual(st('B1').job.sampleIds, []);
+  assert.equal(selectable(st('B1'), 'J2', '1.01'), false, 'another job cannot take a reserved backup');
+  assert.equal(selectable(st('B1'), 'J1', '1.02'), true, 'the job may use its own backup for a sample');
+  st = cylinderStatuses([withBackups('2026-11-01T08:00:00.000Z')], {});
+  assert.equal(st('B2').state, 'returned', 'unused backups return for cleaning with the job cylinders');
+});

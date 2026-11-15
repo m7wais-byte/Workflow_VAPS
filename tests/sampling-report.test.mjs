@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import fs from 'node:fs';
+const GS={id:'gs',name:'G-sheet.xlsx',size:1,type:'',version:1,submittedBy:'MOHSIN',submittedAt:'',status:'Available',comments:''};
 // React stays external so the bundle and react-dom/server share one copy; the bundle is written beside node_modules to resolve it.
 const bundle = async (entry) => { const out = await build({ entryPoints: [entry], bundle: true, write: false, format: 'esm', platform: 'node', jsx: 'automatic', external: ['react', 'react-dom', 'react-dom/server', 'react/jsx-runtime'], logLevel: 'silent' }); fs.mkdirSync('node_modules/.cache', { recursive: true }); const file = new URL('../node_modules/.cache/' + entry.replace(/\W/g, '_') + '.mjs', import.meta.url); fs.writeFileSync(file, out.outputFiles[0].text); return import(file.href + '?' + Date.now()); };
 const model = await bundle('app/sampling-report-model.ts');
@@ -169,11 +170,11 @@ test('the workflow saves the letterhead with the draft, refreshes it on submissi
   const lh = (installation) => ({ capturedAt: at(), installation, company, people: {} });
   let j = { id: 'J', samplingInstructions: 'x', jobNumber: 'J', clientCode: 'P', clientName: 'C', samplingSource: 'Wellhead Sampling', requiredTests: [], samples: [{ id: 'S1', bottle: 'PDS', bottleSerial: 'B1', dataComplete: true, fieldData: { sampleNature: 'WHS' } }], stages: [], status: 'Job Created', createdById: 'SALIM', events: [] };
   j = step(j, { type: 'dispatch', engineer: 'MOHSIN', driver: 'ALI' }, 'SALIM');
-  j = step(j, { type: 'data-submit', note: '' }, 'MOHSIN'); j = step(j, { type: 'data-approve' }, 'SALIM');
-  j = step(j, { type: 'report-draft', kind: 'sampling', text: 'v1', checker: '', letterhead: lh('Rig draft') }, 'MOHSIN');
+  // No backup engineer on this job: the accountable engineer confirms the data review.
+  j = step(j, { type: 'data-review' }, 'MOHSIN');
+  j = step(j, { type: 'report-draft', kind: 'sampling', text: 'v1', checker: '', file: { id: 'gs', name: 'G-sheet.xlsx', size: 1, type: '', version: 1, submittedBy: 'MOHSIN', submittedAt: '', status: 'Available', comments: '' }, letterhead: lh('Rig draft') }, 'MOHSIN');
   assert.equal(ops.latest(j.operations.samplingReports).letterhead.installation, 'Rig draft');
-  j = step(j, { type: 'report-action', kind: 'sampling', action: 'checking', comments: '', letterhead: lh('Rig check') }, 'MOHSIN');
-  j = step(j, { type: 'report-action', kind: 'sampling', action: 'submit', comments: '', letterhead: lh('Rig submit') }, 'SALIM');
+  j = step(j, { type: 'report-action', kind: 'sampling', action: 'submit', comments: '', letterhead: lh('Rig submit') }, 'MOHSIN');
   assert.equal(ops.latest(j.operations.samplingReports).letterhead.installation, 'Rig submit');
   j = step(j, { type: 'report-action', kind: 'sampling', action: 'approve', comments: '', letterhead: lh('Rig approve') }, 'SALIM');
   const approved = ops.latest(j.operations.samplingReports);
@@ -186,6 +187,6 @@ test('the workflow saves the letterhead with the draft, refreshes it on submissi
   // Commands without a letterhead (older callers) keep working and leave versions without one.
   let k = step({ ...j, operations: undefined, id: 'K' }, { type: 'dispatch', engineer: 'MOHSIN', driver: 'ALI' }, 'SALIM');
   k = step(k, { type: 'data-submit', note: '' }, 'MOHSIN'); k = step(k, { type: 'data-approve' }, 'SALIM');
-  k = step(k, { type: 'report-draft', kind: 'sampling', text: 'v1', checker: '' }, 'MOHSIN');
+  k = step(k, { type: 'report-draft', kind: 'sampling', text: 'v1', checker: '',file:GS }, 'MOHSIN');
   assert.equal('letterhead' in ops.latest(k.operations.samplingReports), false);
 });

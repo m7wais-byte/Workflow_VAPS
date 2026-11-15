@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
+const GS={id:'gs',name:'G-sheet.xlsx',size:1,type:'',version:1,submittedBy:'MOHSIN',submittedAt:'',status:'Available',comments:''};
 const bundle=async entry=>{const out=await build({entryPoints:[entry],bundle:true,write:false,format:'esm',platform:'node',logLevel:'silent'});return import('data:text/javascript;base64,'+Buffer.from(out.outputFiles[0].text).toString('base64'));};
 const store=new Map();globalThis.window={localStorage:{getItem:k=>store.get(k)??null,setItem:(k,v)=>store.set(k,String(v))}};globalThis.localStorage=window.localStorage;
 const {applyOperation,pendingActions,samplingApproved,samplingStatus,latestData,samplingDataLocked,operationsFor}=await bundle('app/operations-model.ts');
@@ -17,7 +18,7 @@ const job=(samples=[sample('1.01'),sample('1.02',{containerType:'Glass container
 const sent=(j=job())=>step(j,{type:'dispatch',engineer:'MOHSIN',driver:'ALI',team:['HUSSEINI']},'SALIM');
 const submitted=()=>step(sent(),{type:'data-submit',note:'All done'},'MOHSIN');
 const comment=(target,text='Record the opening pressure for this sample.')=>({target,label:target,text});
-const reported=()=>{let j=step(submitted(),{type:'data-approve'},'SALIM');j=step(j,{type:'report-draft',kind:'sampling',text:'Summary',checker:''},'MOHSIN');return step(step(j,{type:'report-action',kind:'sampling',action:'checking',comments:''},'MOHSIN'),{type:'report-action',kind:'sampling',action:'submit',comments:''},'SALIM');};
+const reported=()=>{let j=step(submitted(),{type:'data-approve'},'SALIM');j=step(j,{type:'report-draft',kind:'sampling',text:'Summary',checker:'',file:GS},'MOHSIN');return step(j,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN');};
 
 test('only the accountable employee submits; supporting employees, drivers and others cannot',()=>{
  const j=sent();
@@ -67,17 +68,18 @@ test('returning needs specific comments; returned work is distinct and resubmitt
 
 test('data approval is not report approval; the report is checked by the sampling report checker, then approved, and unlocks laboratory scope',()=>{
  const s=submitted();
- assert.throws(()=>step(s,{type:'report-draft',kind:'sampling',text:'Summary',checker:''},'MOHSIN'),/after the sampling data is approved/);
+ assert.throws(()=>step(s,{type:'report-draft',kind:'sampling',text:'Summary',checker:'',file:GS},'MOHSIN'),/after the backup engineer confirms the data review/);
  const changed={...s,samples:s.samples.map(x=>({...x,bottleSerial:x.bottleSerial+'x'}))};
  assert.throws(()=>step(changed,{type:'data-approve'},'SALIM'),/changed after submission/);
  const a=step(s,{type:'data-approve'},'SALIM');
  assert.equal(latestData(a).reviewedBy,'SALIM');assert.equal(samplingApproved(a),false,'approved data alone does not approve the report');
  assert.equal(samplingStatus(a).key,'report-generation');
- assert.throws(()=>step(a,{type:'report-draft',kind:'sampling',text:'Summary',checker:''},'HUSSEINI'),/Only the accountable/);
- let j=step(a,{type:'report-draft',kind:'sampling',text:'Summary',checker:''},'MOHSIN');
- assert.equal(operationsFor(j).samplingReports[0].checker,'SALIM','checker comes from the Sampling report check & review duty');
- assert.throws(()=>step(j,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN'),/Only the preparer can submit|named checker|checking/i);
- j=step(step(j,{type:'report-action',kind:'sampling',action:'checking',comments:''},'MOHSIN'),{type:'report-action',kind:'sampling',action:'submit',comments:''},'SALIM');
+ assert.throws(()=>step(a,{type:'report-draft',kind:'sampling',text:'Summary',checker:'',file:GS},'HUSSEINI'),/Only the accountable/);
+ let j=step(a,{type:'report-draft',kind:'sampling',text:'Summary',checker:'',file:GS},'MOHSIN');
+ assert.equal(operationsFor(j).samplingReports[0].checker,'','no separate check stage: the report goes straight to the approver');
+ assert.throws(()=>step(j,{type:'report-action',kind:'sampling',action:'checking',comments:''},'MOHSIN'),/directly to the sampling approver/);
+ assert.throws(()=>step(j,{type:'report-action',kind:'sampling',action:'submit',comments:''},'HUSSEINI'),/Only the accountable sampling employee/);
+ j=step(j,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN');
  assert.equal(samplingStatus(j).key,'report-review');
  assert.throws(()=>step(j,{type:'report-action',kind:'sampling',action:'approve',comments:''},'WILFRED'),/named approver/);
  j=step(j,{type:'report-action',kind:'sampling',action:'approve',comments:''},'SALIM');
@@ -120,7 +122,7 @@ test('legacy records keep their recorded approvals and in-flight reports keep th
 
 test('with no sampling report checker configured the report goes straight to the approver',()=>{
  const roles={...defaultResponsibilities,samplingReportChecker:''};
- let j=step(step(submitted(),{type:'data-approve'},'SALIM'),{type:'report-draft',kind:'sampling',text:'Summary',checker:''},'MOHSIN',{roles});
+ let j=step(step(submitted(),{type:'data-approve'},'SALIM'),{type:'report-draft',kind:'sampling',text:'Summary',checker:'',file:GS},'MOHSIN',{roles});
  assert.equal(operationsFor(j).samplingReports[0].checker,'');
  assert.throws(()=>step(j,{type:'report-action',kind:'sampling',action:'checking',comments:''},'MOHSIN',{roles}),/directly to the sampling approver/);
  j=step(j,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN',{roles});
@@ -135,4 +137,35 @@ test('data sheet: sampling point and depth are separate; opening pressure is rec
  assert.match(standardSheetErrors({...can,depth:'',fieldData:all}).join(' '),/Identification: complete Depth\./);
  assert.match(standardSheetErrors({...can,fieldData:{...all,openingPressureReservoir:''}}).join(' '),/Transfer Conditions/);
  assert.match(standardSheetErrors({...can,containerVolume:'',fieldData:all}).join(' '),/the IATA can volume is required/);
+});
+
+test('new flow: the backup engineer confirms the data review, the report needs its G-sheet file, and approval publishes it directly',()=>{
+ const j=sent();
+ assert.equal(samplingStatus(j).next,'Backup engineer confirms the data review');assert.equal(samplingStatus(j).owner,'HUSSEINI');
+ assert.throws(()=>step(j,{type:'data-review'},'MOHSIN'),/Only the backup sampling engineer/,'the accountable engineer cannot confirm his own data when a backup is on the job');
+ assert.throws(()=>step(j,{type:'data-review'},'SALIM'),/Only the backup sampling engineer/);
+ const open=sent(job([sample('1.01',{dataComplete:false})]));
+ assert.throws(()=>step(open,{type:'data-review'},'HUSSEINI'),/complete the data sheet for sample 1\.01/);
+ let r=step(j,{type:'data-review'},'HUSSEINI');
+ assert.equal(latestData(r).status,'Approved');assert.equal(latestData(r).reviewedBy,'HUSSEINI');assert.equal(latestData(r).submittedBy,'MOHSIN');assert.equal(samplingDataLocked(r),true);
+ assert.equal(samplingStatus(r).key,'report-generation');assert.equal(samplingStatus(r).owner,'MOHSIN');
+ assert.throws(()=>step(r,{type:'data-review'},'HUSSEINI'),/already reviewed/);
+ // The report cannot be sent without the G-sheet file; with it, it goes straight to the approver.
+ const bare=step(r,{type:'report-draft',kind:'sampling',text:'Summary',checker:''},'MOHSIN');
+ assert.throws(()=>step(bare,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN'),/Attach the G-sheet file/);
+ r=step(r,{type:'report-draft',kind:'sampling',text:'Summary',checker:'',file:GS},'MOHSIN');
+ r=step(r,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN');
+ assert.equal(samplingStatus(r).key,'report-review');assert.equal(samplingStatus(r).owner,'SALIM');
+ // Salim can return it with comments, or approve: approval is final with no step back to the engineers.
+ const back=step(r,{type:'report-action',kind:'sampling',action:'return',comments:'Wrong well name on page 1.'},'SALIM');
+ assert.equal(operationsFor(back).samplingReports.at(-1).status,'Changes Requested');assert.equal(samplingStatus(back).owner,'MOHSIN');
+ r=step(r,{type:'report-action',kind:'sampling',action:'approve',comments:''},'SALIM');
+ assert.equal(samplingApproved(r),true);assert.equal(operationsFor(r).samplingReports.at(-1).file.name,'G-sheet.xlsx');assert.equal(samplingStatus(r).key,'report-approved');
+});
+
+test('a job with no backup engineer: the accountable engineer confirms the data review himself',()=>{
+ const j=step(job(),{type:'dispatch',engineer:'MOHSIN',driver:'ALI'},'SALIM');
+ assert.equal(samplingStatus(j).owner,'MOHSIN');
+ assert.throws(()=>step(j,{type:'data-review'},'HUSSEINI'),/no backup sampling engineer/);
+ assert.equal(latestData(step(j,{type:'data-review'},'MOHSIN')).reviewedBy,'MOHSIN');
 });

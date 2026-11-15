@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
+const GS={id:'gs',name:'G-sheet.xlsx',size:1,type:'',version:1,submittedBy:'MOHSIN',submittedAt:'',status:'Available',comments:''};
 const bundle=async entry=>{const out=await build({entryPoints:[entry],bundle:true,write:false,format:'esm',platform:'node',logLevel:'silent'});return import('data:text/javascript;base64,'+Buffer.from(out.outputFiles[0].text).toString('base64'));};
 const store=new Map();globalThis.window={localStorage:{getItem:k=>store.get(k)??null,setItem:(k,v)=>store.set(k,String(v))}};globalThis.localStorage=window.localStorage;
 const {applyOperation,pendingActions,finalReady,qcPending,labStatus,teamMismatch,operationsFor,operationComplete,samplingApproved}=await bundle('app/operations-model.ts');
@@ -23,7 +24,7 @@ const conditions={pressure:'2100',pressureUnit:'psi',temperature:'88',temperatur
 function released(){
  let j=step(base(),{type:'dispatch',engineer:'MOHSIN',driver:'ALI'},'SALIM');
  j=step(j,{type:'data-submit',note:''},'MOHSIN');j=step(j,{type:'data-approve'},'SALIM');
- j=step(j,{type:'report-draft',kind:'sampling',text:'Summary',checker:''},'MOHSIN');j=step(step(j,{type:'report-action',kind:'sampling',action:'checking',comments:''},'MOHSIN'),{type:'report-action',kind:'sampling',action:'submit',comments:''},'SALIM');j=step(j,{type:'report-action',kind:'sampling',action:'approve',comments:''},'SALIM');
+ j=step(j,{type:'report-draft',kind:'sampling',text:'Summary',checker:'',file:GS},'MOHSIN');j=step(j,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN');j=step(j,{type:'report-action',kind:'sampling',action:'approve',comments:''},'SALIM');
  return step(j,{type:'lab-scope',action:'release',conditions,reason:'',samples:[entry('1.01','PVT',['Black Oil — DL']),entry('1.02','Chemical',[],['Others — Water Analysis']),entry('1.03','Both',['Specialised Analysis — SARA'],['Specialised Analysis — SARA']),entry('1.04','PVT',[],[],{excluded:true,exclusionReason:'Leaked'})]},'SALIM');
 }
 const act=(j,sample,stream)=>operationsFor(j).activities.find(a=>a.sampleId===sample&&a.stream===stream);

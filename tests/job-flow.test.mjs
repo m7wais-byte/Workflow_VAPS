@@ -32,9 +32,9 @@ test('sampling in progress: current stage, happening now and next step come from
   const f = flow('OM-X-26-001');
   assert.equal(f.current, 'Sampling'); assert.equal(f.status, 'In progress');
   assert.equal(step(f, 'Field sampling & data sheets').detail, '1 of 2 data sheets complete');
-  assert.equal(f.next, 'Data review & approval');
+  assert.equal(f.next, 'Backup engineer review');
   const f2 = flow('OM-X-26-002');
-  assert.equal(step(f2, 'Data review & approval').state, 'in-progress');
+  assert.equal(step(f2, 'Backup engineer review').state, 'in-progress');
   assert.equal(step(f2, 'Sampling report approval').state, 'not-started');
 });
 
@@ -76,7 +76,8 @@ test('additional work keeps completed results and the approved report, and requi
 test('transfer jobs are labelled as sample transfer, not field sampling', () => {
   const f = jobFlow({ ...byId['OM-X-26-002'], samplingSource: 'Open Hole (MPSR - Lab Transfer)' }, roles, employees);
   assert.equal(f.sections[0].label, 'Sample transfer');
-  assert.equal(step(f, 'Sample transfer data').state, 'completed');
+  assert.equal(step(f, 'Sample transfer data').state, 'in-progress');
+  assert.equal(step(f, 'Backup engineer review').detail, 'Awaiting backup review');
 });
 
 test('client progress uses the same flow but hides names, returns and internal review states', () => {

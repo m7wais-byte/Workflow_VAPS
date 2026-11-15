@@ -7,6 +7,7 @@ import { isValidationTest, validationStepNames, validationStream } from './lab-w
 import { catalogueIds } from './test-catalogue';
 import type { TestRouting } from './test-routing';
 import { preparationDone } from './sampling-validation';
+import { backupCylinders } from './cylinder-status';
 import type { LabTeams } from './lab-teams';
 import { needsReview, type StoredFluidType } from './scope-catalogue';
 import { normalizeEstimate, estimateKeyPattern, type ScheduleEstimate } from './schedule-estimate';
@@ -91,7 +92,8 @@ export const canManageJobAccess=(_job:JobRecord,actor:Actor)=>hasAccess(actor,'j
 /** The job is finished: final report approved, or completed in the earlier workflow. */
 export const jobFinished=(job:JobRecord)=>operationComplete(job)||(!job.operations?.dispatchedAt&&job.status==='Completed');
 /** Cylinder serials recorded on the job's samples (glass bottles and IATA cans excluded). */
-export const jobCylinderSerials=(job:JobRecord)=>[...new Set((job.samples||[]).filter(s=>!isAtmospheric(s)&&s.bottleSerial?.trim()).map(s=>s.bottleSerial.trim()))];
+/** Every cylinder the job holds: the sample cylinders and the backup cylinders reserved for it. */
+export const jobCylinderSerials=(job:JobRecord)=>[...new Set([...(job.samples||[]).filter(s=>!isAtmospheric(s)&&s.bottleSerial?.trim()).map(s=>s.bottleSerial.trim()),...backupCylinders(job)])];
 /** Who sees the Job access panel: holders of View or Edit job access. */
 export const canViewJobAccess=(actor:Actor)=>hasAccess(actor,'jobAccessView')||hasAccess(actor,'jobAccessEdit');
 /** Sampling data as submitted for review: samples, events, preparation and coordination. */
@@ -100,6 +102,8 @@ export const latestData=(job:JobRecord)=>(operationsFor(job).samplingData||[]).a
 /** Jobs whose sampling report flow started before data review keep their recorded path. */
 export const dataReviewRequired=(job:JobRecord)=>{const o=operationsFor(job);return !!o.samplingData?.length||!o.samplingReports.length;};
 /** Sampling data is read-only while submitted for review or approved. */
+/** Who confirms the sampling data review: the backup sampling engineers of the job, or the accountable engineer when the job has no backup. */
+export const dataReviewers=(job:JobRecord)=>{const backups=samplingTeam(job).filter(id=>id!==job.assignedEngineerId);return backups.length?backups:[job.assignedEngineerId||''].filter(Boolean);};
 export const samplingDataLocked=(job:JobRecord)=>['Submitted','Approved'].includes(latestData(job)?.status||'');
 export const releasedScopes=(job:JobRecord)=>(operationsFor(job).labScopes||[]).filter(v=>v.status==='Released');
 export const latestLabScope=(job:JobRecord)=>(operationsFor(job).labScopes||[]).at(-1);
@@ -290,6 +294,8 @@ export type Command =
  | {type:'data-submit';note:string}
  | {type:'data-return';general:string;comments:ReviewComment[]}
  | {type:'data-approve'}
+ /** The backup sampling engineer confirms they reviewed the sampling data with the accountable engineer. Replaces the separate data submission and approval. */
+ | {type:'data-review'}
  | {type:'data-reopen';reason:string}
  | {type:'lab-scope';action:'save'|'release';samples:Omit<SampleScope,'containerType'|'containerLabel'>[];conditions:Operations['conditions'];reason:string;/** Phased scope: 1 = Validation, 2 = detailed tests. Absent = single-phase scope (older jobs). */phase?:1|2}
  | {type:'scope';items:{title:string;sampleIds:string[];stream:Stream}[];conditions:Operations['conditions'];reason:string;additionId?:string}
@@ -414,6 +420,20 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   if(missing.length)throw Error('Before submitting: '+missing.join('; ')+'.');
   (o.samplingData||(o.samplingData=[])).push({version:o.samplingData.length+1,status:'Submitted',submittedBy:actor.id,submittedAt:now,snapshot:dataSnapshot(job),note:command.note.trim(),comments:[]});
   reason=command.note.trim();break;
+ }
+ case 'data-review':{
+  if(!o.dispatchedAt&&!legacyDispatch(job))throw Error('Send the job to Sampling first.');
+  if(!dataReviewRequired(job))throw Error('This job’s sampling report started before data review. Continue it in the sampling report.');
+  const reviewers=dataReviewers(job);const nm=(id?:string)=>actor.employees.find(e=>e.id===id)?.name||'not assigned';
+  if(!reviewers.includes(actor.id))throw Error(reviewers[0]===job.assignedEngineerId?'This job has no backup sampling engineer, so only '+nm(job.assignedEngineerId)+' (accountable) can confirm the data review.':'Only the backup sampling engineer ('+reviewers.map(nm).join(', ')+') can confirm the data review.');
+  requireAssigned(actor,'sampling',true);
+  const last=o.samplingData?.at(-1);if(last?.status==='Approved')throw Error('The sampling data is already reviewed. Reopen it with a reason before changing it.');
+  const missing=[!preparationDone(job)&&'complete the preparation step',!job.samples?.length&&'add the sample records',...(job.samples||[]).filter(s=>!containerComplete(s)).map(s=>'record the container for sample '+s.id),...(job.samples||[]).filter(s=>!s.dataComplete).map(s=>'complete the data sheet for sample '+s.id)].filter(Boolean);
+  if(missing.length)throw Error('Before the review is confirmed: '+missing.join('; ')+'.');
+  // A submission made under the earlier workflow is reviewed in place; otherwise the review is recorded in one step.
+  if(last?.status==='Submitted')Object.assign(last,{status:'Approved',reviewedBy:actor.id,reviewedAt:now,snapshot:dataSnapshot(job)});
+  else (o.samplingData||(o.samplingData=[])).push({version:(o.samplingData||[]).length+1,status:'Approved',submittedBy:job.assignedEngineerId||actor.id,submittedAt:now,snapshot:dataSnapshot(job),note:'',reviewedBy:actor.id,reviewedAt:now,comments:[]});
+  break;
  }
  case 'data-return':case 'data-approve':{
   requireRole(actor,'sampling','samplingApproval');const d=o.samplingData?.at(-1);if(!d||d.status!=='Submitted')throw Error('There is no submitted sampling data to review.');
@@ -658,12 +678,12 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   if(command.kind==='final')requireRole(actor,'analysis','reporting');else requireAssigned(actor,'sampling',actor.id===job.assignedEngineerId||actor.id===latest(o.samplingReports)?.preparedBy);
   const list=command.kind==='sampling'?o.samplingReports:o.finalReports;const old=latest(list);
   const reviewed=command.kind==='sampling'&&dataReviewRequired(job);
-  if(reviewed){if(latestData(job)?.status!=='Approved')throw Error('The sampling report is generated after the sampling data is approved.');if(actor.id!==job.assignedEngineerId)throw Error('Only the accountable sampling employee prepares the sampling report.');}
+  if(reviewed){if(latestData(job)?.status!=='Approved')throw Error('The sampling report is generated after the backup engineer confirms the data review.');if(actor.id!==job.assignedEngineerId)throw Error('Only the accountable sampling employee prepares the sampling report.');}
   else if(command.kind==='sampling'&&old&&actor.id!==old.preparedBy)throw Error('Only the recorded preparer can edit this report version.');
   if(old&&!['Draft','Changes Requested'].includes(old.status))throw Error('Create a revision before editing a submitted report.');
   requireText(command.text,'Report summary');if(!reviewed){active(actor,command.checker);if(command.kind==='sampling'&&!actor.policy.sampling.includes(command.checker)&&command.checker!=='MA001')throw Error('The selected checker needs sampling permission.');}
   // Reports from approved sampling data are checked by the 'Sampling report check & review' duty, then approved; no checker set means straight to approval.
-  const version:ReportVersion={version:old?.status==='Draft'?old.version:list.length+1,status:'Draft',text:command.text,preparedBy:actor.id,preparedAt:now,checker:command.kind==='final'?holder(actor,'reporting'):reviewed?(holder(actor,'samplingReportChecker')||''):command.checker,comments:'',snapshot:snapshot(command.kind),file:command.file,...(command.kind==='sampling'&&command.letterhead?{letterhead:command.letterhead}:{})};
+  const version:ReportVersion={version:old?.status==='Draft'?old.version:list.length+1,status:'Draft',text:command.text,preparedBy:actor.id,preparedAt:now,checker:command.kind==='final'?holder(actor,'reporting'):reviewed?'':command.checker,comments:'',snapshot:snapshot(command.kind),file:command.file,...(command.kind==='sampling'&&command.letterhead?{letterhead:command.letterhead}:{})};
   if(old?.status==='Draft')list[list.length-1]=version;else list.push(version);break;
  }
  case 'report-action':{
@@ -678,7 +698,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
    r.snapshot=snapshot(command.kind);r.status='Checking';r.submittedAt=now;if(command.letterhead)r.letterhead=command.letterhead;
   } else if(command.action==='submit'){
    const direct=command.kind==='sampling'&&dataReviewRequired(job)&&!r.checker;
-   if(direct){if(actor.id!==r.preparedBy||actor.id!==job.assignedEngineerId||r.status!=='Draft')throw Error('Only the accountable sampling employee can submit this report for approval.');if(latestData(job)?.status!=='Approved')throw Error('The sampling data must be approved before the report is submitted.');}
+   if(direct){if(actor.id!==r.preparedBy||actor.id!==job.assignedEngineerId||r.status!=='Draft')throw Error('Only the accountable sampling employee can submit this report for approval.');if(latestData(job)?.status!=='Approved')throw Error('The sampling data must be reviewed before the report is submitted.');if(!r.file)throw Error('Attach the G-sheet file before sending the report for approval.');}
    else{const ready=command.kind==='sampling'?r.status==='Checking':r.status==='Draft';
    if(actor.id!==r.checker||!ready)throw Error('Only the named checker can forward this version.');}
    if(r.snapshot!==snapshot(command.kind))throw Error('The draft or checked evidence changed. Save an updated draft or return this version for correction before submission.');
@@ -724,6 +744,8 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
  next.status=operationComplete(next)?'Completed':samplingApproved(next)?'Sampling Completed':next.status==='Completed'?'Report Draft':next.status;
  return next;
 }
+/** Next action once every data sheet is complete: the backup engineer confirms the review. */
+export const DATA_REVIEW_NEXT='Backup engineer confirms the data review';
 export type SamplingStatusKey='draft'|'preparation'|'data'|'data-review'|'returned'|'report-generation'|'report-review'|'report-approved';
 export type SamplingStatus={key:SamplingStatusKey;label:string;owner?:string;next:string;tab:string;/** Supporting sampling employees may help at this point. */team:boolean};
 /** One understandable sampling status, mapped from the data review, sampling report and legacy records. */
@@ -738,15 +760,15 @@ export function samplingStatus(job:JobRecord,roles:Responsibilities=storedRespon
  if(!reviewed)return {key:'report-generation',label:'Sampling report in preparation',owner:r?.preparedBy||lead,next:'Complete the sampling report',tab:'sampling-report',team:false};
  if(d?.status==='Submitted')return {key:'data-review',label:'Awaiting data review',owner:roles.samplingApproval,next:'Review the submitted sampling data',tab:'sampling-report',team:false};
  if(d?.status==='Returned')return {key:'returned',label:'Returned for correction · sampling data',owner:lead,next:'Correct the sampling data and resubmit',tab:'sampling',team:true};
- if(d?.status==='Approved')return {key:'report-generation',label:'Data approved · report generation needed',owner:lead,next:r?.status==='Draft'?'Submit the sampling report for approval':'Generate the sampling report',tab:'sampling-report',team:false};
+ if(d?.status==='Approved')return {key:'report-generation',label:'Data reviewed · report generation needed',owner:lead,next:r?.status==='Draft'?'Submit the sampling report for approval':'Generate the sampling report',tab:'sampling-report',team:false};
  if(!preparationDone(job))return {key:'preparation',label:'Assigned · preparation needed',owner:lead,next:'Complete sampling preparation',tab:'sampling',team:true};
  const ready=!!job.samples?.length&&job.samples.every(s=>s.dataComplete);
- return {key:'data',label:d?.status==='Reopened'?'Sampling data reopened for correction':'Sampling data in progress',owner:lead,next:ready?'Review and submit the sampling data':'Complete the sample data sheets',tab:'sampling',team:true};
+ return {key:'data',label:d?.status==='Reopened'?'Sampling data reopened for correction':ready?'Data sheets complete · review needed':'Sampling data in progress',owner:ready?dataReviewers(job)[0]||lead:lead,next:ready?DATA_REVIEW_NEXT:'Complete the sample data sheets',tab:'sampling',team:true};
 }
 export function operationMilestones(job:JobRecord,roles:Responsibilities=storedResponsibilities()){const st=samplingStatus(job,roles);const early=['draft','preparation','data','returned'].includes(st.key)&&st.tab==='sampling';const o=operationsFor(job);const needsScope=!o.scopeConfirmedAt||o.additions.some(a=>!a.confirmedAt);const unplanned=o.activities.find(a=>a.required&&(!a.owner||!a.start||!a.due))||(unplannedValidation(job).length?{stream:'PVT' as Stream}:undefined);const lab=o.activities.filter(a=>a.required);const sampleDone=!!job.samples?.length&&job.samples.every(s=>s.dataComplete);return [
  {id:'overview',label:'Job creation',done:!!o.dispatchedAt||legacyDispatch(job),note:legacyDispatch(job)?'Dispatch not recorded (legacy)':undefined,owner:job.createdById,next:isDraft(job)?'Complete the draft and send it to Sampling':'Review and send the job to Sampling'},
  {id:'sampling',label:'Sampling',done:dataReviewRequired(job)?['Submitted','Approved'].includes(latestData(job)?.status||'')||samplingApproved(job):sampleDone,owner:job.assignedEngineerId,next:early?st.next:'Complete the sample data sheets'},
- {id:'sampling-report',label:'Sampling review & report approval',done:samplingApproved(job),owner:early?job.assignedEngineerId:st.owner,next:early?'Submit sampling data for review':st.next},
+ {id:'sampling-report',label:'Sampling review & report approval',done:samplingApproved(job),owner:early?job.assignedEngineerId:st.owner,next:early?'Backup engineer reviews the data, then the sampling report is sent for approval':st.next},
  {id:'scope',label:'Laboratory scope',done:!!o.scopeConfirmedAt&&!unplannedValidation(job).length&&lab.every(a=>a.owner&&a.start&&a.due),owner:needsScope||!unplanned?roles.scopeSelector:roles[streamLead(unplanned.stream)],next:needsScope?(samplingApproved(job)?'Select and release the laboratory scope per sample':'Laboratory scope opens after sampling-report approval'):'Team leads assign and schedule tests'},
  {id:'laboratory',label:'Laboratory work',done:allWorkDone(job),owner:lab.find(a=>a.status!=='Completed')?.owner,next:'Complete assigned tests, team-lead review and QC'},
  {id:'reporting',label:'Final reporting',done:latest(o.finalReports)?.status==='Approved'&&finalReady(job),owner:latest(o.finalReports)?.status==='Awaiting Approval'?roles.finalApproval:roles.reporting,next:qcPending(job)?testsAwaitingQcApproval(job).length+' test(s) awaiting QC approval':latest(o.finalReports)?.status||'Collect QC-approved workbooks and prepare the final report'},

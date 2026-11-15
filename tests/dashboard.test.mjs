@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
+const GS={id:'gs',name:'G-sheet.xlsx',size:1,type:'',version:1,submittedBy:'MOHSIN',submittedAt:'',status:'Available',comments:''};
 const bundle=async entry=>{const out=await build({entryPoints:[entry],bundle:true,write:false,format:'esm',platform:'node',logLevel:'silent'});return import('data:text/javascript;base64,'+Buffer.from(out.outputFiles[0].text).toString('base64'));};
 const store=new Map();globalThis.window={localStorage:{getItem:k=>store.get(k)??null,setItem:(k,v)=>store.set(k,String(v))}};globalThis.localStorage=window.localStorage;
 const {applyOperation,operationsFor}=await bundle('app/operations-model.ts');
@@ -26,8 +27,9 @@ test('the dashboard follows the whole journey with one next responsible person a
  assert.deepEqual(acts(j,'SALIM'),['Continue job draft and send to Sampling']);
  for(const id of ['MOHSIN','HUSSEINI','SHEREIQI','WILFRED'])assert.deepEqual(acts(j,id),[],id+' sees no draft');
  j=step(j,{type:'dispatch',engineer:'MOHSIN',driver:'ALI',team:['HUSSEINI']},'SALIM');
- const m=items(j,'MOHSIN').actions[0];assert.equal(m.action,'Review and submit sampling data');assert.equal(m.fromLabel,'Assigned by');assert.equal(m.from,'SALIM');assert.equal(m.overdue,true,'due date before today');
- assert.deepEqual(acts(j,'HUSSEINI'),[],'a view-only backup has no task');assert.equal(items(j,'HUSSEINI').waiting[0].waitingOn,'Mohsin Al Dhuhli (accountable)');assert.match(items(j,'HUSSEINI').waiting[0].label,/backup \(view only\)/);
+ // Every data sheet is complete: the backup engineer confirms the review; the accountable engineer waits for it.
+ assert.deepEqual(acts(j,'MOHSIN'),[],'the accountable engineer waits for the backup review');assert.match(items(j,'MOHSIN').waiting[0].waitingOn,/Mohammed Al Husseini.*backup review|backup review/);
+ const m=items(j,'HUSSEINI').actions[0];assert.match(m.action,/^Review the sampling data with Mohsin Al Dhuhli and confirm/);assert.equal(m.kind,'review');assert.equal(m.fromLabel,'Data entered by');assert.equal(m.from,'MOHSIN');assert.equal(m.overdue,true,'due date before today');
  assert.deepEqual(acts(j,'ALI'),[]);assert.deepEqual(acts(j,'SALIM'),[]);
  j=step(j,{type:'data-submit',note:''},'MOHSIN');
  assert.deepEqual(acts(j,'MOHSIN'),[],'submitted work is not shown as an action');assert.equal(items(j,'MOHSIN').waiting[0].waitingOn,'Salim Al Maqbali');
@@ -39,8 +41,8 @@ test('the dashboard follows the whole journey with one next responsible person a
  assert.match(acts(j,'HUSSEINI')[0],/Help correct returned sampling data \(backup · Mohsin Al Dhuhli submits\)/,'a backup given work access can help');
  j=step(j,{type:'data-submit',note:''},'MOHSIN');j=step(j,{type:'data-approve'},'SALIM');
  assert.deepEqual(acts(j,'MOHSIN'),['Prepare sampling report']);assert.deepEqual(acts(j,'SALIM'),[]);
- j=step(j,{type:'report-draft',kind:'sampling',text:'Summary',checker:''},'MOHSIN');assert.deepEqual(acts(j,'MOHSIN'),['Submit sampling report for approval']);
- j=step(step(j,{type:'report-action',kind:'sampling',action:'checking',comments:''},'MOHSIN'),{type:'report-action',kind:'sampling',action:'submit',comments:''},'SALIM');assert.deepEqual(acts(j,'SALIM'),['Review sampling report']);
+ j=step(j,{type:'report-draft',kind:'sampling',text:'Summary',checker:'',file:GS},'MOHSIN');assert.deepEqual(acts(j,'MOHSIN'),['Submit sampling report for approval']);
+ j=step(j,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN');assert.deepEqual(acts(j,'SALIM'),['Review sampling report']);
  j=step(j,{type:'report-action',kind:'sampling',action:'approve',comments:''},'SALIM');
  assert.deepEqual(acts(j,'SALIM'),['Define and release laboratory scope']);assert.deepEqual(acts(j,'ALI'),[],'no sample handover step for the driver');
  j=step(j,{type:'lab-scope',action:'release',reason:'',conditions:{pressure:'',pressureUnit:'psi',temperature:'',temperatureUnit:'°C',notes:''},samples:[{sampleId:'1.01',destination:'PVT',pvtTests:['Black Oil — DL'],chemicalTests:[],notes:'',excluded:false,exclusionReason:'',fluidType:'Black Oil'},{sampleId:'1.02',destination:'Chemical',pvtTests:[],chemicalTests:['Others — Water Analysis'],notes:'',excluded:false,exclusionReason:'',fluidType:'Black Oil'}]},'SALIM');
