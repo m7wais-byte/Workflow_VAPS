@@ -14,7 +14,7 @@ PVT and Chemical work can run in parallel. Weekly views support multi-day and cr
 - **Backup cylinders.** In preparation the sampling engineer can reserve backup cylinders for the job (no sample attached). They show as In use on the job, can be selected as the cylinder of one of its samples, and are released with the job's other cylinders.
 - **Client units.** Settings → Clients holds the units each client works in (Field or Metric preset, each quantity adjustable). New data sheets and the job sampling context open in those units; other units stay selectable, and a value already entered keeps its unit.
 - **Validation.** The PVT Team Lead picks one engineer (and optional start/due dates) per sample; it fills every Validation step, and each step can still be changed.
-- **Data sheet.** "Stable Since" is now the question "Stable?" (Yes / No). The sampling point is free text for Wellhead Sampling. Sampling point size is chosen as connection, size and male/female: Wellhead — NPT 1/4, 3/8, 1/2 in; Separator — Swagelok 1/4, 3/8, 1/2 in, High pressure autoclave 1/4, 3/8, 1/2, 1 in, Quick connect 1/4, 3/8, 1/2 in; Other lets the engineer type one that is not listed.
+- **Data sheet.** "Stable Since" is now the question "Stable?" (Yes / No). The sampling point is free text for Wellhead Sampling. Sampling point type and size are one entry (one preparation task), chosen as connection, size and male/female: Wellhead — NPT 1/4, 3/8, 1/2 in; Separator — Swagelok 1/4, 3/8, 1/2 in, High pressure autoclave 1/4, 3/8, 1/2, 1 in, Quick connect 1/4, 3/8, 1/2 in; Other lets the engineer type one that is not listed.
 
 ## Responsibilities
 
