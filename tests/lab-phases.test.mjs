@@ -82,6 +82,7 @@ test('Phase 2: samples open after their Validation; selected samples need tests;
  assert.throws(()=>p2(j,withTests),/selected for further study but has no tests/);
  j=p2(j,base2().map(s=>s.sampleId==='1.02'?{...s,furtherStudy:true,chemicalTests:['Others — Water Analysis']}:s));
  assert.equal(released(j).phase,2);assert.ok(acts(j).some(a=>a.sampleId==='1.02'&&a.title==='Others — Water Analysis'));
+ assert.ok(operationsFor(j).scope.filter(x=>x.id.startsWith('labscope:1.02')).every(x=>x.source==='Original request'),'the first Phase 2 release is the planned further study, not additional work');
  assert.deepEqual(phase2Undecided(j),['1.01']);
  assert.ok(view([j],'SALIM').actions.some(i=>i.key.startsWith('phase2:')&&/1\.01/.test(i.action)),'Salim is told when Validation is complete');
  j=p2(j,released(j).samples.map(strip).map(s=>s.sampleId==='1.01'?{...s,furtherStudy:false}:s),'Client: no further study for 1.01');

@@ -499,7 +499,8 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
    // The first Phase 2 release builds on Phase 1 and is not a revision; later changes in either phase need a reason.
    if(previous&&!(command.phase===2&&previous.phase===1))requireText(command.reason,'Revision reason');
    version.status='Released';version.releasedBy=actor.id;version.releasedAt=now;reason=command.reason.trim()||'Laboratory scope released';
-   const source=previous?'Additional work':'Original request';
+   // The first Phase 2 release is the planned further study that follows Phase 1, not additional work.
+   const source=previous&&!(command.phase===2&&previous.phase===1)?'Additional work':'Original request';
    const day=now.slice(0,10);
    /** A coordinator chosen in the scope is assigned on release, only for the stream whose team they belong to. */
    const coordinate=(a:ActivityRecord,e?:ExecutionChoice)=>{const c=e?.by==='Third-party'?e.coordinator:'';if(!c||!actor.employees.some(x=>x.id===c&&x.active))return;a.owner=c;a.start=day;a.due=e?.expectedReturn||'';a.status='Scheduled';a.history=[{at:now,by:actor.id,action:'assigned',to:c,comments:'Internal coordinator for third-party work ('+(e?.provider||'').trim()+')'}];};

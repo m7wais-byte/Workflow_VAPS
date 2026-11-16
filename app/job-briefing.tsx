@@ -86,7 +86,8 @@ export function CylinderRelease({ job, actor, onCommand }: Omit<Props, "onStarte
   const [assignee, setAssignee] = useState("");
   const o = operationsFor(job), serials = jobCylinderSerials(job);
   const name = (id?: string) => actor.employees.find((e) => e.id === id)?.name || "Not recorded";
-  if (!serials.length || !jobFinished(job)) return null;
+  if (!jobFinished(job)) return null;
+  if (!serials.length && o.clientDisposal) return <section className="panel ops-panel cyl-release is-done"><h2>Client approved · samples disposed</h2><p>Client approval of the final report and the sample disposal instruction recorded by {name(o.clientDisposal.by)} on {ukDateTime(o.clientDisposal.at)}{o.clientDisposal.note ? ": " + o.clientDisposal.note : ""}. This job holds no cylinders.</p></section>;
   const rel = o.cylindersReleased;
   const canRelease = hasAccess(actor, "createJob") || actor.id === o.dispatchedBy;
   if (rel) return <section className="panel ops-panel cyl-release is-done"><h2>Cylinders released</h2><p>{name(rel.by)} released {serials.length} cylinder{serials.length === 1 ? "" : "s"} on {ukDateTime(rel.at)}: {serials.join(", ")}. {rel.assignee ? name(rel.assignee) + " releases and redresses them (dispose, clean, calibrate, pressure test) in" : "The sampling team collects, cleans, calibrates and checks them in"} <a href="#sampling">Sampling → Cylinders</a>.</p></section>;
@@ -95,7 +96,7 @@ export function CylinderRelease({ job, actor, onCommand }: Omit<Props, "onStarte
   // Cylinders are discharged only after the client approves the final report and tells us to dispose of the samples.
   if (!client) return <section className="panel ops-panel cyl-release" aria-labelledby="cyl-client-title">
     <h2 id="cyl-client-title">Final report issued · waiting for the client</h2>
-    <p>This job still holds <strong>{serials.length} cylinder{serials.length === 1 ? "" : "s"}</strong>: {serials.join(", ")}. They stay with the job, and the samples are kept, until the client approves the final report and tells us to dispose of the samples.</p>
+    <p>{serials.length ? <>This job still holds <strong>{serials.length} cylinder{serials.length === 1 ? "" : "s"}</strong>: {serials.join(", ")}. They stay with the job, and the samples are kept,</> : <>The samples are kept</>} until the client approves the final report and tells us to dispose of the samples.</p>
     {canRelease ? <div className="cyl-release-form"><label><span>Client message or reference (optional)</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Email from the focal point, 18/11/2026" /></label><button type="button" className="attention-button" onClick={() => { try { onCommand({ type: "client-disposal", note }); setNote(""); setError(""); } catch (e) { setError((e as Error).message); } }}>Client approved the report · dispose of the samples</button></div> : <p className="briefing-note">The job coordinator records the client&apos;s approval and disposal instruction.</p>}
     {error && <p className="ops-error" role="alert">{error}</p>}
   </section>;
