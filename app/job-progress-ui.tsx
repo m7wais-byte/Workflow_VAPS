@@ -80,7 +80,7 @@ export function ProgressBody({ view, today, canPlan, onSave }: { view: ProgressV
         {st.note && <em>{st.note}</em>}
       </li>)}
     </ol>
-    <dl className="pgx-glance">{glance.map(([k, label, value]) => { const Icon = glanceIcon[k]; return <div key={k} className={'pgx-glance-' + k}><dt><Icon size={15} aria-hidden /> {label}</dt><dd>{value}</dd></div>; })}</dl>
+    <dl className="pgx-glance">{glance.filter(([k]) => !(client && k === 'report')).map(([k, label, value]) => { const Icon = glanceIcon[k]; return <div key={k} className={'pgx-glance-' + k}><dt><Icon size={15} aria-hidden /> {label}</dt><dd>{value}</dd></div>; })}</dl>
     <div className="pgx-activities">
       <h3>Activities by stage</h3>
       {sections.map((stage) => {

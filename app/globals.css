@@ -3836,3 +3836,7 @@ main .rq .rq-plain select:has(option[value=""]:checked),main .rq .rq-plain input
   .cp-facts { grid-template-columns:1fr 1fr; } .cp-facts>div { padding:12px 16px !important; border-left:0; border-top:1px solid var(--line); } .cp-facts>div:nth-child(-n+2) { border-top:0; } .cp-facts>div:nth-child(even) { border-left:1px solid var(--line); }
   .client-progress.cp>.pgx { padding:16px 16px 4px; } .client-progress.cp>.client-foot { padding:0 16px 16px; }
 }
+
+/* Client view: no report date box, so the two remaining boxes share the row */
+.cp .pgx-glance { grid-template-columns:repeat(2,minmax(0,1fr)); }
+@media (max-width:720px) { .cp .pgx-glance { grid-template-columns:1fr; } }
