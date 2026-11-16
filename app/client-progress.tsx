@@ -6,22 +6,52 @@
 import type { JobSummary, TrackNode } from './job-workflow-model';
 import type { FlowState } from './job-flow';
 import { StatusBadge, StateIcon, shortDate } from './flow-ui';
-import { ProgressBadge, ProgressBody } from './job-progress-ui';
+import { ProgressIcon, ProgressBody } from './job-progress-ui';
+import { assetUrl } from './deployment';
+import { useState } from 'react';
 import { localDate } from './local-date';
 
 const fromTrack = (s: TrackNode['state']): FlowState => s === 'done' ? 'completed' : s === 'active' ? 'in-progress' : 'not-started';
 const leaves = (n: TrackNode): TrackNode[] => n.children?.length ? n.children.flatMap(leaves) : [n];
 
-export function ClientProgress({ summary, today = localDate() }: { summary: JobSummary; today?: string }) {
+/** `brand` is the client's full name and logo from the client master (in-app preview); without it the short name and initials are shown. */
+export function ClientProgress({ summary, today = localDate(), brand }: { summary: JobSummary; today?: string; brand?: { name?: string; shortName?: string; logo?: string } }) {
   const p = summary.progress;
-  if (p) return <article className="client-progress">
-    <header className="client-head">
-      <div><span className="eyebrow">JOB PROGRESS</span><h1>{p.jobId}</h1><p>{p.client}{p.location ? ' · ' + p.location : ''}</p>{p.sampling && <p className="client-sub">{p.sampling}</p>}</div>
-      <div className="pg-head-badges"><ProgressBadge status={p.closed ? 'completed' : 'in-progress'} label={p.closed ? 'Completed' : 'In progress'} /><span className="pg-count">{p.done} of {p.total} activities completed</span></div>
-    </header>
-    <ProgressBody view={p} today={today} />
-    <p className="client-foot">Progress summary prepared by VAPS. Measurements, results and internal records are not included.</p>
-  </article>;
+  const [logoFailed, setLogoFailed] = useState(false);
+  if (p) {
+    const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
+    // The work can be finished while the samples still wait for the client's approval and disposal instruction.
+    const awaitingClient = p.closed && p.currentStage !== 'Completed';
+    const status = awaitingClient ? 'in-progress' : p.closed ? 'completed' : p.draft ? 'not-started' : 'in-progress';
+    const statusLabel = awaitingClient ? 'Awaiting client approval' : p.closed ? 'Completed' : p.draft ? 'Being prepared' : 'In progress';
+    const info = p.info || {};
+    const late = !p.closed && !!info.dueDate && info.dueDate < today;
+    const facts: [string, React.ReactNode][] = [
+      ['Field / well', [info.field, info.well].filter(Boolean).join(' · ') || p.location || 'Not recorded'],
+      ['Sampling type', p.sampling || 'To be confirmed'],
+      ['Samples', info.samples ? String(info.samples) : 'To be confirmed'],
+      ['Job date', info.jobDate ? shortDate(info.jobDate) : 'Not recorded'],
+      ['Due date', info.dueDate ? <>{shortDate(info.dueDate)}{late && <em className="cp-late">Overdue</em>}</> : 'Not set'],
+    ];
+    const r = 34, c = 2 * Math.PI * r;
+    return <article className="client-progress cp">
+      <header className="cp-hero">
+        <div className="cp-brand" aria-hidden="true">{brand?.logo && !logoFailed
+          // eslint-disable-next-line @next/next/no-img-element
+          ? <img src={assetUrl(brand.logo)} alt="" onError={() => setLogoFailed(true)} />
+          : <span>{(brand?.shortName || p.client || '?').slice(0, 2).toUpperCase()}</span>}</div>
+        <div className="cp-id"><span className="cp-eyebrow">Job progress</span><h1>{p.jobId}</h1><p>{brand?.name || p.client}</p></div>
+        <div className="cp-status"><span className={`st-badge pg-${status}`}><ProgressIcon status={status} size={14} />{statusLabel}</span><small>Current stage</small><strong>{p.currentStage}</strong></div>
+        <div className="cp-ring" role="img" aria-label={`${pct}% complete, ${p.done} of ${p.total} activities`}>
+          <svg viewBox="0 0 84 84" aria-hidden="true"><circle cx="42" cy="42" r={r} className="cp-ring-track" /><circle cx="42" cy="42" r={r} className="cp-ring-value" strokeDasharray={`${(pct / 100) * c} ${c}`} transform="rotate(-90 42 42)" /></svg>
+          <span><strong>{pct}%</strong><small>{p.done} of {p.total}</small></span>
+        </div>
+      </header>
+      <dl className="cp-facts">{facts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+      <ProgressBody view={p} today={today} />
+      <p className="client-foot">Progress summary prepared by VAPS. Measurements, results and internal records are not included.</p>
+    </article>;
+  }
   const closed = summary.status === 'Completed';
   const overall: FlowState = closed ? 'completed' : summary.status === 'Not started' ? 'not-started' : 'in-progress';
   return <article className="client-progress">

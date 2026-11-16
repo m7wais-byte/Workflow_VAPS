@@ -38,6 +38,8 @@ export type ProgressStage = { id: ProgressStageId; label: string; status: Progre
 export type ExpectedCompletion = { date?: string; kind: 'actual' | 'confirmed' | 'provisional' | 'tbc'; reason?: string };
 export type ProgressView = {
   audience: 'internal' | 'client'; jobId: string; client: string; location: string; sampling?: string;
+  /** Main job facts for the client view header. No names of people. */
+  info?: { field?: string; well?: string; samples?: number; jobDate?: string; dueDate?: string };
   stages: ProgressStage[]; rows: ProgressRow[]; currentStage: string; now: string; next: string; sentence: string;
   done: number; total: number; expected: ExpectedCompletion; lastUpdate?: string; scopeConfirmed: boolean; overdue: number;
   convention: typeof dayConvention; closed: boolean; draft: boolean; legacy: boolean; notes: string[];
@@ -62,6 +64,8 @@ export function workStatus(status: WorkState): ProgressStatus {
 }
 
 const isoDay = (v?: string) => v ? v.slice(0, 10) : undefined;
+/** A stored date only when it is a real yyyy-mm-dd day. */
+const validDay = (v?: string) => { const d = isoDay(v); return d && /^\d{4}-\d{2}-\d{2}$/.test(d) && Number.isFinite(Date.parse(d)) ? d : undefined; };
 const maxDate = (list: (string | undefined)[]) => list.filter(Boolean).sort().at(-1) as string | undefined;
 const minDate = (list: (string | undefined)[]) => list.filter(Boolean).sort()[0] as string | undefined;
 const shortName = (title: string) => title.split(' — ').slice(1).join(' — ') || title;
@@ -253,6 +257,7 @@ export function jobProgressView(job: JobRecord, opts: Options): ProgressView {
     : stages.find((s) => s.status === 'not-started')?.label || (stages.find((s) => s.id === 'lab')?.planned ? 'Confirmation of the laboratory scope' : 'Completion of the work in progress');
   return {
     audience, jobId: job.jobNumber || job.id, client: job.clientName, location: jobLocation(job), sampling: samplingLabel(job) || undefined,
+    info: { field: job.fieldArea || undefined, well: (job.wells?.filter(Boolean).join(', ') || job.well) || undefined, samples: job.samples?.length || Number(job.requestedSampleCount) || undefined, jobDate: validDay(job.dateReceived), dueDate: validDay(job.dueDate) },
     stages, rows, currentStage: awaitingClient ? 'Client approval' : closed ? 'Completed' : current?.label || 'Not started', now, next, sentence: sentenceFor(stages, rows, expected, closed, draft) + (awaitingClient ? ' Waiting for client approval of the final report and the sample disposal instruction.' : ''),
     done, total: counted.length, expected, lastUpdate: lastProgressUpdate(job), scopeConfirmed: !!o.scopeConfirmedAt, overdue: rows.filter((r) => r.overdue).length,
     convention: dayConvention, closed, draft, legacy: !modern, notes,

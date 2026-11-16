@@ -76,7 +76,7 @@ export function ProgressBody({ view, today, canPlan, onSave }: { view: ProgressV
         <span className="pgx-stage-num"><ProgressIcon status={st.status} size={18} /></span>
         <small>{st.current ? 'Now' : `Stage ${i + 1}`}</small>
         <strong>{st.label}</strong>
-        <span className="pgx-stage-status">{progressStatusLabel[st.status]}{st.status === 'completed' && st.at ? ' · ' + shortDate(st.at) : ''}</span>
+        <span className="pgx-stage-status">{progressStatusLabel[st.status]}{st.status === 'completed' && st.at ? <><span className="pgx-dot"> · </span><span className="pgx-stage-date">{shortDate(st.at)}</span></> : null}</span>
         {st.note && <em>{st.note}</em>}
       </li>)}
     </ol>

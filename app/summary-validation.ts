@@ -42,7 +42,9 @@ function readProgress(value: unknown): ProgressView {
  const stages: ProgressStage[] = list(p.stages, 8).map((v) => { const s = record(v); if (!stageIds.includes(s.id as string)) throw new Error("Invalid stage");
   return { id: s.id as ProgressStage["id"], label: text(s.label, 80), status: status(s.status), current: s.current === true, at: opt(s.at, day), note: opt(s.note, (x) => text(x, 200)), planned: s.planned === true || undefined, rows: list(s.rows, 300).map((k) => text(k, 300)).filter((k) => keys.has(k)) }; });
  const e = record(p.expected); const kinds = ["actual", "confirmed", "provisional", "tbc"]; if (!kinds.includes(e.kind as string)) throw new Error("Invalid expected kind");
- return { audience: "client", jobId: text(p.jobId, 80), client: text(p.client), location: text(p.location, 400), sampling: opt(p.sampling, (x) => text(x, 160)), stages, rows,
+ const i = p.info === undefined || p.info === null ? undefined : record(p.info);
+ return { audience: "client", jobId: text(p.jobId, 80), client: text(p.client), location: text(p.location, 400), sampling: opt(p.sampling, (x) => text(x, 160)),
+  info: i ? { field: opt(i.field, (x) => text(x, 160)), well: opt(i.well, (x) => text(x, 300)), samples: opt(i.samples, count), jobDate: opt(i.jobDate, day), dueDate: opt(i.dueDate, day) } : undefined, stages, rows,
   currentStage: text(p.currentStage, 120), now: text(p.now, 400), next: text(p.next, 300), sentence: text(p.sentence, 800), done: count(p.done), total: count(p.total),
   expected: { kind: e.kind as ProgressView["expected"]["kind"], date: opt(e.date, day), reason: opt(e.reason, (x) => text(x, 200)) }, lastUpdate: opt(p.lastUpdate, date), scopeConfirmed: p.scopeConfirmed === true,
   overdue: rows.filter((r) => r.overdue).length, convention: "calendar", closed: p.closed === true, draft: p.draft === true, legacy: p.legacy === true, notes: list(p.notes ?? [], 5).map((n) => text(n, 300)) };
