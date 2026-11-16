@@ -92,7 +92,7 @@ export function ProgressBody({ view, today, canPlan, onSave }: { view: ProgressV
           {stage.note && <p className="pgx-section-note">{stage.note}</p>}
           {stage.planned && !list.length && <p className="pgx-empty">Laboratory tests are listed here once the laboratory scope is confirmed.</p>}
           {groups.map((g) => <Fragment key={g}>
-            {stage.id === 'lab' && <p className="pgx-group">{progressGroupLabel[g]} testing{groups.length > 1 && <small> · runs in parallel</small>}</p>}
+            {(stage.id === 'lab' || stage.id === 'validation') && <p className="pgx-group">{progressGroupLabel[g]} testing{groups.length > 1 && <small> · runs in parallel</small>}</p>}
             <ul className="pgx-rows">{list.filter((r) => r.group === g).map((row) => {
               const s = row.schedule;
               const source = !client && s && row.status !== 'completed' ? <small className={`pg-source pg-source-${s.source}${s.source === 'plan' && s.clientVisible ? ' is-shared' : ''}`}>{s.source === 'team' ? 'Team plan · internal' : s.clientVisible ? 'Shared with client' : 'Internal estimate'}</small> : null;

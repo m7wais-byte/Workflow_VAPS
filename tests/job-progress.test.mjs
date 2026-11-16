@@ -87,7 +87,12 @@ test('PVT-only, Chemical-only and combined scopes list exactly the selected test
   assert.ok(!pvt.rows.some(r => r.group === 'Chemical'));
   assert.deepEqual(chem.rows.filter(r => r.group === 'Chemical').map(r => r.label), ['Water Analysis — Sample 1.01', 'Compositional Analysis — Sample 1.01']);
   assert.ok(!chem.rows.some(r => r.group === 'PVT'));
-  assert.deepEqual([...new Set(both.rows.map(r => r.group))], ['sampling', 'PVT', 'Chemical', 'report']);
+  assert.deepEqual([...new Set(both.rows.map(r => r.group))], ['sampling', 'PVT', 'Chemical', 'interim', 'report']);
+  // A job with Validation is tracked as Validation → Interim report → Further studies → Final report.
+  assert.deepEqual(both.stages.map(s => s.id), ['created', 'sampling', 'validation', 'interim', 'lab', 'report']);
+  assert.equal(both.stages.find(s => s.id === 'lab').label, 'Further studies');
+  const interim = both.rows.find(r => r.key === 'interim'); assert.equal(interim.label, 'Interim report'); assert.ok(['not-started', 'in-progress', 'completed'].includes(interim.status));
+  assert.ok(!chem.stages.some(s => s.id === 'interim'), 'a job with no Validation has no interim report stage');
   const keys = both.rows.map(r => r.key); assert.equal(new Set(keys).size, keys.length, 'no duplicate rows');
 });
 

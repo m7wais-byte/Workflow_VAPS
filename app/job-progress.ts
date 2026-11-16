@@ -14,15 +14,15 @@ import type { JobRecord } from './page';
 import type { Responsibilities } from './authorization';
 import { storedResponsibilities } from './authorization';
 import { jobFlow, activityStep, type FlowState, type FlowStep, type JobFlow } from './job-flow';
-import { operationsFor, isDraft, legacyDispatch, unplannedValidation, latest, type ActivityRecord, type Stream, type WorkState } from './operations-model';
+import { operationsFor, isDraft, legacyDispatch, unplannedValidation, interimReport, phase2Undecided, latest, type ActivityRecord, type Stream, type WorkState } from './operations-model';
 import { durationOf, dayConvention, type ScheduleEstimate } from './schedule-estimate';
 import { ukDate } from "./uk-format";
 
 export type ProgressStatus = 'not-started' | 'in-progress' | 'under-review' | 'completed';
 export const progressStatusLabel: Record<ProgressStatus, string> = { 'not-started': 'Not started', 'in-progress': 'In progress', 'under-review': 'Under review', completed: 'Completed' };
-export type ProgressGroup = 'sampling' | 'receipt' | 'PVT' | 'Chemical' | 'report';
-export const progressGroupLabel: Record<ProgressGroup, string> = { sampling: 'Sampling', receipt: 'Sample receipt', PVT: 'PVT', Chemical: 'Chemistry', report: 'Final report' };
-export type ProgressStageId = 'created' | 'sampling' | 'receipt' | 'lab' | 'report';
+export type ProgressGroup = 'sampling' | 'receipt' | 'PVT' | 'Chemical' | 'interim' | 'report';
+export const progressGroupLabel: Record<ProgressGroup, string> = { sampling: 'Sampling', receipt: 'Sample receipt', PVT: 'PVT', Chemical: 'Chemistry', interim: 'Interim report', report: 'Final report' };
+export type ProgressStageId = 'created' | 'sampling' | 'receipt' | 'validation' | 'interim' | 'lab' | 'report';
 
 /** Expected dates for one row. Client view: only explicitly client-visible planner estimates. */
 export type RowSchedule = { start?: string; days?: number; finish?: string;
@@ -193,10 +193,27 @@ export function jobProgressView(job: JobRecord, opts: Options): ProgressView {
       }
       const labRows = rows.filter((r) => r.group === 'PVT' || r.group === 'Chemical');
       const pendingAdd = o.additions.filter((a) => !a.confirmedAt).length;
-      const status = labRows.length ? combineProgress(labRows.map((r) => r.status)) : 'not-started';
       const note = !o.scopeConfirmedAt ? 'Laboratory scope awaiting confirmation' : pendingAdd ? `${plural(pendingAdd, 'additional work request')} awaiting confirmation` : undefined;
-      stages.push({ id: 'lab', label: 'Laboratory testing', status: status === 'completed' && (pendingAdd || !o.scopeConfirmedAt) ? 'in-progress' : status, current: false, planned: !o.scopeConfirmedAt || undefined,
-        at: status === 'completed' ? maxDate(labRows.map((r) => r.actual)) : undefined, note, rows: labRows.map((r) => r.key) });
+      const interim = interimReport(job);
+      if (interim.state === 'none') {
+        const status = labRows.length ? combineProgress(labRows.map((r) => r.status)) : 'not-started';
+        stages.push({ id: 'lab', label: 'Laboratory testing', status: status === 'completed' && (pendingAdd || !o.scopeConfirmedAt) ? 'in-progress' : status, current: false, planned: !o.scopeConfirmedAt || undefined,
+          at: status === 'completed' ? maxDate(labRows.map((r) => r.actual)) : undefined, note, rows: labRows.map((r) => r.key) });
+      } else {
+        // Validation, then the interim report, then the further studies the client selects from it.
+        const valKeys = new Set(ordered.filter((b) => b.validation).map((b) => b.key));
+        const valRows = labRows.filter((r) => valKeys.has(r.key)), testRows = labRows.filter((r) => !valKeys.has(r.key));
+        const vStatus = valRows.length ? combineProgress(valRows.map((r) => r.status)) : 'not-started';
+        stages.push({ id: 'validation', label: 'Validation', status: vStatus, current: false, at: vStatus === 'completed' ? maxDate(valRows.map((r) => r.actual)) : undefined, rows: valRows.map((r) => r.key) });
+        const iStatus: ProgressStatus = interim.state === 'completed' ? 'completed' : interim.state === 'in-progress' ? 'in-progress' : 'not-started';
+        const iRow = row({ key: 'interim', label: 'Interim report', group: 'interim', status: iStatus, detail: iStatus === 'completed' ? 'Validation results reported' : iStatus === 'in-progress' ? 'In preparation while Validation is quality-checked' : 'After Validation', actual: isoDay(interim.at) });
+        stages.push({ id: 'interim', label: 'Interim report', status: iStatus, current: false, at: iStatus === 'completed' ? iRow.actual : undefined, rows: [iRow.key] });
+        const undecided = phase2Undecided(job).length;
+        const tStatus: ProgressStatus = testRows.length ? combineProgress(testRows.map((r) => r.status)) : iStatus === 'completed' && !undecided ? 'completed' : 'not-started';
+        const tNote = note || (iStatus !== 'completed' ? 'Samples for further study are selected after the interim report' : undecided ? `Selection of samples for further study · ${plural(undecided, 'sample')} to decide` : !testRows.length ? 'No further study selected' : undefined);
+        stages.push({ id: 'lab', label: 'Further studies', status: tStatus === 'completed' && (pendingAdd || undecided) ? 'in-progress' : tStatus, current: false,
+          at: tStatus === 'completed' && testRows.length ? maxDate(testRows.map((r) => r.actual)) : undefined, note: tNote, rows: testRows.map((r) => r.key) });
+      }
     }
 
     // 4 · Final report
@@ -235,7 +252,7 @@ export function jobProgressView(job: JobRecord, opts: Options): ProgressView {
 
 function describeNow(live: ProgressRow[]): string {
   const parts: string[] = [];
-  for (const g of ['sampling', 'receipt', 'PVT', 'Chemical', 'report'] as ProgressGroup[]) {
+  for (const g of ['sampling', 'receipt', 'PVT', 'Chemical', 'interim', 'report'] as ProgressGroup[]) {
     const list = live.filter((r) => r.group === g);
     if (!list.length) continue;
     if (g === 'PVT' || g === 'Chemical') {
@@ -260,7 +277,8 @@ export function expectedCompletion(rows: ProgressRow[], stages: ProgressStage[],
   if (!report) return { kind: 'tbc' };
   const finish = report.schedule?.source === 'plan' ? report.schedule.finish : undefined;
   if (!finish) return { kind: 'tbc' };
-  const upstream = rows.filter((r) => r.group !== 'report' && r.status !== 'completed');
+  // The interim report is a tracked stage with no schedule of its own: it follows the Validation it reports.
+  const upstream = rows.filter((r) => r.group !== 'report' && r.group !== 'interim' && r.status !== 'completed');
   const missing = upstream.filter((r) => !(r.schedule?.source === 'plan' && r.schedule.finish));
   const later = upstream.filter((r) => r.schedule?.source === 'plan' && r.schedule.finish && r.schedule.finish > finish);
   if (!scopeConfirmedAt && stages.some((s) => s.id === 'lab')) return { date: finish, kind: 'provisional', reason: 'Laboratory scope awaiting confirmation' };

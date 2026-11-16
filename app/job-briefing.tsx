@@ -7,6 +7,7 @@ import type { JobRecord } from "./page";
 import { samplingApproved, samplingTeam, samplingWorkers, samplingStarted, canManageJobAccess, canViewJobAccess, operationsFor, jobFinished, jobCylinderSerials, hasAccess, type Actor, type Command } from "./operations-model";
 import { legacyPlan, planRecordCount, rowSummary } from "./sampling-plan";
 import { ukDate, ukDateTime } from "./uk-format";
+import { PersonOptions } from "./person-picker";
 
 type Props = { job: JobRecord; actor: Actor; onCommand: (c: Command) => void; onStarted: () => void };
 
@@ -82,17 +83,18 @@ export function JobAccess({ job, actor, onCommand }: Omit<Props, "onStarted">) {
 export function CylinderRelease({ job, actor, onCommand }: Omit<Props, "onStarted">) {
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  const [assignee, setAssignee] = useState("");
   const o = operationsFor(job), serials = jobCylinderSerials(job);
   const name = (id?: string) => actor.employees.find((e) => e.id === id)?.name || "Not recorded";
   if (!serials.length || !jobFinished(job)) return null;
   const rel = o.cylindersReleased;
   const canRelease = hasAccess(actor, "createJob") || actor.id === o.dispatchedBy;
-  if (rel) return <section className="panel ops-panel cyl-release is-done"><h2>Cylinders released</h2><p>{name(rel.by)} released {serials.length} cylinder{serials.length === 1 ? "" : "s"} on {ukDateTime(rel.at)}: {serials.join(", ")}. The sampling team collects, cleans, calibrates and checks them in <a href="#sampling">Sampling → Cylinders</a>.</p></section>;
-  const release = () => { try { onCommand({ type: "release-cylinders", note }); setError(""); } catch (e) { setError((e as Error).message); } };
+  if (rel) return <section className="panel ops-panel cyl-release is-done"><h2>Cylinders released</h2><p>{name(rel.by)} released {serials.length} cylinder{serials.length === 1 ? "" : "s"} on {ukDateTime(rel.at)}: {serials.join(", ")}. {rel.assignee ? name(rel.assignee) + " releases and redresses them (dispose, clean, calibrate, pressure test) in" : "The sampling team collects, cleans, calibrates and checks them in"} <a href="#sampling">Sampling → Cylinders</a>.</p></section>;
+  const release = () => { try { onCommand({ type: "release-cylinders", note, assignee }); setError(""); } catch (e) { setError((e as Error).message); } };
   return <section className="panel ops-panel cyl-release" aria-labelledby="cyl-release-title">
     <h2 id="cyl-release-title">Job finished · release the cylinders</h2>
-    <p>This job still holds <strong>{serials.length} cylinder{serials.length === 1 ? "" : "s"}</strong>: {serials.join(", ")}. Release them so the sampling team can dispose of the remaining sample, clean, calibrate and check them for the next job. Until then they stay blocked as In use.</p>
-    {canRelease ? <div className="cyl-release-form"><label><span>Message to the sampling team (optional)</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Cylinders are in the PVT lab store, shelf B" /></label><button type="button" className="attention-button" onClick={release}>Release cylinders to the sampling team</button></div> : <p className="briefing-note">The job coordinator releases the cylinders.</p>}
+    <p>This job still holds <strong>{serials.length} cylinder{serials.length === 1 ? "" : "s"}</strong>: {serials.join(", ")}. Assign a sampling employee to release and redress them: dispose of the remaining sample, clean, calibrate and pressure test them for the next job. Until then they stay blocked as In use.</p>
+    {canRelease ? <div className="cyl-release-form"><label><span>Sampling employee who redresses the cylinders *</span><select value={assignee} onChange={(e) => setAssignee(e.target.value)} aria-label="Sampling employee who redresses the cylinders"><option value="">Select employee</option><PersonOptions employees={actor.employees} departments={actor.departments} me={actor.id} first={samplingTeam(job)} firstLabel="Sampling crew of this job" /></select></label><label><span>Message (optional)</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Cylinders are in the PVT lab store, shelf B" /></label><button type="button" className="attention-button" disabled={!assignee} onClick={release}>Assign release and redress</button></div> : <p className="briefing-note">The job coordinator releases the cylinders.</p>}
     {error && <p className="ops-error" role="alert">{error}</p>}
   </section>;
 }

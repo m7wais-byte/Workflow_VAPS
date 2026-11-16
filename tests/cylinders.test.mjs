@@ -53,9 +53,10 @@ test('release-cylinders: only after the job is finished, by the coordinator, onc
   const legacyDone = { id: 'OM-P-26-090', jobNumber: 'OM-P-26-090', status: 'Completed', clientCode: 'P', stages: [], events: [], samples: [{ id: '1.01', bottleSerial: '812888' }] };
   assert.throws(() => applyOperation({ ...legacyDone, status: 'Sampling In Progress' }, { type: 'release-cylinders' }, actor('SALIM')), /after the job is finished/);
   assert.throws(() => applyOperation(legacyDone, { type: 'release-cylinders' }, actor('HUSSEINI')), /Only the job coordinator/);
-  const r = applyOperation(legacyDone, { type: 'release-cylinders', note: 'Shelf B' }, actor('SALIM'));
-  assert.ok(r.operations.cylindersReleased.at);
-  assert.match(r.events.at(-1).description, /Cylinders released .* 812888\. Note: Shelf B/);
+  assert.throws(() => applyOperation(legacyDone, { type: 'release-cylinders', note: 'Shelf B' }, actor('SALIM')), /Select the sampling employee/, 'the coordinator names who redresses the cylinders');
+  const r = applyOperation(legacyDone, { type: 'release-cylinders', note: 'Shelf B', assignee: 'HUSSEINI' }, actor('SALIM'));
+  assert.ok(r.operations.cylindersReleased.at); assert.equal(r.operations.cylindersReleased.assignee, 'HUSSEINI');
+  assert.match(r.events.at(-1).description, /Cylinders released by .* to .* release and redress .* 812888\. Note: Shelf B/);
   assert.throws(() => applyOperation(r, { type: 'release-cylinders' }, actor('SALIM')), /already released/);
 });
 

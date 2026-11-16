@@ -9,7 +9,7 @@ import type { JobRecord } from './page';
 import type { Responsibilities } from './authorization';
 import { storedResponsibilities, roleHolder } from './authorization';
 import {
-  operationsFor, dataReviewers, isDraft, latestData, latest, samplingApproved, legacyDispatch, dataReviewRequired, unplannedValidation,
+  operationsFor, interimReport, dataReviewers, isDraft, latestData, latest, samplingApproved, legacyDispatch, dataReviewRequired, unplannedValidation,
   validationScopes, allWorkDone, finalReady, operationComplete, additionalWorkPending, externalStage, validationCatalogue,
   streamLead, latestLabScope, type ActivityRecord, type Stream,
 } from './operations-model';
@@ -139,6 +139,7 @@ function laboratorySection(job: JobRecord, roles: Responsibilities): FlowSection
   const additionalScope = new Set(o.scope.filter((s) => s.source === 'Additional work').map((s) => s.id));
   const isAdditional = (a: ActivityRecord) => additionalScope.has(a.scopeId) || a.scopeId.startsWith('addval:');
   const toPlan = unplannedValidation(job), valScopes = validationScopes(job);
+  const testGroups: FlowGroup[] = [];
   for (const stream of ['PVT', 'Chemical'] as const) {
     const list = required.filter((a) => a.stream === stream), plan = stream === 'PVT' ? toPlan : [];
     if (!list.length && !plan.length && !(stream === 'PVT' && valScopes.length)) continue;
@@ -157,8 +158,13 @@ function laboratorySection(job: JobRecord, roles: Responsibilities): FlowSection
     // Validation steps done by Chemistry (GC) keep their own group under the Chemistry team.
     if (stream === 'Chemical' && validation.length) groups.push(group({ id: 'lab:validation:Chemical', label: 'Validation · Chemistry', stream, kind: 'validation', steps: validation.map((a) => activityStep(a, roles, isAdditional(a))) }));
     const tests = list.filter((a) => a.kind !== 'validation').sort(sampleOrder);
-    if (tests.length) groups.push(group({ id: 'lab:tests:' + stream, label: stream + ' tests', stream, kind: 'tests', steps: tests.map((a) => activityStep(a, roles, isAdditional(a))) }));
+    if (tests.length) testGroups.push(group({ id: 'lab:tests:' + stream, label: stream + ' tests', stream, kind: 'tests', steps: tests.map((a) => activityStep(a, roles, isAdditional(a))) }));
   }
+  // Interim report: a tracked stage after Validation (in preparation during Validation QC, done when all of it is QC approved); the further-study tests follow it.
+  const interim = interimReport(job);
+  if (interim.state !== 'none') groups.push(group({ id: 'lab:interim', label: 'Interim report', kind: 'steps', steps: [{ id: 'lab:interim', label: 'Interim report', team: 'Laboratory',
+    ...(interim.state === 'completed' ? { state: 'completed', detail: 'Validation results reported', at: interim.at } : interim.state === 'in-progress' ? { state: 'in-progress', detail: 'In preparation while Validation is quality-checked' } : { state: 'not-started', detail: 'After Validation' }) } as FlowStep] }));
+  groups.push(...testGroups);
   const pendingScope = !o.scopeConfirmedAt;
   if (pendingScope) notes.push('Laboratory tests are selected per sample after the sampling report is approved.');
   else if (!required.length && !valScopes.length) notes.push('The released scope has no laboratory tests.');
