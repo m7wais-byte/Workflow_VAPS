@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { Settings2, PlayCircle } from "lucide-react";
 import type { JobRecord } from "./page";
-import { samplingTeam, samplingWorkers, samplingStarted, canManageJobAccess, canViewJobAccess, operationsFor, jobFinished, jobCylinderSerials, hasAccess, type Actor, type Command } from "./operations-model";
+import { samplingApproved, samplingTeam, samplingWorkers, samplingStarted, canManageJobAccess, canViewJobAccess, operationsFor, jobFinished, jobCylinderSerials, hasAccess, type Actor, type Command } from "./operations-model";
 import { legacyPlan, planRecordCount, rowSummary } from "./sampling-plan";
 import { ukDate, ukDateTime } from "./uk-format";
 
@@ -24,7 +24,7 @@ export function JobBriefing({ job, actor, onCommand, onStarted }: Props) {
   return <section className={"panel ops-panel job-briefing" + (started ? " is-started" : " is-new")} id="job-briefing" aria-labelledby="job-briefing-title">
     <div className="job-briefing-head">
       <div><span className="eyebrow">JOB BRIEFING</span><h2 id="job-briefing-title">{job.jobNumber} · {job.clientName}</h2>
-        <p>{started ? <>Started{o.samplingStart ? <> by <strong>{name(o.samplingStart.by)}</strong> on {ukDateTime(o.samplingStart.at)}</> : ""}. Sampling work is in progress.</> : <>Sent to Sampling by <strong>{name(o.dispatchedBy)}</strong> on {ukDateTime(o.dispatchedAt)}. Waiting for <strong>{name(lead)}</strong> to start the job.</>}</p></div>
+        <p>{started ? <>Started{o.samplingStart ? <> by <strong>{name(o.samplingStart.by)}</strong> on {ukDateTime(o.samplingStart.at)}</> : ""}. {samplingApproved(job) ? "Sampling is completed and the sampling report is approved." : "Sampling work is in progress."}</> : <>Sent to Sampling by <strong>{name(o.dispatchedBy)}</strong> on {ukDateTime(o.dispatchedAt)}. Waiting for <strong>{name(lead)}</strong> to start the job.</>}</p></div>
       <span className={"section-state " + (started ? "st-in-progress" : "st-not-started")}>{started ? "Started · in progress" : "Not started"}</span>
     </div>
     {(() => { const grid = <dl className="review-grid briefing-grid">

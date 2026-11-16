@@ -24,6 +24,12 @@ export const unitPresets: Record<'Field' | 'Metric', ClientUnits> = {
 export const presetOf = (units?: ClientUnits) => !units ? '' : (Object.keys(unitPresets) as (keyof typeof unitPresets)[]).find((name) => unitQuantities.every((q) => unitPresets[name][q.key] === units[q.key])) || 'Custom';
 export const unitsSummary = (units?: ClientUnits) => units ? `${presetOf(units)} · ${units.pressure}, ${units.temperature}, ${units.depth}` : 'Not set';
 
+/** Units saved for a client in Settings → Clients, read from this browser's client list. Undefined when none are set. */
+export function storedClientUnits(clientCode?: string): ClientUnits | undefined {
+  if (!clientCode || typeof localStorage === 'undefined') return undefined;
+  try { const list = JSON.parse(localStorage.getItem('vaps-demo-clients-v1') || '[]'); const found = Array.isArray(list) ? list.find((c) => c && c.code === clientCode) : undefined; return found?.units || undefined; } catch { return undefined; }
+}
+
 /** Data sheet value field → quantity. The unit is stored next to the value as `<field>Unit`. */
 const fieldQuantity: Record<string, UnitQuantity> = {
   bhp: 'pressure', whp: 'pressure', separatorPressure: 'pressure', gasDifferentialPressure: 'pressure', gasPressure: 'pressure', openingPressureReservoir: 'pressure', openingPressureAmbient: 'pressure', transferPressure: 'pressure', finalPressure: 'pressure',

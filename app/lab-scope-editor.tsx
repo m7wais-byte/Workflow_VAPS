@@ -12,6 +12,7 @@ import { operationsFor, latest, actorRoles, holder, hasAccess, samplingApproved,
 import { testCards, allowedTeams, defaultTeam, shortTest, methodOf, fluidTypes, normalizeFluid, type FluidType, type TeamChoice, type TestCard } from './scope-catalogue';
 import { DateInput, ukDateTime } from "./uk-date";
 import { teamName } from './team-name';
+import { storedClientUnits } from './client-units';
 
 type ScopeEntry = Omit<SampleScope, 'containerType' | 'containerLabel'>;
 type Run = (c: Command) => boolean;
@@ -64,7 +65,9 @@ export function LabScope({ job, actor, run }: { job: JobRecord; actor: Actor; ru
   const nextPhase: Phase = phased ? (p1 ? 2 : 1) : undefined;
   const ready = (id: string) => !p1 || phase2Ready(job, id);
   const entries = (v?: LabScopeVersion) => (job.samples || []).map((s) => toEntry(s.id, v, released));
-  const initial = { samples: entries(last), conditions: last?.conditions || o.conditions, reason: last?.status === 'Draft' ? last.reason : '' };
+  // Reservoir conditions with no value yet open in the client's units (Settings → Clients); entered values keep their unit.
+  const inClientUnits = <T extends { pressure: string; pressureUnit: string; temperature: string; temperatureUnit: string }>(c: T): T => { const u = storedClientUnits(job.clientCode); if (!u) return c; return { ...c, ...(!c.pressure && ['psi', 'bar', 'kPa', 'MPa'].includes(u.pressure) ? { pressureUnit: u.pressure } : {}), ...(!c.temperature && ['°C', '°F', 'K'].includes(u.temperature) ? { temperatureUnit: u.temperature } : {}) }; };
+  const initial = { samples: entries(last), conditions: inClientUnits(last?.conditions || o.conditions), reason: last?.status === 'Draft' ? last.reason : '' };
   const [editing, setEditing] = useState(last?.status === 'Draft');
   const [phase, setPhase] = useState<Phase>(last?.status === 'Draft' ? (phased ? last.phase || nextPhase : undefined) : nextPhase);
   const [samples, setSamples] = useState(initial.samples), [conditions, setConditions] = useState(initial.conditions), [reason, setReason] = useState(initial.reason), [review, setReview] = useState(false);
@@ -77,7 +80,7 @@ export function LabScope({ job, actor, run }: { job: JobRecord; actor: Actor; ru
   const update = (id: string, change: Partial<ScopeEntry>) => { setReview(false); setSamples((list) => list.map((s) => s.sampleId === id ? { ...s, ...change } : s)); };
   /** Copies one sample's Phase 1 choices to every other sample still in scope. Released Validation steps are always kept. */
   const applyToAll = (from: ScopeEntry) => { setReview(false); setSamples((list) => list.map((s) => { if (s.sampleId === from.sampleId || s.excluded) return s; const rel = released?.samples.find((x) => x.sampleId === s.sampleId && !x.excluded); const keep = rel?.validationSteps || []; const validation = !!from.validation || (!!rel && entryValidation(rel)); return { ...s, fluidType: from.fluidType, fluidDescription: from.fluidDescription, destination: rel && streamsOf(rel.destination).some((st) => !streamsOf(from.destination).includes(st)) ? s.destination : from.destination, validation, validationSteps: validation ? stepOrder([...new Set([...keep, ...(from.validation ? from.validationSteps || [] : [])])]) : [] }; })); };
-  const start = (from: LabScopeVersion | undefined, p: Phase) => { const list = entries(from); setSamples(list); setConditions(from?.conditions || o.conditions); setReason(''); setReview(false); setPhase(p); setEditing(true); const f = list.find((e) => missing(e, actor.routing, released, p, !p1 || phase2Ready(job, e.sampleId)).length)?.sampleId || list[0]?.sampleId; setOpen(p ? list.map((e) => e.sampleId) : f ? [f] : []); };
+  const start = (from: LabScopeVersion | undefined, p: Phase) => { const list = entries(from); setSamples(list); setConditions(inClientUnits(from?.conditions || o.conditions)); setReason(''); setReview(false); setPhase(p); setEditing(true); const f = list.find((e) => missing(e, actor.routing, released, p, !p1 || phase2Ready(job, e.sampleId)).length)?.sampleId || list[0]?.sampleId; setOpen(p ? list.map((e) => e.sampleId) : f ? [f] : []); };
   const providers = [...new Set([...o.activities.map((a) => a.external?.provider || ''), ...samples.flatMap((s) => [...Object.values(s.execution || {}), ...(s.customTests || []).map((c) => c.execution)].map((x) => x?.provider || ''))].map((p) => p.trim()).filter(Boolean))].sort();
   const versionList = versions.length > 0 && <div className="scope-versions"><h3>Scope versions</h3>{[...versions].reverse().map((v) => <ScopeDocument key={v.version + v.status} version={v} employees={actor.employees} />)}</div>;
   const count = (job.samples || []).length;
