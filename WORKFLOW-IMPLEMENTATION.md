@@ -19,7 +19,7 @@ PVT and Chemical work can run in parallel. Weekly views support multi-day and cr
 - **Laboratory tests without upload.** The engineer saves progress updates during the work (each kept in the test history) and marks the test "Done · workbook updated". The team lead then checks the workbook where the team keeps it and approves or returns it; attaching a file stays optional. A version with no file is recorded as "Workbook updated" so review, QC and version history work as before.
 - **Stages the client can follow.** A job with Validation is tracked as Job created → Sampling → Validation → Interim report → Further studies → Final report. The interim report is a tracked stage, not a separate approval: it is in preparation once the QC of any Validation step starts and done when every Validation step of every sample is QC approved. Phase 2 (selecting samples and tests for further study) opens only then, for every sample.
 - **Final report without a file.** The preparer marks the final report ready and the approver approves it; attaching a file is optional.
-- **Cylinders after the job.** The coordinator assigns one sampling employee to release and redress the job's cylinders (sample cylinders and unused backups); that person gets the task.
+- **Cylinders after the job.** Cylinders stay with the job, and the samples are kept, until the coordinator records that the client approved the final report and instructed disposal of the samples. Then the coordinator assigns one sampling employee to release and redress the job's cylinders (sample cylinders and unused backups); that person gets the task.
 
 ## Responsibilities
 

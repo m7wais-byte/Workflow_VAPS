@@ -48,7 +48,7 @@ export type ReviewComment = { target:string; label:string; text:string };
 export type DataReview = { version:number; status:'Submitted'|'Returned'|'Approved'|'Reopened'; submittedBy:string; submittedAt:string; snapshot:string; note:string; reviewedBy?:string; reviewedAt?:string; general?:string; comments:ReviewComment[]; reopenedBy?:string; reopenedAt?:string; reason?:string };
 export type Operations = { version:1; labScopes?:LabScopeVersion[]; samplingData?:DataReview[]; revision:number; originalRequest:string[]; scope:ScopeRecord[]; activities:ActivityRecord[]; conditions:{pressure:string;pressureUnit:string;temperature:string;temperatureUnit:string;notes:string}; scopeConfirmedAt?:string; dispatchedAt?:string; dispatchedBy?:string; samplingReports:ReportVersion[]; finalReports:ReportVersion[]; /** Legacy only: sample handover is no longer a workflow step; saved records are kept but never read. */handover?:{sampleIds:string[];/** Container identifier per sample (bottle serial or glass-container ID). */bottles:Record<string,string>;containerTypes?:Record<string,ContainerType>;sentBy:string;sentAt:string;receivedBy?:string;receivedAt?:string;notes:string}; additions:{id:string;title:string;reason:string;by:string;at:string;confirmedAt?:string;destination?:Destination}[]; history:{at:string;by:string;action:string;reason:string}[];
  /** When the accountable sampling employee pressed Start job. */samplingStart?:{by:string;at:string};
- /** When the coordinator released this job's cylinders back to the sampling team for cleaning and checks. */cylindersReleased?:{by:string;at:string;/** Sampling employee assigned to release and redress the cylinders; older releases went to the job's sampling crew. */assignee?:string};
+ /** When the coordinator released this job's cylinders back to the sampling team for cleaning and checks. *//** The client approved the final report and told us to dispose of the samples (recorded by the coordinator). */clientDisposal?:{by:string;at:string;note?:string}; cylindersReleased?:{by:string;at:string;/** Sampling employee assigned to release and redress the cylinders; older releases went to the job's sampling crew. */assignee?:string};
  /** Backup sampling employees who may also work on the sampling (set in Job access). Others in the sampling team only view the job. */samplingEditors?:string[];
  /** Planning estimates for the job progress overview, keyed by progress row (schedule-estimate.ts). Never changes statuses or completion records. */progressPlan?:Record<string,ScheduleEstimate> };
 export const clarificationItems = [
@@ -300,6 +300,8 @@ export type Command =
  /** The accountable sampling employee confirms the job briefing and starts the sampling work. */
  | {type:'start-job'}
  /** After the job is finished, the coordinator releases its cylinders to the sampling team for cleaning, calibration and checks. */
+ /** The coordinator records that the client approved the final report and instructed disposal of the samples. Cylinders are discharged only after this. */
+ | {type:'client-disposal';note?:string}
  | {type:'release-cylinders';note?:string;/** Sampling employee who collects and redresses the cylinders. */assignee?:string}
  /** Job access: which backup sampling employees may work on the sampling (the rest view only). */
  | {type:'job-access';editors:string[];reason:string}
@@ -364,10 +366,20 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   next.events=[...(job.events||[]),{date:`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,time:`${pad(d.getHours())}:${pad(d.getMinutes())}`,description:'Job started by '+(actor.employees.find(e=>e.id===actor.id)?.name||actor.id)+' (accountable). Sampling preparation begins.',createdBy:actor.id,createdAt:now,auto:true}];
   break;
  }
+ case 'client-disposal':{
+  if(!hasAccess(actor,'createJob')&&actor.id!==o.dispatchedBy)throw Error('Only the job coordinator records the client’s approval and disposal instruction.');
+  if(!jobFinished(job))throw Error('The client’s approval is recorded after the final report is approved and issued.');
+  if(o.clientDisposal)throw Error('The client’s approval and disposal instruction are already recorded.');
+  o.clientDisposal={by:actor.id,at:now,...(command.note?.trim()?{note:command.note.trim()}:{})};reason=command.note?.trim()||'';
+  const d=new Date(now);const pad=(n:number)=>String(n).padStart(2,'0');
+  next.events=[...(job.events||[]),{date:`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,time:`${pad(d.getHours())}:${pad(d.getMinutes())}`,description:'Client approved the final report and instructed disposal of the samples. Recorded by '+(actor.employees.find(e=>e.id===actor.id)?.name||actor.id)+(command.note?.trim()?'. Note: '+command.note.trim():''),createdBy:actor.id,createdAt:now,auto:true}];
+  break;
+ }
  case 'release-cylinders':{
   if(!hasAccess(actor,'createJob')&&actor.id!==o.dispatchedBy)throw Error('Only the job coordinator can release the cylinders of a job.');
   if(o.cylindersReleased)throw Error('The cylinders of this job were already released.');
   if(!jobFinished(job))throw Error('Cylinders are released after the job is finished (final report approved).');
+  if(!o.clientDisposal)throw Error('Cylinders are discharged after the client approves the final report and instructs disposal of the samples. Record that first.');
   const serials=jobCylinderSerials(job);if(!serials.length)throw Error('This job holds no cylinders.');
   if(!command.assignee)throw Error('Select the sampling employee who releases and redresses the cylinders.');active(actor,command.assignee);
   o.cylindersReleased={by:actor.id,at:now,assignee:command.assignee};
@@ -758,7 +770,8 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   if(r?.status==='Approved')o.finalReports.push({...r,version:o.finalReports.length+1,status:'Changes Requested',file:undefined,approvedAt:undefined,approvedBy:undefined,comments:'Additional work or workbook correction requires a new report revision.'});
  }
  o.revision++;o.history.push({at:now,by:actor.id,action:command.type,reason});next.lastUpdatedById=actor.id;next.lastUpdatedAt=now;
- next.status=operationComplete(next)?'Completed':samplingApproved(next)?'Sampling Completed':next.status==='Completed'?'Report Draft':next.status;
+ // Recording the client's approval or discharging cylinders happens after the job is finished and never changes its status.
+ if(command.type!=='client-disposal'&&command.type!=='release-cylinders')next.status=operationComplete(next)?'Completed':samplingApproved(next)?'Sampling Completed':next.status==='Completed'?'Report Draft':next.status;
  return next;
 }
 /** Next action once every data sheet is complete: the backup engineer confirms the review. */

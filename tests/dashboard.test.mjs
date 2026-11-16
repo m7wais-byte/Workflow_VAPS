@@ -73,7 +73,9 @@ test('the dashboard follows the whole journey with one next responsible person a
  assert.deepEqual(acts(j,'WILFRED'),['Approve final laboratory report v1']);assert.equal(items(j,'SHEREIQI').waiting[0].waitingOn,'Wilfred Mendonca');
  j=step(j,{type:'report-action',kind:'final',action:'approve',comments:''},'WILFRED');
  for(const id of ['MOHSIN','SHEREIQI','BAHRI','WILFRED','RANJITH','NASSER','YAQEEN','ALI'])assert.deepEqual(acts(j,id),[],id+' has nothing left');
- assert.deepEqual(acts(j,'SALIM'),['Job finished: assign a sampling employee to release and redress 1 cylinder'],'the coordinator releases the cylinders of a finished job');
+ assert.deepEqual(acts(j,'SALIM'),[],'cylinders wait for the client: no release task yet');assert.ok(items(j,'SALIM').waiting.some(w=>w.waitingOn==='Client'),'the coordinator sees the job waiting on the client');
+ j=step(j,{type:'client-disposal'},'SALIM');
+ assert.deepEqual(acts(j,'SALIM'),['Job finished: assign a sampling employee to release and redress 1 cylinder'],'after the client approves and instructs disposal, the coordinator assigns the redress');
  j=step(j,{type:'release-cylinders',assignee:'MOHSIN'},'SALIM');
  assert.deepEqual(acts(j,'SALIM'),[],'nothing left for the coordinator after the release');
  assert.match(acts(j,'MOHSIN')[0]||'',/Release and redress 1 cylinder/,'the assigned sampling employee redresses the returned cylinder');

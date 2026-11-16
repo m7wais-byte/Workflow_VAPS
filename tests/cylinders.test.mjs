@@ -53,8 +53,13 @@ test('release-cylinders: only after the job is finished, by the coordinator, onc
   const legacyDone = { id: 'OM-P-26-090', jobNumber: 'OM-P-26-090', status: 'Completed', clientCode: 'P', stages: [], events: [], samples: [{ id: '1.01', bottleSerial: '812888' }] };
   assert.throws(() => applyOperation({ ...legacyDone, status: 'Sampling In Progress' }, { type: 'release-cylinders' }, actor('SALIM')), /after the job is finished/);
   assert.throws(() => applyOperation(legacyDone, { type: 'release-cylinders' }, actor('HUSSEINI')), /Only the job coordinator/);
-  assert.throws(() => applyOperation(legacyDone, { type: 'release-cylinders', note: 'Shelf B' }, actor('SALIM')), /Select the sampling employee/, 'the coordinator names who redresses the cylinders');
-  const r = applyOperation(legacyDone, { type: 'release-cylinders', note: 'Shelf B', assignee: 'HUSSEINI' }, actor('SALIM'));
+  assert.throws(() => applyOperation(legacyDone, { type: 'release-cylinders', assignee: 'HUSSEINI' }, actor('SALIM')), /after the client approves the final report/, 'cylinders stay with the job until the client approves and instructs disposal');
+  assert.throws(() => applyOperation(legacyDone, { type: 'client-disposal' }, actor('HUSSEINI')), /Only the job coordinator/);
+  const approvedByClient = applyOperation(legacyDone, { type: 'client-disposal', note: 'Email 18/11' }, actor('SALIM'));
+  assert.equal(approvedByClient.operations.clientDisposal.by, 'SALIM'); assert.match(approvedByClient.events.at(-1).description, /Client approved the final report and instructed disposal.*Email 18\/11/);
+  assert.throws(() => applyOperation(approvedByClient, { type: 'client-disposal' }, actor('SALIM')), /already recorded/);
+  assert.throws(() => applyOperation(approvedByClient, { type: 'release-cylinders', note: 'Shelf B' }, actor('SALIM')), /Select the sampling employee/, 'the coordinator names who redresses the cylinders');
+  const r = applyOperation(approvedByClient, { type: 'release-cylinders', note: 'Shelf B', assignee: 'HUSSEINI' }, actor('SALIM'));
   assert.ok(r.operations.cylindersReleased.at); assert.equal(r.operations.cylindersReleased.assignee, 'HUSSEINI');
   assert.match(r.events.at(-1).description, /Cylinders released by .* to .* release and redress .* 812888\. Note: Shelf B/);
   assert.throws(() => applyOperation(r, { type: 'release-cylinders' }, actor('SALIM')), /already released/);
