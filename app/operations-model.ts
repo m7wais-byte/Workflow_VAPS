@@ -18,7 +18,7 @@ export const streamLead = (stream:Stream):Responsibility=>stream==='PVT'?'pvtTea
 /** Workbook Submitted = awaiting team-lead review; Changes Requested = returned to the employee; QC Returned = back with the team lead; Completed = QC approved. */
 export type WorkState = 'Unassigned' | 'Scheduled' | 'In Progress' | 'Workbook Submitted' | 'Changes Requested' | 'Awaiting QC' | 'QC Returned' | 'Completed';
 export type FileVersion = { id:string; name:string; size:number; type:string; version:number; submittedBy:string; submittedAt:string; status:'Available'|'Changes Requested'; comments:string; /** Sheet, section or attachment reference named in a return. */target?:string; leadApprovedBy?:string; leadApprovedAt?:string; qcApprovedBy?:string; qcApprovedAt?:string; qcReturnedBy?:string; qcReturnedAt?:string; qcComments?:string };
-export type ActivityEvent = { at:string; by:string; action:'assigned'|'reassigned'|'submitted'|'lead-approved'|'lead-returned'|'qc-approved'|'qc-returned'|'dispatched'|'results-received'|'planned'; version?:number; target?:string; comments?:string; from?:string; to?:string };
+export type ActivityEvent = { at:string; by:string; action:'assigned'|'reassigned'|'update'|'submitted'|'lead-approved'|'lead-returned'|'qc-approved'|'qc-returned'|'dispatched'|'results-received'|'planned'; version?:number; target?:string; comments?:string; from?:string; to?:string };
 export type ActivityRecord = { id:string; scopeId:string; /** Shared by the PVT and Chemistry items created for one test sent to both sections. */linkId?:string; sampleId:string; title:string; stream:Stream; owner:string; start:string; due:string; conditions:string; notes:string; status:WorkState; files:FileVersion[]; required:boolean; kind?:'validation'|'analysis'; /** Assignment, submission and review decisions, oldest first. */history?:ActivityEvent[]; /** The assigned employee's own progress notes; notes keep the team lead's instructions. */progressNotes?:string; /** A job-specific test entered in the scope (never added to the global catalogue). */custom?:boolean; /** Performed by a third-party laboratory; the owner is the internal coordinator. Absent = performed internally. */external?:ExternalWork };
 /** Third-party execution of one activity. Recording only: nothing is sent to the provider. */
 export type ExternalWork = { provider:string; notes:string; expectedReturn:string; sentOn?:string; sentAt?:string; sentBy?:string; dispatchNotes?:string; receivedOn?:string; receivedAt?:string; receivedBy?:string };
@@ -310,7 +310,8 @@ export type Command =
  | {type:'external-submit';id:string;notes:string}
  | {type:'schedule';id:string;owner:string;start:string;due:string;conditions:string;notes:string}
  | {type:'progress';id:string;status:WorkState;notes:string}
- | {type:'workbook';id:string;notes?:string;file:Omit<FileVersion,'version'|'submittedBy'|'submittedAt'|'status'|'comments'>}
+ /** The engineer marks the test done. With no file the workbook was updated where the team keeps it and the team lead checks it there. */
+ | {type:'workbook';id:string;notes?:string;file?:Omit<FileVersion,'version'|'submittedBy'|'submittedAt'|'status'|'comments'>}
  | {type:'workbook-return';id:string;comments:string}
  | {type:'lead-review';id:string;decision:'approve'|'return';target:string;comments:string}
  | {type:'qc-review';id:string;decision:'approve'|'return';target:string;comments:string}
@@ -641,15 +642,18 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   if(command.status!=='In Progress')throw Error('Use workbook submission or correction actions for this state.');
   if(a.status==='Completed')throw Error('Completed work is immutable; request additional work.');
   if(['Workbook Submitted','Awaiting QC','QC Returned'].includes(a.status))throw Error('The submitted workbook is under review and cannot be edited.');
+  // A new progress note is kept in the history as an update, so the team lead can follow the work as it goes.
+  if(command.notes.trim()&&command.notes.trim()!==(a.progressNotes||'').trim())(a.history||(a.history=[])).push({at:now,by:actor.id,action:'update',comments:command.notes.trim()});
   a.status=command.status;a.progressNotes=command.notes;break;
  }
  case 'workbook':{
   const a=currentActivity();requireAssigned(actor,'analysis',!!a.owner&&actor.id===a.owner);if(actor.id!==a.owner)throw Error('This action is not assigned to your active profile or permission.');if(a.status==='Completed')throw Error('Request a correction before replacing completed work.');
   if(a.external)throw Error('This test is performed by a third-party laboratory. Record the returned results, then submit them for review.');
   if(['Workbook Submitted','Awaiting QC','QC Returned'].includes(a.status))throw Error('The current workbook is under review. Wait for the team lead’s decision.');
-  if(!command.file.id||command.file.size<=0)throw Error('Upload a workbook first.');
+  if(command.file&&(!command.file.id||command.file.size<=0))throw Error('The attached file is empty. Attach it again or mark the test done without a file.');
+  const submittedFile=command.file||{...workbookReference,id:'ref:'+a.id+':'+(a.files.length+1)};
   if(command.notes!==undefined)a.progressNotes=command.notes;
-  a.files.push({...command.file,version:a.files.length+1,submittedBy:actor.id,submittedAt:now,status:'Available',comments:''});a.status='Workbook Submitted';
+  a.files.push({...submittedFile,version:a.files.length+1,submittedBy:actor.id,submittedAt:now,status:'Available',comments:''});a.status='Workbook Submitted';
   (a.history||(a.history=[])).push({at:now,by:actor.id,action:'submitted',version:a.files.length,comments:command.notes});break;
  }
  case 'workbook-return':{
@@ -746,6 +750,9 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
 }
 /** Next action once every data sheet is complete: the backup engineer confirms the review. */
 export const DATA_REVIEW_NEXT='Backup engineer confirms the data review';
+/** A workbook version with no uploaded file: the engineer updated the workbook where the team keeps it and the team lead checks it there. */
+export const workbookReference={id:'',name:'Workbook updated · checked in place',size:0,type:'reference'};
+export const isWorkbookReference=(f:{type?:string})=>f.type==='reference';
 export type SamplingStatusKey='draft'|'preparation'|'data'|'data-review'|'returned'|'report-generation'|'report-review'|'report-approved';
 export type SamplingStatus={key:SamplingStatusKey;label:string;owner?:string;next:string;tab:string;/** Supporting sampling employees may help at this point. */team:boolean};
 /** One understandable sampling status, mapped from the data review, sampling report and legacy records. */
@@ -801,7 +808,7 @@ export function pendingActions(job:JobRecord, actor:Actor) {
   const mine=o.activities.filter(a=>a.owner===actor.id&&['Scheduled','In Progress','Changes Requested'].includes(a.status));
   const returned=mine.filter(a=>a.status==='Changes Requested').length;
   if(returned)actions.push({id:'laboratory',label:'Returned tests',done:false,owner:actor.id,next:'Correct and resubmit '+returned+' returned workbook(s)'});
-  if(mine.length>returned)actions.push({id:'laboratory',label:'Assigned tests',done:false,owner:actor.id,next:'Complete '+(mine.length-returned)+' test(s) and submit the workbook'});
+  if(mine.length>returned)actions.push({id:'laboratory',label:'Assigned tests',done:false,owner:actor.id,next:'Complete '+(mine.length-returned)+' test(s) and mark them done for the team lead'});
   const waiting=o.activities.filter(a=>a.status==='Awaiting QC').length;
   // An unconfigured QC reviewer is a blocker shown in My work, not an action for team leads or the supervisor.
   if(waiting&&roles.qcReviewer===actor.id)actions.push({id:'reporting',label:'QC review',done:false,owner:actor.id,next:'QC review '+waiting+' team-lead-approved workbook(s)'});

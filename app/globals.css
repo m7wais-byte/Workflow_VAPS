@@ -3774,3 +3774,9 @@ main .rq .rq-plain select:has(option[value=""]:checked),main .rq .rq-plain input
 .group-na { font-size:12px; font-weight:600; letter-spacing:0; text-transform:none; padding:4px 10px; border:1px dashed #abc1c9; border-radius:6px; background:white; color:#4d636d; cursor:pointer; }
 .group-na:hover:not(:disabled) { border-color:var(--teal,#0f766e); color:var(--teal,#0f766e); }
 .group-na:disabled { opacity:.45; cursor:default; }
+
+/* Lab test: mark done without uploading a workbook */
+.done-step { display:grid; gap:10px; margin-top:14px; padding:14px; border:1px solid var(--line); border-radius:8px; background:#f3faf8; justify-items:start; }
+.done-step p { margin:0; }
+.attach-optional { margin-top:10px; }
+.attach-optional summary { cursor:pointer; color:#4d636d; font-size:14px; }
