@@ -4,6 +4,7 @@ import { CalendarClock, Gauge, Thermometer } from 'lucide-react';
 import type { JobRecord } from './page';
 import { operationsFor } from './operations-model';
 import { localDate } from './local-date';
+import { ukDate } from './uk-format';
 
 /**
  * One header for every task screen (laboratory, Sampling, review, reporting): job ID, task, sample, status,
@@ -22,7 +23,7 @@ export function TaskHeader({ eyebrow, title, jobNumber, sample, status, statusTo
         <div><dt>Job</dt><dd>{jobNumber}</dd></div>
         {sample && <div><dt>Sample</dt><dd>{sample}</dd></div>}
         <div><dt>Status</dt><dd><span className={'status-pill ' + (statusTone || '')}>{status}</span></dd></div>
-        <div><dt>{dueLabel}</dt><dd className={overdue ? 'is-overdue' : ''}><CalendarClock size={13} aria-hidden="true" /> {due || 'Not scheduled'}{overdue ? ' · overdue' : ''}</dd></div>
+        <div><dt>{dueLabel}</dt><dd className={overdue ? 'is-overdue' : ''}><CalendarClock size={13} aria-hidden="true" /> {due ? ukDate(due) || due : 'Not scheduled'}{overdue ? ' · overdue' : ''}</dd></div>
       </dl>
     </div>
     <div className="task-next"><small>NEXT ACTION</small><strong>{next}</strong>{action}</div>
@@ -43,7 +44,7 @@ export function JobDetails({ job, compact = false }: { job: JobRecord; compact?:
       <div><dt>Client</dt><dd>{job.clientName || 'Not provided'}</dd></div>
       <div><dt>Field · well</dt><dd>{[job.fieldArea, well].filter(Boolean).join(' · ') || 'Not provided'}</dd></div>
       <div><dt>Sampling type</dt><dd>{sampling || 'Not provided'}</dd></div>
-      <div><dt>Job due</dt><dd>{job.dueDate || 'Not provided'}</dd></div>
+      <div><dt>Job due</dt><dd>{job.dueDate ? ukDate(job.dueDate) : 'Not provided'}</dd></div>
       <div className="wide"><dt>Scope notes</dt><dd className={c.notes.trim() ? 'instructions-text' : 'not-provided'}>{c.notes.trim() || 'Not provided'}</dd></div>
     </dl>
   </section>;
