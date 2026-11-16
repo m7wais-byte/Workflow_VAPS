@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
+const GS={id:'gs',name:'G-sheet.xlsx',size:1,type:'',version:1,submittedBy:'MOHSIN',submittedAt:'',status:'Available',comments:''};
 const bundle=async entry=>{const out=await build({entryPoints:[entry],bundle:true,write:false,format:'esm',platform:'node',logLevel:'silent'});return import('data:text/javascript;base64,'+Buffer.from(out.outputFiles[0].text).toString('base64'));};
 const store=new Map();globalThis.window={localStorage:{getItem:k=>store.get(k)??null,setItem:(k,v)=>store.set(k,String(v))}};globalThis.localStorage=window.localStorage;
 const {applyOperation,operationsFor}=await bundle('app/operations-model.ts');
@@ -26,8 +27,9 @@ test('the dashboard follows the whole journey with one next responsible person a
  assert.deepEqual(acts(j,'SALIM'),['Continue job draft and send to Sampling']);
  for(const id of ['MOHSIN','HUSSEINI','SHEREIQI','WILFRED'])assert.deepEqual(acts(j,id),[],id+' sees no draft');
  j=step(j,{type:'dispatch',engineer:'MOHSIN',driver:'ALI',team:['HUSSEINI']},'SALIM');
- const m=items(j,'MOHSIN').actions[0];assert.equal(m.action,'Review and submit sampling data');assert.equal(m.fromLabel,'Assigned by');assert.equal(m.from,'SALIM');assert.equal(m.overdue,true,'due date before today');
- assert.deepEqual(acts(j,'HUSSEINI'),[],'a view-only backup has no task');assert.equal(items(j,'HUSSEINI').waiting[0].waitingOn,'Mohsin Al Dhuhli (accountable)');assert.match(items(j,'HUSSEINI').waiting[0].label,/backup \(view only\)/);
+ // Every data sheet is complete: the backup engineer confirms the review; the accountable engineer waits for it.
+ assert.deepEqual(acts(j,'MOHSIN'),[],'the accountable engineer waits for the backup review');assert.match(items(j,'MOHSIN').waiting[0].waitingOn,/Mohammed Al Husseini.*backup review|backup review/);
+ const m=items(j,'HUSSEINI').actions[0];assert.match(m.action,/^Review the sampling data with Mohsin Al Dhuhli and confirm/);assert.equal(m.kind,'review');assert.equal(m.fromLabel,'Data entered by');assert.equal(m.from,'MOHSIN');assert.equal(m.overdue,true,'due date before today');
  assert.deepEqual(acts(j,'ALI'),[]);assert.deepEqual(acts(j,'SALIM'),[]);
  j=step(j,{type:'data-submit',note:''},'MOHSIN');
  assert.deepEqual(acts(j,'MOHSIN'),[],'submitted work is not shown as an action');assert.equal(items(j,'MOHSIN').waiting[0].waitingOn,'Salim Al Maqbali');
@@ -39,8 +41,8 @@ test('the dashboard follows the whole journey with one next responsible person a
  assert.match(acts(j,'HUSSEINI')[0],/Help correct returned sampling data \(backup · Mohsin Al Dhuhli submits\)/,'a backup given work access can help');
  j=step(j,{type:'data-submit',note:''},'MOHSIN');j=step(j,{type:'data-approve'},'SALIM');
  assert.deepEqual(acts(j,'MOHSIN'),['Prepare sampling report']);assert.deepEqual(acts(j,'SALIM'),[]);
- j=step(j,{type:'report-draft',kind:'sampling',text:'Summary',checker:''},'MOHSIN');assert.deepEqual(acts(j,'MOHSIN'),['Submit sampling report for approval']);
- j=step(step(j,{type:'report-action',kind:'sampling',action:'checking',comments:''},'MOHSIN'),{type:'report-action',kind:'sampling',action:'submit',comments:''},'SALIM');assert.deepEqual(acts(j,'SALIM'),['Review sampling report']);
+ j=step(j,{type:'report-draft',kind:'sampling',text:'Summary',checker:'',file:GS},'MOHSIN');assert.deepEqual(acts(j,'MOHSIN'),['Submit sampling report for approval']);
+ j=step(j,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN');assert.deepEqual(acts(j,'SALIM'),['Review sampling report']);
  j=step(j,{type:'report-action',kind:'sampling',action:'approve',comments:''},'SALIM');
  assert.deepEqual(acts(j,'SALIM'),['Define and release laboratory scope']);assert.deepEqual(acts(j,'ALI'),[],'no sample handover step for the driver');
  j=step(j,{type:'lab-scope',action:'release',reason:'',conditions:{pressure:'',pressureUnit:'psi',temperature:'',temperatureUnit:'°C',notes:''},samples:[{sampleId:'1.01',destination:'PVT',pvtTests:['Black Oil — DL'],chemicalTests:[],notes:'',excluded:false,exclusionReason:'',fluidType:'Black Oil'},{sampleId:'1.02',destination:'Chemical',pvtTests:[],chemicalTests:['Others — Water Analysis'],notes:'',excluded:false,exclusionReason:'',fluidType:'Black Oil'}]},'SALIM');
@@ -48,7 +50,7 @@ test('the dashboard follows the whole journey with one next responsible person a
  assert.ok(items(j,'SHEREIQI',{teams:{PVT:[],Chemical:[]}}).actions.some(i=>i.key.startsWith('assign:')),'lead can assign themselves with no additional members');
  const pvt=operationsFor(j).activities.find(a=>a.stream==='PVT'),chem=operationsFor(j).activities.find(a=>a.stream==='Chemical');
  j=step(j,{type:'schedule',id:pvt.id,owner:'NASSER',start:'2026-10-28',due:'2026-10-31',conditions:'',notes:'Use cell 2.'},'SHEREIQI');
- const n=items(j,'NASSER').actions[0];assert.equal(n.action,'Start test and submit workbook');assert.equal(n.test,'Black Oil — DL');assert.equal(n.sample,'1.01');assert.equal(n.container,'PDS · B-1.01');assert.equal(n.from,'SHEREIQI');assert.equal(n.comment,'Use cell 2.');assert.equal(n.overdue,true);
+ const n=items(j,'NASSER').actions[0];assert.equal(n.action,'Start test, then mark it done');assert.equal(n.test,'Black Oil — DL');assert.equal(n.sample,'1.01');assert.equal(n.container,'PDS · B-1.01');assert.equal(n.from,'SHEREIQI');assert.equal(n.comment,'Use cell 2.');assert.equal(n.overdue,true);
  j=step(j,{type:'workbook',id:pvt.id,file:file(1)},'NASSER');
  assert.deepEqual(acts(j,'NASSER'),[]);assert.match(items(j,'NASSER').waiting[0].waitingOn,/Shereiqi \(team lead\)/);
  assert.ok(acts(j,'SHEREIQI').includes('Review workbook v1'));
@@ -71,10 +73,12 @@ test('the dashboard follows the whole journey with one next responsible person a
  assert.deepEqual(acts(j,'WILFRED'),['Approve final laboratory report v1']);assert.equal(items(j,'SHEREIQI').waiting[0].waitingOn,'Wilfred Mendonca');
  j=step(j,{type:'report-action',kind:'final',action:'approve',comments:''},'WILFRED');
  for(const id of ['MOHSIN','SHEREIQI','BAHRI','WILFRED','RANJITH','NASSER','YAQEEN','ALI'])assert.deepEqual(acts(j,id),[],id+' has nothing left');
- assert.deepEqual(acts(j,'SALIM'),['Job finished: release 1 cylinder to the sampling team for cleaning'],'the coordinator releases the cylinders of a finished job');
- j=step(j,{type:'release-cylinders'},'SALIM');
+ assert.deepEqual(acts(j,'SALIM'),[],'cylinders wait for the client: no release task yet');assert.ok(items(j,'SALIM').waiting.some(w=>w.waitingOn==='Client'),'the coordinator sees the job waiting on the client');
+ j=step(j,{type:'client-disposal'},'SALIM');
+ assert.deepEqual(acts(j,'SALIM'),['Job finished: assign a sampling employee to release and redress 1 cylinder'],'after the client approves and instructs disposal, the coordinator assigns the redress');
+ j=step(j,{type:'release-cylinders',assignee:'MOHSIN'},'SALIM');
  assert.deepEqual(acts(j,'SALIM'),[],'nothing left for the coordinator after the release');
- assert.match(acts(j,'MOHSIN')[0]||'',/Collect, clean and check 1 cylinder/,'the sampling team cleans and checks the returned cylinder');
+ assert.match(acts(j,'MOHSIN')[0]||'',/Release and redress 1 cylinder/,'the assigned sampling employee redresses the returned cylinder');
 });
 
 test('a person with several duties sees each action once; ordering puts overdue work first and New only breaks ties',()=>{

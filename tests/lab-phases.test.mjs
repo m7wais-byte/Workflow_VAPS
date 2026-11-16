@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
+const GS={id:'gs',name:'G-sheet.xlsx',size:1,type:'',version:1,submittedBy:'MOHSIN',submittedAt:'',status:'Available',comments:''};
 const bundle=async entry=>{const out=await build({entryPoints:[entry],bundle:true,write:false,format:'esm',platform:'node',logLevel:'silent'});return import('data:text/javascript;base64,'+Buffer.from(out.outputFiles[0].text).toString('base64'));};
 const store=new Map();globalThis.window={localStorage:{getItem:k=>store.get(k)??null,setItem:(k,v)=>store.set(k,String(v)),removeItem:k=>store.delete(k)}};globalThis.localStorage=window.localStorage;
-const {applyOperation,operationsFor,labScopeProblems,unplannedValidation,allWorkDone,phase2Ready,phase2Undecided,phasedScope}=await bundle('app/operations-model.ts');
+const {applyOperation,operationsFor,labScopeProblems,unplannedValidation,allWorkDone,phase2Ready,phase2Undecided,phasedScope,interimReport}=await bundle('app/operations-model.ts');
 const {workItems}=await bundle('app/work-items.ts');
 const {normalizeFluid,fluidTypes}=await bundle('app/scope-catalogue.ts');
 const {defaultAuthorization,defaultResponsibilities}=await bundle('app/authorization.ts');
@@ -20,7 +21,7 @@ const s=(id,extra={})=>({id,bottle:'PDS',bottleSerial:'B-'+id,dataComplete:true,
 const base=()=>({id:'OM-P-26-701',jobNumber:'OM-P-26-701',clientCode:'P',clientName:'Client S',fieldArea:'F',well:'W',samplingSource:'Wellhead Sampling',samplingInstructions:'Three samples.',status:'Draft',createdById:'SALIM',dueDate:'2026-11-30',stages:[{name:'Sampling Preparation',status:'Completed'}],events:[],samples:[s('1.01'),s('1.02',{containerType:'Glass container',containerId:'G-07',bottle:'',bottleSerial:''}),s('1.03')]});
 const conditions={pressure:'2100',pressureUnit:'psi',temperature:'88',temperatureUnit:'°C',notes:''};
 const e=(sampleId,more={})=>({sampleId,destination:'PVT',pvtTests:[],chemicalTests:[],notes:'',excluded:false,exclusionReason:'',...more});
-function approved(){let j=step(base(),{type:'dispatch',engineer:'MOHSIN',driver:'ALI'},'SALIM');j=step(j,{type:'data-submit',note:''},'MOHSIN');j=step(j,{type:'data-approve'},'SALIM');j=step(j,{type:'report-draft',kind:'sampling',text:'S',checker:''},'MOHSIN');j=step(step(j,{type:'report-action',kind:'sampling',action:'checking',comments:''},'MOHSIN'),{type:'report-action',kind:'sampling',action:'submit',comments:''},'SALIM');j=step(j,{type:'report-action',kind:'sampling',action:'approve',comments:''},'SALIM');return step(step(j,{type:'handover-send',sampleIds:['1.01','1.02','1.03'],notes:''},'ALI'),{type:'handover-receive',notes:''},'SHEREIQI');}
+function approved(){let j=step(base(),{type:'dispatch',engineer:'MOHSIN',driver:'ALI'},'SALIM');j=step(j,{type:'data-submit',note:''},'MOHSIN');j=step(j,{type:'data-approve'},'SALIM');j=step(j,{type:'report-draft',kind:'sampling',text:'S',checker:'',file:GS},'MOHSIN');j=step(j,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN');j=step(j,{type:'report-action',kind:'sampling',action:'approve',comments:''},'SALIM');return step(step(j,{type:'handover-send',sampleIds:['1.01','1.02','1.03'],notes:''},'ALI'),{type:'handover-receive',notes:''},'SHEREIQI');}
 const release=(j,samples,reason='')=>step(j,{type:'lab-scope',action:'release',reason,conditions,samples},'SALIM');
 const acts=j=>operationsFor(j).activities;
 const view=(jobs,id,extra)=>workItems(jobs,actor(id,extra),today);
@@ -55,8 +56,8 @@ test('Phase 1: Salim chooses Validation steps per sample; release creates them f
  assert.equal(unplannedValidation(j).length,0,'already planned by the scope selector');
  assert.ok(!acts(j).some(a=>a.kind!=='validation'),'no tests in Phase 1');
  assert.ok(view([j],'SHEREIQI').actions.some(i=>/assign/i.test(i.button+i.action)),'Ahmed is asked to assign');
- assert.deepEqual(phase2Undecided(j),['1.01','1.02','1.03']);assert.equal(phase2Ready(j,'1.02'),true);assert.equal(phase2Ready(j,'1.01'),false);
- const salim=view([j],'SALIM').actions.find(i=>i.key.startsWith('phase2:'));assert.ok(salim,'Salim gets the Phase 2 task for the sample without Validation');assert.match(salim.action,/Sample 1\.02$/);
+ assert.deepEqual(phase2Undecided(j),['1.01','1.02','1.03']);assert.equal(phase2Ready(j,'1.02'),false,'a sample without Validation also waits for the interim report');assert.equal(phase2Ready(j,'1.01'),false);assert.equal(interimReport(j).state,'not-started');
+ assert.ok(!view([j],'SALIM').actions.some(i=>i.key.startsWith('phase2:')),'no Phase 2 task before the interim report');
  assert.equal(allWorkDone(j),false,'the job cannot finish before the Phase 2 decision');
  // Ahmed may still remove an unstarted step and add another.
  const r=operationsFor(j).scope.find(x=>x.id==='labscope:1.01:PVT:Validation');
@@ -69,13 +70,20 @@ test('Phase 2: samples open after their Validation; selected samples need tests;
  const base2=()=>released(j).samples.map(strip);
  const tooEarly=base2().map(s=>s.sampleId==='1.01'?{...s,furtherStudy:true,pvtTests:['Black Oil — DL']}:s);
  assert.throws(()=>p2(j,tooEarly),/Validation is not complete yet/);
+ // A sample with no Validation of its own still waits: the client selects samples from the interim report.
+ assert.throws(()=>p2(j,base2().map(s=>s.sampleId==='1.02'?{...s,furtherStudy:true,chemicalTests:['Others — Water Analysis']}:s)),/interim report is not ready yet/);
+ const pv=acts(j).find(a=>a.kind==='validation');j=assign(j,pv,'NASSER');
+ j=step(j,{type:'workbook',id:pv.id},'NASSER');j=step(j,{type:'lead-review',id:pv.id,decision:'approve',target:'',comments:''},'SHEREIQI');
+ assert.equal(interimReport(j).state,'in-progress','in preparation once Validation QC starts');assert.equal(phase2Ready(j,'1.02'),false);
+ j=step(j,{type:'qc-review',id:pv.id,decision:'approve',target:'',comments:''},'AHAD');
+ assert.equal(interimReport(j).state,'completed');assert.ok(interimReport(j).at);
+ assert.equal(phase2Ready(j,'1.01'),true);assert.equal(phase2Ready(j,'1.02'),true);
  const withTests=base2().map(s=>s.sampleId==='1.02'?{...s,furtherStudy:true}:s);
  assert.throws(()=>p2(j,withTests),/selected for further study but has no tests/);
  j=p2(j,base2().map(s=>s.sampleId==='1.02'?{...s,furtherStudy:true,chemicalTests:['Others — Water Analysis']}:s));
  assert.equal(released(j).phase,2);assert.ok(acts(j).some(a=>a.sampleId==='1.02'&&a.title==='Others — Water Analysis'));
+ assert.ok(operationsFor(j).scope.filter(x=>x.id.startsWith('labscope:1.02')).every(x=>x.source==='Original request'),'the first Phase 2 release is the planned further study, not additional work');
  assert.deepEqual(phase2Undecided(j),['1.01']);
- const pv=acts(j).find(a=>a.kind==='validation');j=assign(j,pv,'NASSER');j=finish(j,acts(j).find(a=>a.id===pv.id));
- assert.equal(phase2Ready(j,'1.01'),true);
  assert.ok(view([j],'SALIM').actions.some(i=>i.key.startsWith('phase2:')&&/1\.01/.test(i.action)),'Salim is told when Validation is complete');
  j=p2(j,released(j).samples.map(strip).map(s=>s.sampleId==='1.01'?{...s,furtherStudy:false}:s),'Client: no further study for 1.01');
  assert.deepEqual(phase2Undecided(j),[]);

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
+const GS={id:'gs',name:'G-sheet.xlsx',size:1,type:'',version:1,submittedBy:'MOHSIN',submittedAt:'',status:'Available',comments:''};
 const bundle=async entry=>{const out=await build({entryPoints:[entry],bundle:true,write:false,format:'esm',platform:'node',logLevel:'silent'});return import('data:text/javascript;base64,'+Buffer.from(out.outputFiles[0].text).toString('base64'));};
 const store=new Map();globalThis.window={localStorage:{getItem:k=>store.get(k)??null,setItem:(k,v)=>store.set(k,String(v))}};globalThis.localStorage=window.localStorage;
 const {applyOperation,pendingActions,finalReady,qcPending,labStatus,teamMismatch,operationsFor,operationComplete,samplingApproved}=await bundle('app/operations-model.ts');
@@ -23,7 +24,7 @@ const conditions={pressure:'2100',pressureUnit:'psi',temperature:'88',temperatur
 function released(){
  let j=step(base(),{type:'dispatch',engineer:'MOHSIN',driver:'ALI'},'SALIM');
  j=step(j,{type:'data-submit',note:''},'MOHSIN');j=step(j,{type:'data-approve'},'SALIM');
- j=step(j,{type:'report-draft',kind:'sampling',text:'Summary',checker:''},'MOHSIN');j=step(step(j,{type:'report-action',kind:'sampling',action:'checking',comments:''},'MOHSIN'),{type:'report-action',kind:'sampling',action:'submit',comments:''},'SALIM');j=step(j,{type:'report-action',kind:'sampling',action:'approve',comments:''},'SALIM');
+ j=step(j,{type:'report-draft',kind:'sampling',text:'Summary',checker:'',file:GS},'MOHSIN');j=step(j,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN');j=step(j,{type:'report-action',kind:'sampling',action:'approve',comments:''},'SALIM');
  return step(j,{type:'lab-scope',action:'release',conditions,reason:'',samples:[entry('1.01','PVT',['Black Oil — DL']),entry('1.02','Chemical',[],['Others — Water Analysis']),entry('1.03','Both',['Specialised Analysis — SARA'],['Specialised Analysis — SARA']),entry('1.04','PVT',[],[],{excluded:true,exclusionReason:'Leaked'})]},'SALIM');
 }
 const act=(j,sample,stream)=>operationsFor(j).activities.find(a=>a.sampleId===sample&&a.stream===stream);
@@ -56,7 +57,7 @@ test('team leads assign their own stream to anyone in the directory; assigning g
  j=assign(j,pvt,'NASSER','SHEREIQI');j=step(j,{type:'progress',id:pvt.id,status:'In Progress',notes:'Half done'},'NASSER');
  j=assign(j,act(j,'1.01','PVT'),'AHAD','SHEREIQI');
  const a=act(j,'1.01','PVT');assert.equal(a.owner,'AHAD');assert.equal(a.status,'In Progress','progress is not discarded');
- assert.deepEqual(a.history.map(h=>[h.action,h.from||'',h.to]),[['assigned','','NASSER'],['reassigned','NASSER','AHAD']]);
+ assert.deepEqual(a.history.map(h=>[h.action,h.from||'',h.to]),[['assigned','','NASSER'],['update','',undefined],['reassigned','NASSER','AHAD']],'a progress update is kept in the history');
  assert.equal(teamMismatch(a,{PVT:['NASSER'],Chemical:[]},undefined,employees),false,'an assignment outside the configured team is valid');
  assert.equal(teamMismatch(a,null,undefined,employees.map(e=>e.id==='AHAD'?{...e,active:false}:e)),true,'an inactive assignee is flagged, not changed');
 });
@@ -124,4 +125,20 @@ test('settings: team defaults and saved settings are validated; completed histor
  for(const raw of ['bad','[]',JSON.stringify({PVT:['GHOST']}),JSON.stringify({Chemical:'YAQEEN'})])assert.throws(()=>readLabTeams(raw,['NASSER','YAQEEN']));
  const legacy={...base(),status:'Completed',operations:{...operationsFor(base()),scopeConfirmedAt:'2026-08-01T00:00:00Z',activities:[{id:'old',scopeId:'original:x',sampleId:'1.01',title:'Old test',stream:'PVT',owner:'NASSER',start:'',due:'',conditions:'',notes:'',status:'Completed',files:[{id:'x',name:'x.xlsx',size:1,type:'',version:1,submittedBy:'NASSER',submittedAt:'2026-08-01T00:00:00Z',status:'Available',comments:''}],required:true}]}};
  assert.equal(qcPending(legacy),false,'work completed before QC is not asked for QC');assert.equal(labStatus(legacy.operations.activities[0]),'QC approved');
+});
+
+test('a test is marked done without uploading a workbook; the team lead checks it in place and versions still count',()=>{
+ let j=released();const pvt=act(j,'1.01','PVT');j=assign(j,pvt,'NASSER','SHEREIQI');
+ j=step(j,{type:'progress',id:pvt.id,status:'In Progress',notes:'Opening pressure measured.'},'NASSER');
+ j=step(j,{type:'workbook',id:pvt.id,notes:'Workbook updated on the shared drive.'},'NASSER');
+ let a=j.operations.activities.find(x=>x.id===pvt.id);
+ assert.equal(a.status,'Workbook Submitted');assert.equal(a.files.length,1);assert.equal(a.files[0].type,'reference');assert.equal(a.files[0].version,1);
+ assert.ok(a.history.some(h=>h.action==='update'&&h.comments==='Opening pressure measured.'));
+ assert.throws(()=>step(j,{type:'workbook',id:pvt.id},'NASSER'),/under review/);
+ j=step(j,{type:'lead-review',id:pvt.id,decision:'return',target:'Sheet 1',comments:'Check the opening pressure reading again.'},'SHEREIQI');
+ j=step(j,{type:'workbook',id:pvt.id,notes:'Corrected.'},'NASSER');
+ a=j.operations.activities.find(x=>x.id===pvt.id);assert.equal(a.files.length,2,'each time it is marked done counts as a new version');assert.notEqual(a.files[0].id,a.files[1].id);
+ j=step(j,{type:'lead-review',id:pvt.id,decision:'approve',target:'',comments:''},'SHEREIQI');
+ assert.equal(j.operations.activities.find(x=>x.id===pvt.id).status,'Awaiting QC');
+ assert.throws(()=>step(released(),{type:'workbook',id:pvt.id,file:{id:'',name:'x.xlsx',size:0,type:''}},'NASSER'),/not assigned|empty/);
 });

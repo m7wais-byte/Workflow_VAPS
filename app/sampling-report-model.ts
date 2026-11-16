@@ -25,6 +25,8 @@ export type ReportLetterhead = {
   people: Record<string, ReportPerson>;
 };
 export type SamplingReportInput = {
+  /** Sampling point type and size confirmed in preparation, e.g. "1/2 in NPT Female" (Wellhead and Separator jobs). */
+  samplingPointSize?: string;
   jobNumber: string;
   /** Client as recorded on the job (short name, e.g. "PDO"). */
   clientName: string;
@@ -168,7 +170,7 @@ function chunk<T>(items: T[], height: (item: T) => number, budget: number): T[][
 
 /** The selected sampling point; sheets saved before point and depth were separate inputs keep their combined entry. */
 const samplingPointText = (s: ReportSample) => text(s.fieldData?.samplingPoint) || withUnit(s.depth, s.fieldData?.depthUnit);
-function sheetFor(sample: ReportSample, title: string): Omit<SampleSheet, 'remarks' | 'remarksContinue'> {
+function sheetFor(sample: ReportSample, title: string, pointSize = ''): Omit<SampleSheet, 'remarks' | 'remarksContinue'> {
   const f = sample.fieldData || {};
   const glass = isAtmospheric(sample);
   const sampler = text(sample.sampler) ? [text(sample.sampler), text(sample.samplerSerial)].filter(Boolean).join(' ') : '';
@@ -176,7 +178,7 @@ function sheetFor(sample: ReportSample, title: string): Omit<SampleSheet, 'remar
     sampleId: sample.id, title,
     identification: {
       left: [['Sample No:', orNR(sample.id)], [glass ? 'Container No:' : 'Cylinder No:', containerRef(sample)], ['Sampling Date:', dateShort(f.samplingDate)], ['Sampling Time:', orNR(f.samplingTime)], ['Sampling Point:', samplingPointText(sample)], ['Perforations:', withUnit(f.perforations, f.perforationsUnit)]],
-      right: [['Sample Nature:', orNR(f.sampleNature)], ['Flow Period:', withUnit(f.flowPeriod, f.flowPeriodUnit)], ['Formation:', orNR(f.formation)], ...(text(f.samplingPoint) ? [['Depth:', withUnit(sample.depth, f.depthUnit)] as Field] : []), ...(sampler ? [['Sampler:', sampler] as Field] : [])],
+      right: [['Sample Nature:', orNR(f.sampleNature)], ['Flow Period:', withUnit(f.flowPeriod, f.flowPeriodUnit)], ['Formation:', orNR(f.formation)], ...(text(pointSize) ? [['Point Type & Size:', text(pointSize)] as Field] : []), ...(text(f.samplingPoint) ? [['Depth:', withUnit(sample.depth, f.depthUnit)] as Field] : []), ...(sampler ? [['Sampler:', sampler] as Field] : [])],
     },
     shipping: {
       left: [[glass ? 'Container Type:' : 'Sample Cylinder Type:', glass ? containerNoun(sample) : orNR(sample.bottle)], [glass ? 'Container Volume:' : 'Sample Cylinder Volume:', withUnit(f.sampleBottleVolume, f.sampleBottleVolumeUnit)], ['Sample Volume:', withUnit(f.sampleVolume, f.sampleVolumeUnit)]],
@@ -187,11 +189,10 @@ function sheetFor(sample: ReportSample, title: string): Omit<SampleSheet, 'remar
       right: [['Opening P @ Ambient:', pressureAt(f, f.openingPressureAmbient === undefined ? 'initialOpeningPressure' : 'openingPressureAmbient', f.openingPressureAmbient === undefined ? 'initialOpeningTemperature' : 'openingTemperatureAmbient')], ['Transfer Duration:', withUnit(f.transferDuration, f.transferDurationUnit)]],
     },
     production: [
-      [['BHP:', withUnit(f.bhp, f.bhpUnit)], ['BHT:', withUnit(f.bht, f.bhtUnit)], ['At Depth:', NOT_RECORDED], ['WHP:', withUnit(f.whp, f.whpUnit)], ['WHT:', withUnit(f.wht, f.whtUnit)], ['Choke Size:', withUnit(f.chokeSize, f.chokeSizeUnit)], ['Stable Since:', orNR(f.stableSince)], ['H2S:', withUnit(f.h2s, f.h2sUnit)], ['CO2:', withUnit(f.co2, f.co2Unit)]],
+      [['BHP:', withUnit(f.bhp, f.bhpUnit)], ['BHT:', withUnit(f.bht, f.bhtUnit)], ['WHP:', withUnit(f.whp, f.whpUnit)], ['WHT:', withUnit(f.wht, f.whtUnit)], ['Choke Size:', withUnit(f.chokeSize, f.chokeSizeUnit)], ['Stable:', orNR(f.stableSince)], ['H2S:', withUnit(f.h2s, f.h2sUnit)], ['CO2:', withUnit(f.co2, f.co2Unit)]],
       [['Sep Press:', withUnit(f.separatorPressure, f.separatorPressureUnit)], ['Sep Temp:', withUnit(f.separatorTemperature, f.separatorTemperatureUnit)], ['Gas Rate (std):', withUnit(f.gasRate, f.gasRateUnit)], ['Gas Gravity:', withUnit(f.gasGravity, f.gasGravityUnit && f.gasGravityUnit !== 'air = 1' ? f.gasGravityUnit : '')], ['Gas diff press:', withUnit(f.gasDifferentialPressure, f.gasDifferentialPressureUnit)], ['Gas Press:', withUnit(f.gasPressure, f.gasPressureUnit)], ['Gas Temp:', withUnit(f.gasTemperature, f.gasTemperatureUnit)], ['Fb factor:', orNR(f.fbFactor)], ['Fpv factor:', orNR(f.fpvFactor)]],
-      // The data sheet records one "Oil Rate" without its condition basis, so it keeps its own label and the
-      // std/sep-condition rows stay "Not recorded". Likewise BSW is recorded without a sampling point.
-      [['Oil Rate (std cond):', NOT_RECORDED], ['Corrected by:', orNR(f.correctedBy)], ['Oil rate (sep cond):', NOT_RECORDED], ['Oil Rate:', withUnit(f.oilRate, f.oilRateUnit)], [!f.condensateGravityUnit || f.condensateGravityUnit === 'SG 60/60 °F' ? 'Oil gravity 60/60:' : 'Oil gravity:', withUnit(f.condensateGravity, f.condensateGravityUnit === 'SG 60/60 °F' ? '' : f.condensateGravityUnit)], ['Oil line temp:', withUnit(f.oilLineTemperature, f.oilLineTemperatureUnit)], ['Water rate:', withUnit(f.waterRate, f.waterRateUnit)], ['GOR:', withUnit(f.gor, f.gorUnit)], ['CGR:', withUnit(f.cgr, f.cgrUnit)], ['WOR:', withUnit(f.wor, f.worUnit)], ['BSW:', withUnit(f.bsw, f.bswUnit)]],
+      // Only what the data sheet asks for is printed: one "Oil Rate" (no std/sep-condition rows) and BSW without a sampling point.
+      [['Corrected by:', orNR(f.correctedBy)], ['Oil Rate:', withUnit(f.oilRate, f.oilRateUnit)], [!f.condensateGravityUnit || f.condensateGravityUnit === 'SG 60/60 °F' ? 'Oil gravity 60/60:' : 'Oil gravity:', withUnit(f.condensateGravity, f.condensateGravityUnit === 'SG 60/60 °F' ? '' : f.condensateGravityUnit)], ['Oil line temp:', withUnit(f.oilLineTemperature, f.oilLineTemperatureUnit)], ['Water rate:', withUnit(f.waterRate, f.waterRateUnit)], ['GOR:', withUnit(f.gor, f.gorUnit)], ['CGR:', withUnit(f.cgr, f.cgrUnit)], ['WOR:', withUnit(f.wor, f.worUnit)], ['BSW:', withUnit(f.bsw, f.bswUnit)]],
     ],
   };
 }
@@ -245,7 +246,7 @@ export function buildSamplingReport(input: SamplingReportInput): SamplingReportM
   const sheetsStart = next();
   const SH = LAYOUT.sheet, R = LAYOUT.remarks;
   for (const sample of samples) {
-    const base = sheetFor(sample, title);
+    const base = sheetFor(sample, title, input.samplingPointSize);
     const remarkLines = wrap(text(sample.notes) || NOT_RECORDED, SH.remarkChars);
     const fit = Math.max(1, Math.floor((LAYOUT.body - SH.fixed - sheetOverflow(base)) / SH.remarkLine));
     // Leave room for the "continues on the next page" note when the remarks do not fit.

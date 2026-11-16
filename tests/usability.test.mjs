@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { build } from 'esbuild';
+const GS={id:'gs',name:'G-sheet.xlsx',size:1,type:'',version:1,submittedBy:'MOHSIN',submittedAt:'',status:'Available',comments:''};
 const bundle=async entry=>{const out=await build({entryPoints:[entry],bundle:true,write:false,format:'esm',platform:'node',logLevel:'silent'});return import('data:text/javascript;base64,'+Buffer.from(out.outputFiles[0].text).toString('base64'));};
 const store=new Map();globalThis.window={localStorage:{getItem:k=>store.get(k)??null,setItem:(k,v)=>store.set(k,String(v)),removeItem:k=>store.delete(k)}};globalThis.localStorage=window.localStorage;
 const {applyOperation,operationsFor,operationComplete,additionalWorkPending,validationCatalogue}=await bundle('app/operations-model.ts');
@@ -22,7 +23,7 @@ const s=(id,extra={})=>({id,bottle:'PDS',bottleSerial:'B-'+id,dataComplete:true,
 const base=(source='Wellhead Sampling')=>({id:'OM-P-26-501',jobNumber:'OM-P-26-501',clientCode:'P',clientName:'Client U',fieldArea:'F',well:'W',samplingSource:source,samplingInstructions:'Two samples.',status:'Draft',createdById:'SALIM',dueDate:'2026-11-20',stages:[{name:'Sampling Preparation',status:'Completed'}],events:[],samples:[s('1.01'),s('1.02',{containerType:'Glass container',containerId:'G-07',bottle:'',bottleSerial:''})]});
 const conditions={pressure:'2100',pressureUnit:'psi',temperature:'88',temperatureUnit:'°C',notes:''};
 const entry=(sampleId,destination,pvtTests=[],chemicalTests=[])=>({sampleId,destination,pvtTests,chemicalTests,notes:'',excluded:false,exclusionReason:'',fluidType:'Black Oil'});
-function approved(source){let j=step(base(source),{type:'dispatch',engineer:'MOHSIN',driver:'ALI'},'SALIM');j=step(j,{type:'data-submit',note:''},'MOHSIN');j=step(j,{type:'data-approve'},'SALIM');j=step(j,{type:'report-draft',kind:'sampling',text:'S',checker:''},'MOHSIN');j=step(step(j,{type:'report-action',kind:'sampling',action:'checking',comments:''},'MOHSIN'),{type:'report-action',kind:'sampling',action:'submit',comments:''},'SALIM');return step(j,{type:'report-action',kind:'sampling',action:'approve',comments:''},'SALIM');}
+function approved(source){let j=step(base(source),{type:'dispatch',engineer:'MOHSIN',driver:'ALI'},'SALIM');j=step(j,{type:'data-submit',note:''},'MOHSIN');j=step(j,{type:'data-approve'},'SALIM');j=step(j,{type:'report-draft',kind:'sampling',text:'S',checker:'',file:GS},'MOHSIN');j=step(j,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN');return step(j,{type:'report-action',kind:'sampling',action:'approve',comments:''},'SALIM');}
 const received=j=>j;
 const released=()=>step(received(approved()),{type:'lab-scope',action:'release',reason:'',conditions,samples:[entry('1.01','PVT',['Black Oil — DL']),entry('1.02','Both',['Black Oil — DL'],['Others — Water Analysis'])]},'SALIM');
 const file=n=>({id:'f'+n+tick,name:`wb-${n}.xlsx`,size:10,type:''});

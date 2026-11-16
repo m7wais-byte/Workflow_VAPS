@@ -32,17 +32,19 @@ const opt = <T,>(value: unknown, read: (v: unknown) => T): T | undefined => valu
 export function sanitizeProgress(value: unknown): ProgressView { return JSON.parse(JSON.stringify(readProgress(value))); }
 function readProgress(value: unknown): ProgressView {
  const p = record(value);
- const groups = ["sampling", "receipt", "PVT", "Chemical", "report"];
+ const groups = ["sampling", "receipt", "PVT", "Chemical", "interim", "report", "client"];
  const rows: ProgressRow[] = list(p.rows, 300).map((v) => { const r = record(v); if (!groups.includes(r.group as string)) throw new Error("Invalid group");
   const sc = r.schedule === undefined ? undefined : record(r.schedule);
   const schedule = sc && sc.source === "plan" && sc.clientVisible === true ? { source: "plan" as const, clientVisible: true, start: opt(sc.start, day), finish: opt(sc.finish, day), days: opt(sc.days, count) } : undefined;
   return { key: text(r.key, 300), label: text(r.label, 200), group: r.group as ProgressRow["group"], status: status(r.status), detail: opt(r.detail, (x) => text(x, 300)), samples: opt(r.samples, count), done: opt(r.done, count), total: opt(r.total, count), additional: r.additional === true || undefined, thirdParty: r.thirdParty === true || undefined, schedule, actual: opt(r.actual, day), overdue: !!schedule && r.overdue === true }; });
  const keys = new Set(rows.map((r) => r.key));
- const stageIds = ["created", "sampling", "receipt", "lab", "report"];
- const stages: ProgressStage[] = list(p.stages, 6).map((v) => { const s = record(v); if (!stageIds.includes(s.id as string)) throw new Error("Invalid stage");
+ const stageIds = ["created", "sampling", "receipt", "validation", "interim", "lab", "report", "client"];
+ const stages: ProgressStage[] = list(p.stages, 8).map((v) => { const s = record(v); if (!stageIds.includes(s.id as string)) throw new Error("Invalid stage");
   return { id: s.id as ProgressStage["id"], label: text(s.label, 80), status: status(s.status), current: s.current === true, at: opt(s.at, day), note: opt(s.note, (x) => text(x, 200)), planned: s.planned === true || undefined, rows: list(s.rows, 300).map((k) => text(k, 300)).filter((k) => keys.has(k)) }; });
  const e = record(p.expected); const kinds = ["actual", "confirmed", "provisional", "tbc"]; if (!kinds.includes(e.kind as string)) throw new Error("Invalid expected kind");
- return { audience: "client", jobId: text(p.jobId, 80), client: text(p.client), location: text(p.location, 400), sampling: opt(p.sampling, (x) => text(x, 160)), stages, rows,
+ const i = p.info === undefined || p.info === null ? undefined : record(p.info);
+ return { audience: "client", jobId: text(p.jobId, 80), client: text(p.client), location: text(p.location, 400), sampling: opt(p.sampling, (x) => text(x, 160)),
+  info: i ? { field: opt(i.field, (x) => text(x, 160)), well: opt(i.well, (x) => text(x, 300)), samples: opt(i.samples, count), jobDate: opt(i.jobDate, day), dueDate: opt(i.dueDate, day) } : undefined, stages, rows,
   currentStage: text(p.currentStage, 120), now: text(p.now, 400), next: text(p.next, 300), sentence: text(p.sentence, 800), done: count(p.done), total: count(p.total),
   expected: { kind: e.kind as ProgressView["expected"]["kind"], date: opt(e.date, day), reason: opt(e.reason, (x) => text(x, 200)) }, lastUpdate: opt(p.lastUpdate, date), scopeConfirmed: p.scopeConfirmed === true,
   overdue: rows.filter((r) => r.overdue).length, convention: "calendar", closed: p.closed === true, draft: p.draft === true, legacy: p.legacy === true, notes: list(p.notes ?? [], 5).map((n) => text(n, 300)) };

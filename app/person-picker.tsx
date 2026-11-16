@@ -14,7 +14,8 @@ const deptName = (id: string, departments?: Dept[]) => departments?.find((d) => 
 export function PersonOptions({ employees, departments, me, current, first = [], firstLabel, exclude = [] }: { employees: Employee[]; departments?: Dept[]; me?: string; current?: string; first?: string[]; firstLabel?: string; exclude?: string[] }) {
   const label = (e: Employee) => e.name + (e.id === me ? ' (you)' : '') + (e.active ? '' : ' (inactive)');
   const pool = employees.filter((e) => (e.active || e.id === current) && !exclude.includes(e.id));
-  const top = first.map((id) => pool.find((e) => e.id === id)).filter((e): e is Employee => !!e);
+  // A person named twice in the suggested list (for example a team lead who is also a team member) is offered once.
+  const top = [...new Set(first)].map((id) => pool.find((e) => e.id === id)).filter((e): e is Employee => !!e);
   const rest = pool.filter((e) => !top.includes(e));
   const groups = [...new Set(rest.map((e) => e.departmentId))].sort((a, b) => deptName(a, departments).localeCompare(deptName(b, departments)));
   return <>

@@ -9,7 +9,7 @@ import type { JobRecord } from './page';
 import type { Responsibilities } from './authorization';
 import { storedResponsibilities, roleHolder } from './authorization';
 import {
-  operationsFor, isDraft, latestData, latest, samplingApproved, legacyDispatch, dataReviewRequired, unplannedValidation,
+  operationsFor, interimReport, dataReviewers, isDraft, latestData, latest, samplingApproved, legacyDispatch, dataReviewRequired, unplannedValidation,
   validationScopes, allWorkDone, finalReady, operationComplete, additionalWorkPending, externalStage, validationCatalogue,
   streamLead, latestLabScope, type ActivityRecord, type Stream,
 } from './operations-model';
@@ -100,16 +100,19 @@ function samplingSection(job: JobRecord, roles: Responsibilities): FlowSection {
       : submitted || (!reviewed && (r || legacy)) ? { state: 'completed', detail: approved || d ? 'Submitted' : sheetText, at: d?.submittedAt }
       : prepDone ? { state: 'in-progress', detail: d?.status === 'Reopened' ? 'Reopened for correction · ' + sheetText : sheetText }
       : { state: 'not-started', detail: 'After preparation' }) } as FlowStep);
-  if (reviewed) steps.push({ id: 'sampling:data-review', label: 'Data review & approval', team: 'Sampling approval', owner: approver,
-    ...(dataApproved ? { state: 'completed', detail: 'Data approved', at: d?.reviewedAt }
+  // The backup engineer confirms the data review; a submission from the earlier workflow still waits for the sampling approver.
+  const earlier = d?.status === 'Submitted' || d?.status === 'Returned', reviewer = earlier ? approver : dataReviewers(job)[0];
+  if (reviewed) steps.push({ id: 'sampling:data-review', label: 'Backup engineer review', team: earlier ? 'Sampling approval' : team, owner: reviewer,
+    ...(dataApproved ? { state: 'completed', detail: 'Data reviewed', at: d?.reviewedAt }
       : d?.status === 'Submitted' ? (approver ? { state: 'in-progress', detail: 'Awaiting review' } : { state: 'blocked', setting: true, detail: 'Sampling approver not configured' })
       : d?.status === 'Returned' ? { state: 'not-started', detail: 'Waiting for the corrected data' }
-      : { state: 'not-started', detail: 'After the data is submitted' }) } as FlowStep);
+      : prepDone && samples.length > 0 && sheets === samples.length ? { state: 'in-progress', detail: 'Awaiting backup review' }
+      : { state: 'not-started', detail: 'After the data sheets are complete' }) } as FlowStep);
   steps.push({ id: 'sampling:report', label: 'Sampling report preparation', team, owner: r?.preparedBy || lead,
     ...(reportSubmitted ? { state: 'completed', detail: 'Submitted for approval', at: r?.submittedAt }
       : r?.status === 'Changes Requested' ? { state: 'blocked', correction: true, detail: 'Returned for correction' }
       : dataApproved || (!reviewed && dispatched) ? { state: 'in-progress', detail: r?.status === 'Draft' ? 'Draft in preparation' : 'Ready to prepare' }
-      : { state: 'not-started', detail: 'After the data is approved' }) } as FlowStep);
+      : { state: 'not-started', detail: 'After the backup review' }) } as FlowStep);
   steps.push({ id: 'sampling:approval', label: 'Sampling report approval', team: r?.status === 'Checking' ? 'Report checker' : 'Sampling approval', owner: r?.status === 'Checking' ? r.checker : approver,
     ...(approved ? { state: 'completed', detail: 'Approved', at: r?.approvedAt || job.report?.approvedAt }
       : r?.status === 'Awaiting Approval' ? (approver ? { state: 'in-progress', detail: 'Awaiting approval' } : { state: 'blocked', setting: true, detail: 'Sampling approver not configured' })
@@ -136,6 +139,7 @@ function laboratorySection(job: JobRecord, roles: Responsibilities): FlowSection
   const additionalScope = new Set(o.scope.filter((s) => s.source === 'Additional work').map((s) => s.id));
   const isAdditional = (a: ActivityRecord) => additionalScope.has(a.scopeId) || a.scopeId.startsWith('addval:');
   const toPlan = unplannedValidation(job), valScopes = validationScopes(job);
+  const testGroups: FlowGroup[] = [];
   for (const stream of ['PVT', 'Chemical'] as const) {
     const list = required.filter((a) => a.stream === stream), plan = stream === 'PVT' ? toPlan : [];
     if (!list.length && !plan.length && !(stream === 'PVT' && valScopes.length)) continue;
@@ -154,8 +158,13 @@ function laboratorySection(job: JobRecord, roles: Responsibilities): FlowSection
     // Validation steps done by Chemistry (GC) keep their own group under the Chemistry team.
     if (stream === 'Chemical' && validation.length) groups.push(group({ id: 'lab:validation:Chemical', label: 'Validation · Chemistry', stream, kind: 'validation', steps: validation.map((a) => activityStep(a, roles, isAdditional(a))) }));
     const tests = list.filter((a) => a.kind !== 'validation').sort(sampleOrder);
-    if (tests.length) groups.push(group({ id: 'lab:tests:' + stream, label: stream + ' tests', stream, kind: 'tests', steps: tests.map((a) => activityStep(a, roles, isAdditional(a))) }));
+    if (tests.length) testGroups.push(group({ id: 'lab:tests:' + stream, label: stream + ' tests', stream, kind: 'tests', steps: tests.map((a) => activityStep(a, roles, isAdditional(a))) }));
   }
+  // Interim report: a tracked stage after Validation (in preparation during Validation QC, done when all of it is QC approved); the further-study tests follow it.
+  const interim = interimReport(job);
+  if (interim.state !== 'none') groups.push(group({ id: 'lab:interim', label: 'Interim report', kind: 'steps', steps: [{ id: 'lab:interim', label: 'Interim report', team: 'Laboratory',
+    ...(interim.state === 'completed' ? { state: 'completed', detail: 'Validation results reported', at: interim.at } : interim.state === 'in-progress' ? { state: 'in-progress', detail: 'In preparation while Validation is quality-checked' } : { state: 'not-started', detail: 'After Validation' }) } as FlowStep] }));
+  groups.push(...testGroups);
   const pendingScope = !o.scopeConfirmedAt;
   if (pendingScope) notes.push('Laboratory tests are selected per sample after the sampling report is approved.');
   else if (!required.length && !valScopes.length) notes.push('The released scope has no laboratory tests.');

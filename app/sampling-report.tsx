@@ -7,7 +7,7 @@ import { clientLogoSource } from './client-logo';
 
 /** Live records the report needs besides the saved job: company letterhead, client master and job titles. */
 export type ReportContext = { company: ReportCompany; clients: { code: string; name: string; shortName: string; logo?: string }[]; positionName: (employeeId?: string) => string; employeeName: (employeeId?: string) => string };
-type ReportJob = { jobNumber: string; clientCode?: string; clientName: string; fieldArea?: string; well?: string; rigInstallation?: string; dateReceived?: string; samplingSource?: string; otherSamplingType?: string };
+type ReportJob = { coordinationDetails?: { samplingPointSize?: string }; jobNumber: string; clientCode?: string; clientName: string; fieldArea?: string; well?: string; rigInstallation?: string; dateReceived?: string; samplingSource?: string; otherSamplingType?: string };
 type ReportSnapshot = Partial<{ samples: ReportSample[]; events: ReportEvent[]; source: string; jobNumber: string; clientName: string; well: string; fieldArea: string }>;
 const findClient = (job: ReportJob, ctx: ReportContext, clientName?: string) => ctx.clients.find(c => c.code === job.clientCode) || ctx.clients.find(c => [c.shortName, c.name].includes(clientName || job.clientName));
 
@@ -42,6 +42,7 @@ export function samplingReportInput(job: ReportJob, ctx: ReportContext, version:
     company: saved ? saved.company : ctx.company, field: snap.fieldArea ?? job.fieldArea, well: snap.well ?? job.well,
     installation: saved ? saved.installation : job.rigInstallation, jobDate: saved ? saved.jobDate : job.dateReceived,
     source: snap.source ?? job.samplingSource, otherSamplingType: saved ? saved.otherSamplingType : job.otherSamplingType, samples: snap.samples || [], events: snap.events || [],
+    samplingPointSize: job.coordinationDetails?.samplingPointSize || '',
     summary: version.summary, version: version.version, status: version.status, approved: version.approved,
     preparedBy, preparedAt: version.preparedAt, approvedBy, approvedAt: version.approved ? version.approvedAt : undefined,
     notice: version.approved && fromCurrent ? letterheadNotice : undefined,

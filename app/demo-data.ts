@@ -1,7 +1,7 @@
 // Example jobs for the published workflow demo. Every name, well and value here is fictional and marked DEMO.
 // Jobs are advanced with the real workflow commands, so each one is a state the app can reach on its own.
 import type { JobRecord } from './page';
-import { applyOperation, operationsFor, type Command } from './operations-model';
+import { applyOperation, dataReviewers, operationsFor, type Command } from './operations-model';
 import { initialDirectory } from './employee-directory';
 import { defaultAuthorization, defaultResponsibilities } from './authorization';
 import { cylinderCatalog } from './cylinder-catalog';
@@ -51,14 +51,15 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
  const demoTeams = demoConfiguration.teams;
  const run = (j: JobRecord, by: string, command: Command, at: string) => applyOperation(j, command, { id: by, employees, policy, roles: demoRoles, teams: demoTeams, routing: demoConfiguration.routing }, at);
  const workbook = (title: string, sampleId: string, v = 1) => storeFile(`DEMO ${title} ${sampleId} v${v}.csv`, `DEMO workbook,fictional data\nActivity,${title}\nSample,${sampleId}\nVersion,${v}\n`);
- /** Data submitted and reviewed first; the report is generated from approved data and approved separately. */
+ const gSheet = await storeFile('DEMO G-sheet.csv', 'DEMO G-sheet,fictional data\n');
+ /** The data review is confirmed first (backup engineer, or the accountable engineer on a job with no backup); the report then goes with its G-sheet file to the approver, whose approval publishes it. */
  const samplingReport = (j: JobRecord, engineer: string, tick: () => string, upTo: 'data-submitted' | 'report-approved') => {
-  j = run(j, engineer, { type: 'data-submit', note: 'DEMO data submitted for review.' }, tick());
+  // 'data-submitted': every data sheet is complete and the job waits for the data review.
   if (upTo === 'data-submitted') return j;
-  j = run(j, 'SALIM', { type: 'data-approve' }, tick());
-  j = run(j, engineer, { type: 'report-draft', kind: 'sampling', text: 'DEMO sampling report. Samples collected under stable flow; fictional values.', checker: '' }, tick());
-  j = run(j, engineer, { type: 'report-action', kind: 'sampling', action: 'checking', comments: '' }, tick());
-  j = run(j, 'SALIM', { type: 'report-action', kind: 'sampling', action: 'submit', comments: '' }, tick());
+  j = run(j, dataReviewers(j)[0], { type: 'data-review' }, tick());
+  const drafted = tick();
+  j = run(j, engineer, { type: 'report-draft', kind: 'sampling', text: 'DEMO sampling report. Samples collected under stable flow; fictional values.', checker: '', file: { ...gSheet, version: 1, submittedBy: engineer, submittedAt: drafted, status: 'Available', comments: '' } }, drafted);
+  j = run(j, engineer, { type: 'report-action', kind: 'sampling', action: 'submit', comments: '' }, tick());
   return run(j, 'SALIM', { type: 'report-action', kind: 'sampling', action: 'approve', comments: '' }, tick());
  };
  const conditions = (pressure: string, temperature: string) => ({ pressure, pressureUnit: 'psi', temperature, temperatureUnit: '°C', notes: 'DEMO reservoir conditions, fictional.' });
@@ -83,7 +84,7 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
   dueDate: addDays(day, 12) }, start, 2);
  j1 = run(j1, 'SALIM', { type: 'dispatch', engineer: 'MOHSIN', driver: 'ALI', team: ['HUSSEINI'] }, t());
 
- // 2 · Sampling data submitted, waiting for Salim's data review. Humaid is the driver (transport comes up after approval).
+ // 2 · Sampling data sheets complete, waiting for the data review. Humaid is the driver (transport comes up after approval).
  t = clock(4); start = t();
  const sep = { separatorPressure: '145', separatorTemperature: '44' };
  let j2 = job(2, { samplingSource: 'Separator Sampling', well: 'DEMO-SP-12', facility: 'DEMO Station A', separatorId: 'DEMO-SEP-1', separatorStage: '1st stage', separatorPressure: '145', separatorTemperature: '44', requiredTests: ['Gas Condensates (GC) — Validation', 'Gas Condensates (GC) — CVD'], assignedEngineerId: 'HUSSEINI', assignedDriverId: 'HUMAID',

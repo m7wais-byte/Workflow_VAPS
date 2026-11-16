@@ -54,7 +54,7 @@ test('estimates: calendar days counting the start day; two values give the third
 test('a newly created job with no scope shows its planned stages and "Laboratory scope awaiting confirmation"', () => {
   const draft = { ...byId['OM-X-26-001'], id: 'D-1', jobNumber: 'D-1', status: 'Draft', operations: undefined, samples: [] };
   const v = view(draft);
-  assert.deepEqual(v.stages.map(s => s.label), ['Job created', 'Sampling', 'Laboratory testing', 'Final report']);
+  assert.deepEqual(v.stages.map(s => s.label), ['Job created', 'Sampling', 'Laboratory testing', 'Final report', 'Client approval']);
   const lab = v.stages.find(s => s.id === 'lab');
   assert.equal(lab.planned, true); assert.equal(lab.note, 'Laboratory scope awaiting confirmation'); assert.equal(lab.rows.length, 0, 'no tests invented');
   assert.ok(v.rows.every(r => r.status === 'not-started'));
@@ -70,7 +70,7 @@ test('sampling job: saved sampling type label, location and stage status from th
   const s = row(v, 'Wellhead Sampling');
   assert.equal(s.group, 'sampling'); assert.equal(s.status, 'in-progress'); assert.match(s.detail, /DEMO-WH-07/);
   assert.equal(v.currentStage, 'Sampling');
-  assert.equal(row(view(byId['OM-X-26-002']), 'Separator Sampling').status, 'under-review', 'submitted sampling data awaiting review');
+  assert.equal(row(view(byId['OM-X-26-002']), 'Separator Sampling').status, 'in-progress', 'data sheets complete, waiting for the data review');
 });
 
 test('samples delivered to the laboratory show Sample receipt instead of Sampling', () => {
@@ -87,7 +87,12 @@ test('PVT-only, Chemical-only and combined scopes list exactly the selected test
   assert.ok(!pvt.rows.some(r => r.group === 'Chemical'));
   assert.deepEqual(chem.rows.filter(r => r.group === 'Chemical').map(r => r.label), ['Water Analysis — Sample 1.01', 'Compositional Analysis — Sample 1.01']);
   assert.ok(!chem.rows.some(r => r.group === 'PVT'));
-  assert.deepEqual([...new Set(both.rows.map(r => r.group))], ['sampling', 'PVT', 'Chemical', 'report']);
+  assert.deepEqual([...new Set(both.rows.map(r => r.group))], ['sampling', 'PVT', 'Chemical', 'interim', 'report', 'client']);
+  // A job with Validation is tracked as Validation → Interim report → Further studies → Final report.
+  assert.deepEqual(both.stages.map(s => s.id), ['created', 'sampling', 'validation', 'interim', 'lab', 'report', 'client']);
+  assert.equal(both.stages.find(s => s.id === 'lab').label, 'Further studies');
+  const interim = both.rows.find(r => r.key === 'interim'); assert.equal(interim.label, 'Interim report'); assert.ok(['not-started', 'in-progress', 'completed'].includes(interim.status));
+  assert.ok(!chem.stages.some(s => s.id === 'interim'), 'a job with no Validation has no interim report stage');
   const keys = both.rows.map(r => r.key); assert.equal(new Set(keys).size, keys.length, 'no duplicate rows');
 });
 
@@ -123,11 +128,16 @@ test('completed job: every activity completed with actual dates and the report i
   const extra = new Set(o.scope.filter(s => s.source === 'Additional work').map(s => s.id));
   o.scope = o.scope.filter(s => !extra.has(s.id)); o.activities = o.activities.filter(a => !extra.has(a.scopeId)); o.additions = [];
   o.finalReports = o.finalReports.filter(r => r.status === 'Approved');
-  const v = view({ ...j4, operations: o, status: 'Completed' });
-  assert.equal(v.closed, true); assert.equal(v.currentStage, 'Completed');
+  // Final report issued: the work is done, but the samples are kept until the client approves and instructs disposal.
+  const w = view({ ...j4, operations: o, status: 'Completed' });
+  assert.equal(w.closed, true); assert.equal(w.currentStage, 'Client approval'); assert.equal(w.stages.at(-1).id, 'client'); assert.equal(w.stages.at(-1).status, 'in-progress');
+  assert.match(w.now, /waiting for client approval/); assert.match(w.sentence, /Waiting for client approval of the final report and the sample disposal instruction/);
+  assert.equal(w.done, w.total - 1); assert.equal(w.expected.date, o.finalReports.at(-1).approvedAt.slice(0, 10), 'the report delivery date is unchanged');
+  const v = view({ ...j4, operations: { ...o, clientDisposal: { by: 'SALIM', at: '2026-11-20T08:00:00.000Z' } }, status: 'Completed' });
+  assert.equal(v.closed, true); assert.equal(v.currentStage, 'Completed'); assert.equal(v.stages.at(-1).status, 'completed');
   assert.ok(v.rows.every(r => r.status === 'completed' && r.actual));
   assert.equal(v.expected.kind, 'actual'); assert.equal(v.expected.date, o.finalReports.at(-1).approvedAt.slice(0, 10));
-  assert.equal(v.done, v.total); assert.match(v.sentence, /All planned work is completed/);
+  assert.equal(v.done, v.total); assert.match(v.sentence, /All planned work is completed/); assert.doesNotMatch(v.sentence, /Waiting for client/);
 });
 
 test('missing estimates read "To be confirmed"; the client view never uses internal team dates', () => {
