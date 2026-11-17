@@ -661,7 +661,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   if(command.owner!==a.owner&&['Workbook Submitted','Awaiting QC','QC Returned'].includes(a.status))throw Error('This test is under review. Finish the review before reassigning it.');
   if(command.equipment!==undefined&&command.equipment!==(a.equipment||'')){
    if(a.stream!=='PVT')throw Error('Equipment is assigned to PVT tests only.');
-   if(command.equipment&&!equipmentOf(command.equipment))throw Error('Select equipment from the laboratory equipment list.');
+   if(command.equipment&&!equipmentOf(command.equipment)?.active)throw Error('Select equipment from the laboratory equipment list.');
   }
   reason=`${a.owner||'Unassigned'} → ${command.owner}; ${a.start||'unscheduled'}–${a.due||''} → ${command.start}–${command.due}${command.equipment!==undefined&&command.equipment!==(a.equipment||'')?`; equipment ${equipmentName(a.equipment)} → ${equipmentName(command.equipment)}`:''}`;
   if(command.owner!==a.owner)(a.history||(a.history=[])).push({at:now,by:actor.id,action:a.owner?'reassigned':'assigned',from:a.owner||undefined,to:command.owner,comments:command.notes});
