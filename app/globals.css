@@ -3904,3 +3904,19 @@ button.wb-cell { cursor:pointer; } button.wb-cell:hover { background:rgba(11,136
   .wb,.wb * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
 }
 .ops-panel .equip-field { display:flex; flex-direction:column; gap:7px; font-size:13px; font-weight:600; margin:12px 0; min-width:0; }
+
+/* Settings · laboratory equipment */
+.equip-add,.equip-list li { display:grid; grid-template-columns:44px minmax(160px,1fr) minmax(110px,180px) 110px; gap:10px; align-items:center; }
+.equip-add { grid-template-columns:44px minmax(160px,1fr) auto; margin-bottom:12px; }
+.equip-add .outline-button { display:inline-flex; align-items:center; gap:6px; margin:0; white-space:nowrap; }
+.equip-settings label { margin:0; }
+.equip-settings .equip-color { display:block; position:relative; width:44px; height:38px; border:1px solid rgba(16,44,59,.25); border-radius:7px; cursor:pointer; overflow:hidden; }
+.equip-settings .equip-color input { position:absolute; inset:0; width:100%; height:100%; min-height:0; padding:0; border:0; opacity:0; cursor:pointer; }
+.equip-settings .equip-color:focus-within { outline:2px solid var(--teal); outline-offset:2px; }
+.equip-name input { width:100%; }
+.equip-list { list-style:none; margin:0 0 10px; padding:0; border:1px solid var(--line); border-radius:7px; }
+.equip-list li { padding:8px 12px; border-bottom:1px solid #e8eef0; } .equip-list li:last-child { border-bottom:0; }
+.equip-list li.is-inactive { background:#f6f8f9; } .equip-list li.is-inactive .equip-preview { opacity:.45; }
+.equip-preview { border-radius:4px; padding:5px 8px; font-size:12px; font-weight:650; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.equip-list .text-button { justify-self:end; white-space:nowrap; }
+@media(max-width:640px){ .equip-list li { grid-template-columns:44px 1fr; } .equip-list .equip-preview { display:none; } .equip-list .text-button { grid-column:2; justify-self:start; } .equip-add { grid-template-columns:44px 1fr; } .equip-add .outline-button { grid-column:1 / -1; justify-content:center; } }

@@ -35,6 +35,7 @@ const p2=(j,samples,reason='')=>step(j,{type:'lab-scope',action:'release',reason
 const released=j=>operationsFor(j).labScopes.filter(v=>v.status==='Released').at(-1);
 const strip=s=>{const y={...s};delete y.containerType;delete y.containerLabel;return y;};
 
+const eq=await bundle('app/lab-equipment.ts');const modelFresh=await bundle('app/operations-model.ts');
 const {weeklyBoard,equipmentClashes,weekStart,isWeekend,reportDate}=await bundle('app/weekly-board.ts');
 const {jobProgressView,clientProgress}=await bundle('app/job-progress.ts');
 const scoped=()=>p1(approved(),[e('1.01',{fluidType:'Black Oil',validation:true,validationSteps:['Opening Pressure','Restoration','GC']}),e('1.02',{fluidType:'STO',destination:'Chemical'}),e('1.03',{fluidType:'Black Oil',validation:true,validationSteps:['Opening Pressure']})]);
@@ -86,4 +87,31 @@ test('report date: one date for the weekly plan (R) and the client view',()=>{
  const client=clientProgress(jobProgressView(j,{roles,employees,today,audience:'client'}));
  assert.equal(client.expected.date,'2026-11-12','the client sees the same report date');
  assert.equal(weeklyBoard([{job:j,closed:false}],'2026-11-15').reports.length,0);
+});
+
+test('equipment list is editable: add, rename, recolour and deactivate; ids are permanent and inactive items stay readable',()=>{
+ store.delete('vaps-lab-equipment-v1');
+ let list=eq.readEquipment(null);assert.equal(list.length,8);
+ list=eq.addEquipment(list,'  BO  Sys-9 ','#112233');assert.deepEqual(list.at(-1),{id:'bo-sys-9',name:'BO Sys-9',color:'#112233',active:true});
+ assert.throws(()=>eq.addEquipment(list,'bo sys-9','#112233'),/already in the list/);assert.throws(()=>eq.addEquipment(list,' ','#112233'),/name/);assert.throws(()=>eq.addEquipment(list,'X','red'),/colour/);
+ list=eq.updateEquipment(list,'bo-sys-9',{name:'BO Sys-9A',color:'#FFFFFF'});assert.deepEqual([list.at(-1).id,list.at(-1).name,list.at(-1).color],['bo-sys-9','BO Sys-9A','#ffffff']);
+ assert.equal(eq.textOn('#ffffff'),'#1d2a30');assert.equal(eq.textOn('#102c3b'),'#fff');
+ list=eq.updateEquipment(list,'bo-sys-7',{active:false});
+ store.set('vaps-lab-equipment-v1',JSON.stringify(list));
+ assert.ok(!eq.activeEquipment().some(q=>q.id==='bo-sys-7'));assert.equal(eq.equipmentName('bo-sys-7'),'BO Sys-7','still readable on tests that use it');
+ assert.throws(()=>eq.readEquipment('{"a":1}'));assert.throws(()=>eq.readEquipment(JSON.stringify([{id:'a',name:'A',color:'blue'}])));
+ store.set('vaps-lab-equipment-v1','not json');assert.equal(eq.storedEquipment().length,8,'unreadable data falls back to the built-in list');
+ store.delete('vaps-lab-equipment-v1');
+});
+
+test('a deactivated or new equipment item is respected when assigning',()=>{
+ let j=scoped();const a=acts(j).find(x=>x.stream==='PVT');
+ const list=eq.updateEquipment(eq.addEquipment(eq.readEquipment(null),'BO Sys-9','#112233'),'bo-sys-7',{active:false});
+ store.set('vaps-lab-equipment-v1',JSON.stringify(list));
+ try{
+  const {applyOperation:apply}=modelFresh;
+  assert.throws(()=>apply(j,{type:'schedule',id:a.id,owner:'NASSER',start:'2026-11-02',due:'2026-11-04',conditions:'',notes:'',equipment:'bo-sys-7'},actor('SHEREIQI'),at()),/equipment list/);
+  const k=apply(j,{type:'schedule',id:a.id,owner:'NASSER',start:'2026-11-02',due:'2026-11-04',conditions:'',notes:'',equipment:'bo-sys-9'},actor('SHEREIQI'),at());
+  assert.equal(k.operations.activities.find(x=>x.id===a.id).equipment,'bo-sys-9');
+ }finally{store.delete('vaps-lab-equipment-v1');}
 });

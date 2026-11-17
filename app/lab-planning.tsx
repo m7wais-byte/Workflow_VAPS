@@ -11,14 +11,14 @@ import { operationsFor, holder, hasAccess, validationCatalogue, selectableValida
 import { DateInput, ukDate } from "./uk-date";
 import { teamName } from './team-name';
 import { validationStream } from './lab-work';
-import { labEquipment, equipmentOf } from './lab-equipment';
+import { activeEquipment, equipmentOf } from './lab-equipment';
 import { equipmentClashes } from './weekly-board';
 import { formatRange } from './schedule-overlap';
 import { AlertTriangle } from 'lucide-react';
 
 /** Equipment picker for one PVT test, with its weekly-plan colour beside it. */
 export function EquipmentSelect({ value, onChange, label, disabled, blank = 'Select equipment' }: { value: string; onChange: (id: string) => void; label: string; disabled?: boolean; blank?: string }) {
-  return <span className="equip-select">{equipmentOf(value) && <i className="equip-dot" style={{ background: equipmentOf(value)!.color }} aria-hidden="true" />}<select aria-label={label} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)}><option value="">{blank}</option>{labEquipment.map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}</select></span>;
+  return <span className="equip-select">{equipmentOf(value) && <i className="equip-dot" style={{ background: equipmentOf(value)!.color }} aria-hidden="true" />}<select aria-label={label} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)}><option value="">{blank}</option>{activeEquipment().map((q) => <option key={q.id} value={q.id}>{q.name}</option>)}{value && !activeEquipment().some((q) => q.id === value) && equipmentOf(value) && <option value={value}>{equipmentOf(value)!.name} (inactive)</option>}</select></span>;
 }
 /** Advisory only: other open PVT tests already planned on this equipment in the same dates. Never blocks the assignment. */
 export function EquipmentNotice({ jobs, equipment, start, end, jobId, sampleId }: { jobs?: JobRecord[]; equipment: string; start: string; end: string; jobId: string; sampleId: string }) {

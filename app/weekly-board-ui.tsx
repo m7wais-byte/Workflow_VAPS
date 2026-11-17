@@ -10,7 +10,7 @@ import type { DashboardJob } from './company-dashboard';
 import { addDays } from './local-date';
 import { formatDay, formatRange } from './schedule-overlap';
 import { durationOf } from './schedule-estimate';
-import { labEquipment, equipmentOf, noEquipment } from './lab-equipment';
+import { activeEquipment, equipmentOf, noEquipment } from './lab-equipment';
 import { weeklyBoard, weekStart, isWeekend, boardDays, type BoardBar, type BoardRow, type BoardActivity } from './weekly-board';
 
 const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -93,7 +93,7 @@ export function WeeklyBoard({ jobs, today, name }: { jobs: DashboardJob[]; today
           </div></div>)}</div></div>}
     </div></div>
     {empty && <div className="empty-state" role="status"><strong>{term ? 'Nothing in the plan matches this search.' : 'No PVT tests or report dates planned in these two weeks.'}</strong><span>Tests appear here as soon as the PVT Team Lead assigns them with dates.</span></div>}
-    <div className="wb-legend" aria-label="Equipment colours"><strong>Resources</strong>{labEquipment.map((q) => <span key={q.id}><i style={{ background: q.color }} aria-hidden />{q.name}</span>)}<span><i className="is-open" aria-hidden />Equipment not assigned</span><span><b className="wb-r is-key" aria-hidden>R</b>Report submission</span></div>
+    <div className="wb-legend" aria-label="Equipment colours"><strong>Resources</strong>{activeEquipment().map((q) => <span key={q.id}><i style={{ background: q.color }} aria-hidden />{q.name}</span>)}<span><i className="is-open" aria-hidden />Equipment not assigned</span><span><b className="wb-r is-key" aria-hidden>R</b>Report submission</span></div>
     {summary && <div className="wb-summary" role="dialog" aria-label={summary.title} ref={card} style={{ left: summary.x, top: summary.y }}>
       <header><div><strong>{summary.title}</strong><span>{summary.sub}</span></div><button type="button" className="icon-remove" aria-label="Close summary" onClick={() => setSummary(null)}><X size={16} aria-hidden /></button></header>
       {summary.body}
