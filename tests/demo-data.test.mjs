@@ -54,14 +54,14 @@ test('demo jobs show assigned work, review, returns, QC, new scope alerts and co
  assert.ok(work('HUSSEINI').actions.some(i => /^Confirm the sampling data review/.test(i.action)), 'no backup on the job: the accountable engineer confirms the review');
  assert.ok(work('SHEREIQI').actions.some(i => /^Review workbook/.test(i.action)), 'team lead review');
  assert.ok(work('RANJITH').actions.some(i => i.kind === 'returned'), 'returned work');
- assert.ok(work('AHAD').actions.some(i => i.area === 'QC'), 'QC review');
+ assert.ok(work('WILFRED').actions.some(i => i.area === 'QC'), 'QC review');
  assert.ok(work('YAQEEN').actions.some(i => i.stream === 'Chemical'), 'Chemical work');
  assert.deepEqual(work('BAHRI').alerts.map(a => [a.jobNumber, a.headline]), [['OM-X-26-005', 'New Chemistry scope added'], ['OM-X-26-001', 'Job in sampling · DEMO'], ['OM-X-26-002', 'Job in sampling · DEMO']]);
  assert.ok(work('SHEREIQI').alerts.some(a => a.headline === 'Validation added' && a.jobNumber === 'OM-X-26-004'));
  assert.ok(work('NASSER').alerts.some(a => a.kind === 'assignment' && a.jobNumber === 'OM-X-26-006'));
  assert.equal(work('HUMAID').actions.length + work('HUMAID').upcoming.length, 0, 'no sample handover step for the driver');
  assert.ok(work('WILFRED').upcoming.some(u => u.role === 'Final report approval'), 'approver sees approvals coming up, without an approve button');
- assert.equal(work('WILFRED').actions.length, 0);
+ assert.ok(work('WILFRED').actions.every(i => i.area === 'QC'), 'Wilfred acts only on QC reviews; final approval stays coming up');
 });
 test('every referenced workbook and report file was stored', () => {
  const refs = jobs.flatMap(j => [...(j.operations?.activities.flatMap(a => a.files.map(f => f.id)) || []), ...(j.operations?.finalReports.map(r => r.file?.id).filter(Boolean) || [])]);

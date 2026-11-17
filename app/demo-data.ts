@@ -13,11 +13,11 @@ export const demoClient = { code: 'X', shortName: 'DEMO', name: 'DEMO Operator (
 export const demoLogin = { id: 'MA001', password: '1234' };
 /**
  * The labelled demo setup: fictional duties, team membership and test routing used only while the demo is on.
- * Stored separately from Settings (see demo-setup.ts) so a real configuration is never overwritten. QC reviewer Ahad
- * is not a team member, so no one QC-reviews their own work; demo assignments only use members of the matching team.
+ * Stored separately from Settings (see demo-setup.ts) so a real configuration is never overwritten. QC reviewer Wilfred
+ * is not a lab team member, so no one QC-reviews their own work; demo assignments only use members of the matching team.
  */
 export const demoConfiguration = {
- roles: { scopeSelector: 'SALIM', samplingApproval: 'SALIM', pvtSupervisor: 'WILFRED', pvtTeamLead: 'SHEREIQI', chemicalTeamLead: 'BAHRI', reporting: 'SHEREIQI', finalApproval: 'WILFRED', qcReviewer: 'AHAD' } as Record<string, string>,
+ roles: { scopeSelector: 'SALIM', samplingApproval: 'SALIM', pvtSupervisor: 'WILFRED', pvtTeamLead: 'SHEREIQI', chemicalTeamLead: 'BAHRI', reporting: 'SHEREIQI', finalApproval: 'WILFRED', qcReviewer: 'WILFRED' } as Record<string, string>,
  teams: { PVT: ['NASSER', 'RANJITH'], Chemical: ['YAQEEN'] },
  routing: Object.fromEntries([...['Validation', 'Recombination', 'DL', 'Sep Test', 'Viscosity'].map(t => ['Black Oil — ' + t, 'PVT']), ...['Validation', 'Recombination', 'Cryo', 'CCE', 'CVD', 'Sep Test'].map(t => ['Gas Condensates (GC) — ' + t, 'PVT']), ['Others — Water Analysis', 'Chemical'], ['Others — Compositional Analysis', 'Chemical']]) as Record<string, 'PVT' | 'Chemical' | 'Both'>,
 };
@@ -73,7 +73,7 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
   const a = acts(j).find(x => x.id === id)!;
   j = run(j, a.owner, { type: 'workbook', id, file: await workbook(a.title, a.sampleId), notes: 'Workbook submitted.' }, tick());
   j = run(j, a.stream === 'PVT' ? 'SHEREIQI' : 'BAHRI', { type: 'lead-review', id, decision: 'approve', target: '', comments: '' }, tick());
-  return run(j, 'AHAD', { type: 'qc-review', id, decision: 'approve', target: '', comments: '' }, tick());
+  return run(j, 'WILFRED', { type: 'qc-review', id, decision: 'approve', target: '', comments: '' }, tick());
  }
 
  // 1 · Sampling in progress: dispatched to Mohsin (accountable) with Ahmed Al Husseini supporting; one of two sheets complete.
