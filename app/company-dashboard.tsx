@@ -8,12 +8,14 @@ import { Search, SearchX } from 'lucide-react';
 import type { JobRecord } from './page';
 import { flowOverdue, type JobFlow } from './job-flow';
 import { MiniTracker, OverdueBadge, StatusBadge, shortDate } from './flow-ui';
+import { WeeklyBoard } from './weekly-board-ui';
 
 export type DashboardJob = { job: JobRecord; flow: JobFlow };
 const location = (j: JobRecord) => [j.fieldArea, j.wellMode === 'multiple' ? (j.wells || []).filter(Boolean).join(', ') : j.well, j.facility || j.rigInstallation].filter(Boolean).join(' · ');
 type StatusFilter = '' | 'attention' | 'overdue' | 'in-progress' | 'additional';
 
-export function CompanyDashboard({ jobs, today, canActivity, onActivity }: { jobs: DashboardJob[]; today: string; canActivity: boolean; onActivity: () => void }) {
+export function CompanyDashboard({ jobs, today, canActivity, onActivity, name }: { jobs: DashboardJob[]; today: string; canActivity: boolean; onActivity: () => void; name: (id?: string) => string }) {
+  const [tab, setTab] = useState<'jobs' | 'weekly'>('jobs');
   const [search, setSearch] = useState(''), [client, setClient] = useState(''), [stage, setStage] = useState(''), [status, setStatus] = useState<StatusFilter>(''), [completed, setCompleted] = useState(false);
   const base = useMemo(() => jobs.filter((r) => !r.flow.draft && (completed || !r.flow.closed)), [jobs, completed]);
   const clients = [...new Set(base.map((r) => r.job.clientName))].sort();
@@ -36,6 +38,8 @@ export function CompanyDashboard({ jobs, today, canActivity, onActivity }: { job
 
   return <div className="company-dashboard">
     <header className="page-head"><div><span className="eyebrow">COMPANY OVERVIEW · READ-ONLY</span><h1>Dashboard</h1><p>Where every active job stands. Open your own tasks from <a href="#my-work">My work</a>.</p></div>{canActivity && <button type="button" className="outline-button" onClick={onActivity}>Activity log</button>}</header>
+    <div className="segmented dash-tabs" role="tablist" aria-label="Dashboard view"><button type="button" role="tab" aria-selected={tab === 'jobs'} className={tab === 'jobs' ? 'active' : ''} onClick={() => setTab('jobs')}>Jobs overview</button><button type="button" role="tab" aria-selected={tab === 'weekly'} className={tab === 'weekly' ? 'active' : ''} onClick={() => setTab('weekly')}>Weekly plan</button></div>
+    {tab === 'weekly' ? <><WeeklyBoard jobs={jobs} today={today} name={name} /><p className="dash-foot">Read-only. PVT tests, equipment and dates come from the PVT Team Lead’s assignments; “R” is the report submission date shown to the client.</p></> : <>
     <dl className="dash-counts" aria-label="Summary">
       <div><dt>Active jobs</dt><dd>{counts.active}</dd></div>
       <div className={counts.attention ? 'is-alert' : ''}><dt>Need attention</dt><dd>{counts.attention}</dd><small>Correction needed or blocked</small></div>
@@ -63,6 +67,6 @@ export function CompanyDashboard({ jobs, today, canActivity, onActivity }: { job
         </tr>; })}</tbody>
       </table> : <div className="empty-state" role="status">{filtered ? <><SearchX size={22} aria-hidden /><strong>No jobs match these filters.</strong><button type="button" className="text-button" onClick={reset}>Clear filters</button></> : <><strong>No active jobs.</strong><span>Jobs appear here once they are sent to Sampling.</span></>}</div>}
     </section>
-    <p className="dash-foot">Read-only. Status is calculated from the saved workflow records, the same way as inside each job and in My work.</p>
+    <p className="dash-foot">Read-only. Status is calculated from the saved workflow records, the same way as inside each job and in My work.</p></>}
   </div>;
 }

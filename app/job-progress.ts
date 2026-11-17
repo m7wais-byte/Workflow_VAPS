@@ -109,7 +109,9 @@ export function jobProgressView(job: JobRecord, opts: Options): ProgressView {
 
   const scheduleFor = (key: string, team?: { start?: string; finish?: string }): RowSchedule | undefined => {
     const e: ScheduleEstimate | undefined = plan[key];
-    if (e && (!client || e.clientVisible)) return { start: e.start, days: e.days, finish: e.finish, source: 'plan', clientVisible: e.clientVisible };
+    // The final report date is one date for everyone: the client view and the weekly plan ("R") always show it.
+    const shared = !!e && (e.clientVisible || key === 'report');
+    if (e && (!client || shared)) return { start: e.start, days: e.days, finish: e.finish, source: 'plan', clientVisible: shared };
     if (!client && team && (team.start || team.finish)) return { start: team.start, finish: team.finish, days: team.start && team.finish && team.finish >= team.start ? durationOf(team.start, team.finish) : undefined, source: 'team', clientVisible: false };
     return undefined;
   };

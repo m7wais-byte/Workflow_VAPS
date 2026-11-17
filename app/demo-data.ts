@@ -67,7 +67,7 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
  const release = (j: JobRecord, entries: Entry[], cond: ReturnType<typeof conditions>, tick: () => string) => run(j, 'SALIM', { type: 'lab-scope', action: 'release', reason: '', conditions: cond, samples: entries.map(e => ({ fluidType: 'Black Oil' as const, ...e, notes: '', excluded: false, exclusionReason: '' })) }, tick());
  const acts = (j: JobRecord) => j.operations!.activities;
  const find = (j: JobRecord, sampleId: string, title: string, stream: 'PVT' | 'Chemical' = 'PVT') => acts(j).find(a => a.sampleId === sampleId && a.title === title && a.stream === stream)!;
- const assign = (j: JobRecord, id: string, owner: string, start: number, due: number, tick: () => string, notes = 'DEMO instructions: follow the laboratory procedure for this test.') => { const a = acts(j).find(x => x.id === id)!; return run(j, a.stream === 'PVT' ? 'SHEREIQI' : 'BAHRI', { type: 'schedule', id, owner, start: addDays(day, start), due: addDays(day, due), conditions: a.conditions, notes }, tick()); };
+ const assign = (j: JobRecord, id: string, owner: string, start: number, due: number, tick: () => string, notes = 'DEMO instructions: follow the laboratory procedure for this test.', equipment?: string) => { const a = acts(j).find(x => x.id === id)!; return run(j, a.stream === 'PVT' ? 'SHEREIQI' : 'BAHRI', { type: 'schedule', id, owner, start: addDays(day, start), due: addDays(day, due), conditions: a.conditions, notes, ...(equipment && a.stream === 'PVT' ? { equipment } : {}) }, tick()); };
  /** Workbook submitted, team-lead approved and QC approved. */
  async function complete(j: JobRecord, id: string, tick: () => string) {
   const a = acts(j).find(x => x.id === id)!;
@@ -106,9 +106,9 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
  // Validation requested per sample; Ahmed (PVT Team Lead) chooses the steps for each sample (here the bottom-hole sequence).
  for (const r of operationsFor(j3).scope.filter(r => r.validationRequest)) j3 = run(j3, 'SHEREIQI', { type: 'validation-plan', scopeId: r.id, steps: ['Sample Transfer', 'Opening Pressure', 'Restoration', 'Water Check', 'Agitation', 'Charging', 'Flash', 'PV', 'Direct Density'].map(title => ({ title })) }, t());
  const v1 = acts(j3).filter(a => a.kind === 'validation' && a.sampleId === '1.01'), v2 = acts(j3).filter(a => a.kind === 'validation' && a.sampleId === '1.02');
- for (const [i, a] of v1.entries()) j3 = assign(j3, a.id, 'NASSER', -6 + i, -4 + i, t);
- for (const [i, a] of v2.entries()) j3 = assign(j3, a.id, 'RANJITH', -5 + i, -3 + i, t);
- j3 = assign(j3, find(j3, '1.01', 'Black Oil — DL').id, 'NASSER', 3, 6, t);
+ for (const [i, a] of v1.entries()) j3 = assign(j3, a.id, 'NASSER', -6 + i, -4 + i, t, undefined, 'bo-vaps-1');
+ for (const [i, a] of v2.entries()) j3 = assign(j3, a.id, 'RANJITH', -5 + i, -3 + i, t, undefined, 'bo-vaps-2');
+ j3 = assign(j3, find(j3, '1.01', 'Black Oil — DL').id, 'NASSER', 3, 6, t, undefined, 'bo-sys-7');
  j3 = assign(j3, find(j3, '1.02', 'Others — Water Analysis', 'Chemical').id, 'YAQEEN', -1, 2, t);
  for (const a of v1.slice(0, 5)) j3 = await complete(j3, a.id, t);
  j3 = run(j3, 'NASSER', { type: 'workbook', id: v1[5].id, file: await workbook(v1[5].title, '1.01'), notes: 'Charging complete.' }, t());
@@ -128,7 +128,7 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
  j4 = run(j4, 'SALIM', { type: 'dispatch', engineer: 'HUSSEINI', driver: 'ALI' }, t());
  j4 = samplingReport(j4, 'HUSSEINI', t, 'report-approved');
  j4 = release(j4, [{ sampleId: '1.01', destination: 'Both', pvtTests: ['Black Oil — DL'], chemicalTests: ['Others — Water Analysis'] }], conditions('2480', '78'), t);
- j4 = assign(j4, find(j4, '1.01', 'Black Oil — DL').id, 'NASSER', -15, -12, t);
+ j4 = assign(j4, find(j4, '1.01', 'Black Oil — DL').id, 'NASSER', -15, -12, t, undefined, 'bo-sys-16');
  j4 = assign(j4, find(j4, '1.01', 'Others — Water Analysis', 'Chemical').id, 'YAQEEN', -15, -12, t);
  for (const a of acts(j4)) j4 = await complete(j4, a.id, t);
  const finalFile = await storeFile('DEMO Final Report.pdf', 'DEMO final report placeholder. Fictional data.');
@@ -157,7 +157,7 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
  j6 = samplingReport(j6, 'MOHSIN', t, 'report-approved');
  const t6 = clock(0);
  j6 = release(j6, [{ sampleId: '1.01', destination: 'PVT', fluidType: 'Gas Condensate', pvtTests: ['Gas Condensates (GC) — CVD'], chemicalTests: [] }, { sampleId: '1.02', destination: 'PVT', fluidType: 'Gas Condensate', pvtTests: ['Gas Condensates (GC) — CCE'], chemicalTests: [] }], conditions('', ''), t6);
- j6 = assign(j6, find(j6, '1.01', 'Gas Condensates (GC) — CVD').id, 'NASSER', 0, 3, t6, 'DEMO: run CVD at reservoir temperature; report liquid dropout per stage.');
+ j6 = assign(j6, find(j6, '1.01', 'Gas Condensates (GC) — CVD').id, 'NASSER', 0, 3, t6, 'DEMO: run CVD at reservoir temperature; report liquid dropout per stage.', 'san-gc');
 
  return [j6, j5, j4, j3, j2, j1];
 }

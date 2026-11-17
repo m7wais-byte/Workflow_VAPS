@@ -26,7 +26,8 @@ function OverdueFlag({ finish, today }: { finish: string; today: string }) {
 function EstimateEditor({ row, onSave, onClose }: { row: ProgressRow; onSave: (input: EstimateInput & { clientVisible: boolean }) => string | undefined; onClose: () => void }) {
   const plan = row.schedule?.source === 'plan' ? row.schedule : undefined;
   const [start, setStart] = useState(plan?.start || ''), [days, setDays] = useState(plan?.days ? String(plan.days) : ''), [finish, setFinish] = useState(plan?.finish || '');
-  const [visible, setVisible] = useState(plan ? plan.clientVisible : false), [error, setError] = useState('');
+  const isReport = row.key === 'report';
+  const [visible, setVisible] = useState(isReport || (plan ? plan.clientVisible : false)), [error, setError] = useState('');
   const team = row.schedule?.source === 'team' ? row.schedule : undefined;
   const submit = (clear = false) => { const result = onSave(clear ? { start: '', days: '', finish: '', clientVisible: false } : { start, days, finish, clientVisible: visible }); if (result) setError(result); else onClose(); };
   return <form className="pg-editor" onSubmit={(e) => { e.preventDefault(); submit(); }}>
@@ -36,7 +37,8 @@ function EstimateEditor({ row, onSave, onClose }: { row: ProgressRow; onSave: (i
       <label>Expected duration (calendar days)<input inputMode="numeric" pattern="[0-9]*" min={1} value={days} onChange={(e) => setDays(e.target.value)} placeholder="e.g. 5" /></label>
       <label>Expected completion<DateInput value={finish} onChange={(e) => setFinish(e.target.value)} /></label>
     </div>
-    <label className="pg-check"><input type="checkbox" checked={visible} onChange={(e) => setVisible(e.target.checked)} /> Show this estimate in the client progress view</label>
+    {isReport ? <p className="pg-editor-help">The expected completion is the report submission date. It is shown to the client and as “R” on the weekly plan.</p>
+      : <label className="pg-check"><input type="checkbox" checked={visible} onChange={(e) => setVisible(e.target.checked)} /> Show this estimate in the client progress view</label>}
     {team && <p className="pg-editor-help">Team plan (internal): {team.start ? shortDate(team.start) : '—'} to {team.finish ? shortDate(team.finish) : '—'}. <button type="button" className="text-button" onClick={() => { setStart(team.start || ''); setFinish(team.finish || ''); setDays(''); }}>Use these dates</button></p>}
     {error && <p className="ops-error" role="alert">{error}</p>}
     <div className="panel-actions"><button className="primary-button" type="submit">Save estimate</button>{plan && <button className="outline-button" type="button" onClick={() => submit(true)}>Clear estimate</button>}<button className="text-button" type="button" onClick={onClose}>Cancel</button></div>
@@ -80,7 +82,7 @@ export function ProgressBody({ view, today, canPlan, onSave }: { view: ProgressV
         {st.note && <em>{st.note}</em>}
       </li>)}
     </ol>
-    <dl className="pgx-glance">{glance.filter(([k]) => !(client && k === 'report')).map(([k, label, value]) => { const Icon = glanceIcon[k]; return <div key={k} className={'pgx-glance-' + k}><dt><Icon size={15} aria-hidden /> {label}</dt><dd>{value}</dd></div>; })}</dl>
+    <dl className="pgx-glance">{glance.map(([k, label, value]) => { const Icon = glanceIcon[k]; return <div key={k} className={'pgx-glance-' + k}><dt><Icon size={15} aria-hidden /> {label}</dt><dd>{value}</dd></div>; })}</dl>
     <div className="pgx-activities">
       <h3>Activities by stage</h3>
       {sections.map((stage) => {
