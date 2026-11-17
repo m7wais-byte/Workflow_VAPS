@@ -1697,7 +1697,6 @@ export default function Home() {
     const errors: string[] = coordinationErrors();
     if (!samplingType) errors.push("Select a Sampling Source / Method.");
     if ((isCasedHoleSampling(samplingType) || samplingType === "Wellhead Sampling") && !job.well.trim()) errors.push("Well is required for this sampling source.");
-    if (samplingType === "Separator Sampling" && !job.separatorId.trim()) errors.push("Separator Name / ID is required for Separator Sampling.");
     if (errors.length) {
       setPreparationError(errors);
       window.scrollTo({ top: 0, behavior: "smooth" });
