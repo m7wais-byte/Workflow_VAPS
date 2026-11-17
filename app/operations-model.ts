@@ -11,6 +11,7 @@ import { backupCylinders } from './cylinder-status';
 import type { LabTeams } from './lab-teams';
 import { needsReview, type StoredFluidType } from './scope-catalogue';
 import { normalizeEstimate, estimateKeyPattern, type ScheduleEstimate } from './schedule-estimate';
+import { equipmentOf, equipmentName } from './lab-equipment';
 import { teamName } from './team-name';
 export type Stream = 'PVT' | 'Chemical';
 /** Team lead who plans, assigns and reviews each laboratory workstream. */
@@ -19,7 +20,7 @@ export const streamLead = (stream:Stream):Responsibility=>stream==='PVT'?'pvtTea
 export type WorkState = 'Unassigned' | 'Scheduled' | 'In Progress' | 'Workbook Submitted' | 'Changes Requested' | 'Awaiting QC' | 'QC Returned' | 'Completed';
 export type FileVersion = { id:string; name:string; size:number; type:string; version:number; submittedBy:string; submittedAt:string; status:'Available'|'Changes Requested'; comments:string; /** Sheet, section or attachment reference named in a return. */target?:string; leadApprovedBy?:string; leadApprovedAt?:string; qcApprovedBy?:string; qcApprovedAt?:string; qcReturnedBy?:string; qcReturnedAt?:string; qcComments?:string };
 export type ActivityEvent = { at:string; by:string; action:'assigned'|'reassigned'|'update'|'submitted'|'lead-approved'|'lead-returned'|'qc-approved'|'qc-returned'|'dispatched'|'results-received'|'planned'; version?:number; target?:string; comments?:string; from?:string; to?:string };
-export type ActivityRecord = { id:string; scopeId:string; /** Shared by the PVT and Chemistry items created for one test sent to both sections. */linkId?:string; sampleId:string; title:string; stream:Stream; owner:string; start:string; due:string; conditions:string; notes:string; status:WorkState; files:FileVersion[]; required:boolean; kind?:'validation'|'analysis'; /** Assignment, submission and review decisions, oldest first. */history?:ActivityEvent[]; /** The assigned employee's own progress notes; notes keep the team lead's instructions. */progressNotes?:string; /** A job-specific test entered in the scope (never added to the global catalogue). */custom?:boolean; /** Performed by a third-party laboratory; the owner is the internal coordinator. Absent = performed internally. */external?:ExternalWork };
+export type ActivityRecord = { id:string; scopeId:string; /** Shared by the PVT and Chemistry items created for one test sent to both sections. */linkId?:string; sampleId:string; title:string; stream:Stream; owner:string; /** PVT equipment chosen by the PVT Team Lead (lab-equipment.ts id). Absent = not chosen. */equipment?:string; start:string; due:string; conditions:string; notes:string; status:WorkState; files:FileVersion[]; required:boolean; kind?:'validation'|'analysis'; /** Assignment, submission and review decisions, oldest first. */history?:ActivityEvent[]; /** The assigned employee's own progress notes; notes keep the team lead's instructions. */progressNotes?:string; /** A job-specific test entered in the scope (never added to the global catalogue). */custom?:boolean; /** Performed by a third-party laboratory; the owner is the internal coordinator. Absent = performed internally. */external?:ExternalWork };
 /** Third-party execution of one activity. Recording only: nothing is sent to the provider. */
 export type ExternalWork = { provider:string; notes:string; expectedReturn:string; sentOn?:string; sentAt?:string; sentBy?:string; dispatchNotes?:string; receivedOn?:string; receivedAt?:string; receivedBy?:string };
 /** Who performs a selected test. Third-party work keeps an internal owner (the coordinator) and the normal team review. */
@@ -322,7 +323,7 @@ export type Command =
  | {type:'external-dispatch';id:string;sentOn:string;expectedReturn:string;notes:string}
  | {type:'external-results';id:string;receivedOn:string;notes:string;file:Omit<FileVersion,'version'|'submittedBy'|'submittedAt'|'status'|'comments'>}
  | {type:'external-submit';id:string;notes:string}
- | {type:'schedule';id:string;owner:string;start:string;due:string;conditions:string;notes:string}
+ | {type:'schedule';id:string;owner:string;start:string;due:string;conditions:string;notes:string;/** PVT equipment for the test. Absent = keep the current choice; '' = clear it. */equipment?:string}
  | {type:'progress';id:string;status:WorkState;notes:string}
  /** The engineer marks the test done. With no file the workbook was updated where the team keeps it and the team lead checks it there. */
  | {type:'workbook';id:string;notes?:string;file?:Omit<FileVersion,'version'|'submittedBy'|'submittedAt'|'status'|'comments'>}
@@ -658,9 +659,15 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   if(!/^\d{4}-\d{2}-\d{2}$/.test(command.start)||!/^\d{4}-\d{2}-\d{2}$/.test(command.due)||command.due<command.start)throw Error('Enter a planned start and a due date on or after it.');
   if(a.status==='Completed')throw Error('Completed work is retained; request additional work instead.');
   if(command.owner!==a.owner&&['Workbook Submitted','Awaiting QC','QC Returned'].includes(a.status))throw Error('This test is under review. Finish the review before reassigning it.');
-  reason=`${a.owner||'Unassigned'} → ${command.owner}; ${a.start||'unscheduled'}–${a.due||''} → ${command.start}–${command.due}`;
+  if(command.equipment!==undefined&&command.equipment!==(a.equipment||'')){
+   if(a.stream!=='PVT')throw Error('Equipment is assigned to PVT tests only.');
+   if(command.equipment&&!equipmentOf(command.equipment))throw Error('Select equipment from the laboratory equipment list.');
+  }
+  reason=`${a.owner||'Unassigned'} → ${command.owner}; ${a.start||'unscheduled'}–${a.due||''} → ${command.start}–${command.due}${command.equipment!==undefined&&command.equipment!==(a.equipment||'')?`; equipment ${equipmentName(a.equipment)} → ${equipmentName(command.equipment)}`:''}`;
   if(command.owner!==a.owner)(a.history||(a.history=[])).push({at:now,by:actor.id,action:a.owner?'reassigned':'assigned',from:a.owner||undefined,to:command.owner,comments:command.notes});
-  Object.assign(a,{owner:command.owner,start:command.start,due:command.due,conditions:command.conditions,notes:command.notes,status:a.status==='Unassigned'?'Scheduled':a.status});break;
+  Object.assign(a,{owner:command.owner,start:command.start,due:command.due,conditions:command.conditions,notes:command.notes,status:a.status==='Unassigned'?'Scheduled':a.status});
+  if(command.equipment!==undefined){if(command.equipment)a.equipment=command.equipment;else delete a.equipment;}
+  break;
  }
  case 'progress':{
   const a=currentActivity();requireAssigned(actor,'analysis',!!a.owner&&actor.id===a.owner);if(actor.id!==a.owner)throw Error('This action is not assigned to your active profile or permission.');
