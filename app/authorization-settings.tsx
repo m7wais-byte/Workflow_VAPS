@@ -9,6 +9,7 @@ const roleNotes: Partial<Record<Responsibility, string>> = {
   pvtTeamLead: 'Receives PVT work from the approved scope, assigns tests, reviews workbooks.',
   chemicalTeamLead: 'Receives chemical work from the approved scope, assigns tests, reviews workbooks.',
   finalApproval: 'Approves and signs the final report.',
+  clientApproval: 'After the final report is issued: records the client’s approval and sample disposal instruction, then assigns the cylinder release and redress.',
   qcReviewer: 'QC approval is separate from team-lead workbook approval and final approval. Team-lead-approved workbooks wait here until a reviewer is assigned.',
 };
 type Person = { id: string; name: string; role: string; departmentId: string; active: boolean };

@@ -86,16 +86,17 @@ export const responsibilityLabels = {
   reporting: 'Final report preparation',
   finalApproval: 'Final report approval',
   qcReviewer: 'QC review',
+  clientApproval: 'Client approval & sample disposal',
 };
 export type Responsibility = keyof typeof responsibilityLabels;
 /** Duties no longer used by the workflow: kept in saved settings for reports already in flight, not shown or assignable. */
 export const retiredResponsibilities: Responsibility[] = ['samplingReportChecker'];
 export type Responsibilities = Record<Responsibility, string>;
 /** Permission each duty needs in order to act; shown as a warning, never granted automatically. */
-export const responsibilityPermission: Record<Responsibility, Permission> = { scopeSelector: 'analysis', samplingApproval: 'sampling', samplingReportChecker: 'sampling', pvtSupervisor: 'analysis', pvtTeamLead: 'analysis', chemicalTeamLead: 'analysis', reporting: 'analysis', finalApproval: 'analysis', qcReviewer: 'analysis' };
+export const responsibilityPermission: Record<Responsibility, Permission> = { scopeSelector: 'analysis', samplingApproval: 'sampling', samplingReportChecker: 'sampling', pvtSupervisor: 'analysis', pvtTeamLead: 'analysis', chemicalTeamLead: 'analysis', reporting: 'analysis', finalApproval: 'analysis', qcReviewer: 'analysis', clientApproval: 'createJob' };
 export const responsibilitiesKey = 'vaps-responsibilities-v1';
 /** Initial setup and migration only. QC review stays unassigned until an administrator names someone. */
-export const defaultResponsibilities: Responsibilities = { scopeSelector: 'SALIM', samplingApproval: 'SALIM', samplingReportChecker: 'SALIM', pvtSupervisor: 'WILFRED', pvtTeamLead: 'SHEREIQI', chemicalTeamLead: 'BAHRI', reporting: 'SHEREIQI', finalApproval: 'WILFRED', qcReviewer: '' };
+export const defaultResponsibilities: Responsibilities = { scopeSelector: 'SALIM', samplingApproval: 'SALIM', samplingReportChecker: 'SALIM', pvtSupervisor: 'WILFRED', pvtTeamLead: 'SHEREIQI', chemicalTeamLead: 'BAHRI', reporting: 'SHEREIQI', finalApproval: 'WILFRED', qcReviewer: '', clientApproval: 'SALIM' };
 /** Missing settings or keys added later receive defaults; a saved empty value stays empty. */
 export function readResponsibilities(raw: string | null): Responsibilities {
   if (raw === null) return { ...defaultResponsibilities };
