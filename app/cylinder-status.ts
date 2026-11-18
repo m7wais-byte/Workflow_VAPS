@@ -4,12 +4,14 @@
 //  - Returned · needs cleaning: the job released its cylinders after it finished, and nobody has checked
 //    the cylinder since.
 // Every other state is set by the sampling team in the register and kept with a history.
+//  - Checks in progress: some redress checks are done and saved, the rest are still pending. Not selectable for a job.
 
 export const cylinderStatusKey = 'vaps-cylinder-status-v1';
 
-export type CylinderState = 'not-checked' | 'ready' | 'in-use' | 'returned' | 'maintenance' | 'damaged';
+export type CylinderState = 'not-checked' | 'checking' | 'ready' | 'in-use' | 'returned' | 'maintenance' | 'damaged';
 export const cylinderStateLabel: Record<CylinderState, string> = {
   'not-checked': 'Not checked',
+  checking: 'Checks in progress',
   ready: 'Ready',
   'in-use': 'In use',
   returned: 'Returned · needs cleaning',
@@ -18,18 +20,23 @@ export const cylinderStateLabel: Record<CylinderState, string> = {
 };
 /** Workflow colours: gray not started, green ready, orange in progress, red needs attention. */
 export const cylinderStateTone: Record<CylinderState, 'idle' | 'ok' | 'warn' | 'risk'> = {
-  'not-checked': 'idle', ready: 'ok', 'in-use': 'warn', returned: 'risk', maintenance: 'warn', damaged: 'risk',
+  'not-checked': 'idle', checking: 'warn', ready: 'ok', 'in-use': 'warn', returned: 'risk', maintenance: 'warn', damaged: 'risk',
 };
 /** States the sampling team sets by hand. In use and Returned come from the jobs. */
-export const settableStates: CylinderState[] = ['ready', 'maintenance', 'damaged', 'not-checked'];
+export const settableStates: CylinderState[] = ['ready', 'checking', 'maintenance', 'damaged', 'not-checked'];
 
-export type ReadyChecks = { emptied: boolean; cleaned: boolean; calibrated: boolean; pressureTested: boolean };
+export type ReadyChecks = { emptied: boolean; cleaned: boolean; certified: boolean; pressureTested: boolean };
 export const readyCheckLabels: Record<keyof ReadyChecks, string> = {
   emptied: 'Remaining sample disposed',
   cleaned: 'Cleaned',
-  calibrated: 'Calibrated',
+  certified: 'Certified',
   pressureTested: 'Pressure tested',
 };
+const checkKeys = Object.keys(readyCheckLabels) as (keyof ReadyChecks)[];
+/** Reads saved checks; records saved before the rename keep their old "calibrated" tick as Certified. */
+export const normalizeChecks = (c?: Partial<ReadyChecks> & { calibrated?: boolean }): ReadyChecks => ({ emptied: !!c?.emptied, cleaned: !!c?.cleaned, certified: !!(c?.certified ?? c?.calibrated), pressureTested: !!c?.pressureTested });
+/** Checks still to do, as labels. */
+export const pendingChecks = (c?: Partial<ReadyChecks>) => { const n = normalizeChecks(c); return checkKeys.filter((k) => !n[k]).map((k) => readyCheckLabels[k]); };
 export type StatusEntry = { state: CylinderState; by: string; at: string; note?: string; checks?: ReadyChecks; fromJob?: string };
 export type CylinderRecord = StatusEntry & { history: StatusEntry[] };
 export type CylinderStatusMap = Record<string, CylinderRecord>;
@@ -90,17 +97,21 @@ export function selectable(status: EffectiveStatus, jobId: string, sampleId: str
   return status.state === 'in-use' && status.job?.id === jobId && (status.job.sampleIds.length === 0 || status.job.sampleIds.length === 1 && status.job.sampleIds[0] === sampleId);
 }
 
-/** Records a new status set by the sampling team. Ready needs every check; maintenance and damage need a note. */
+/** Records a new status set by the sampling team. Ready needs every check; with only some checks ticked the cylinder is saved
+ *  as Checks in progress (the ticks are kept for the next update). Maintenance and damage need a note. */
 export function setCylinderStatus(records: CylinderStatusMap, serial: string, entry: Omit<StatusEntry, 'at'> & { at?: string }, current: EffectiveStatus): CylinderStatusMap {
   if (!settableStates.includes(entry.state)) throw Error('This status is set by the workflow, not by hand.');
   if (current.state === 'in-use') throw Error(`Cylinder ${serial} is in use on job ${current.job?.jobNumber}. Its status changes after the job releases it.`);
-  if (entry.state === 'ready') {
-    const c = entry.checks;
-    if (!c || !c.emptied || !c.cleaned || !c.calibrated || !c.pressureTested) throw Error('Tick every check (sample disposed, cleaned, calibrated, pressure tested) before setting the cylinder to Ready.');
+  let state = entry.state;
+  const checks = state === 'ready' || state === 'checking' ? normalizeChecks(entry.checks) : undefined;
+  if (checks) {
+    const done = checkKeys.filter((k) => checks[k]).length;
+    if (!done) throw Error('Tick at least one completed check (sample disposed, cleaned, certified, pressure tested) before saving.');
+    state = done === checkKeys.length ? 'ready' : 'checking';
   }
   if ((entry.state === 'maintenance' || entry.state === 'damaged') && !entry.note?.trim()) throw Error('Describe the maintenance or damage in the note.');
   const at = entry.at || new Date().toISOString();
   const k = key(serial), prev = records[k];
-  const next: StatusEntry = { state: entry.state, by: entry.by, at, note: entry.note?.trim() || undefined, checks: entry.state === 'ready' ? entry.checks : undefined, fromJob: current.state === 'returned' ? current.job?.jobNumber : undefined };
+  const next: StatusEntry = { state, by: entry.by, at, note: entry.note?.trim() || undefined, checks, fromJob: current.state === 'returned' ? current.job?.jobNumber : current.state === 'checking' ? prev?.fromJob : undefined };
   return { ...records, [k]: { ...next, history: [...(prev?.history || []), next] } };
 }
