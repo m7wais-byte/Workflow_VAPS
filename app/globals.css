@@ -3484,7 +3484,7 @@ main input[placeholder^="Search" i],main input[placeholder*="search" i],main .in
 .cyl-serial{display:flex;flex-direction:column}.cyl-serial strong{font-family:var(--font-geist-mono),monospace;color:var(--navy)}.cyl-serial small{color:var(--muted);font-size:12.5px}
 .cyl-spec{font-size:13px;color:var(--ink-2)}
 .cyl-state{display:flex;flex-direction:column;align-items:flex-start;gap:3px}
-.cyl-state small{font-size:12px;color:var(--muted)}.cyl-note{color:#8a5a12!important}
+.cyl-state small{font-size:12px;color:var(--muted)}.cyl-note{color:#8a5a12!important}.cyl-pending{color:var(--warn)!important;font-weight:650}
 .cyl-state .text-button{padding:0;font-size:12.5px}
 .cyl-form{padding:12px 14px 14px;background:#f8fbfb;border-top:1px dashed var(--line)}
 .cyl-form-states{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}

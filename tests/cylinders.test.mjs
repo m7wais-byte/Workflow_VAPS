@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 const bundle = async entry => { const out = await build({ entryPoints: [entry], bundle: true, write: false, format: 'esm', platform: 'node', logLevel: 'silent' }); return import('data:text/javascript;base64,' + Buffer.from(out.outputFiles[0].text).toString('base64')); };
 const { cylinderStatuses, setCylinderStatus, selectable } = await bundle('app/cylinder-status.ts');
-const all = { emptied: true, cleaned: true, calibrated: true, pressureTested: true };
+const all = { emptied: true, cleaned: true, certified: true, pressureTested: true };
 const job = (id, serials, released) => ({ id, jobNumber: id, samples: serials.map((s, i) => ({ id: '1.0' + (i + 1), bottleSerial: s })), operations: released ? { cylindersReleased: { by: 'SALIM', at: released } } : {} });
 
 test('cylinders start Not checked and cannot be chosen until the sampling team sets them Ready', () => {
@@ -11,7 +11,7 @@ test('cylinders start Not checked and cannot be chosen until the sampling team s
   let st = cylinderStatuses([], records);
   assert.equal(st('812888').state, 'not-checked');
   assert.equal(selectable(st('812888'), 'J1', '1.01'), false);
-  assert.throws(() => setCylinderStatus(records, '812888', { state: 'ready', by: 'HUSSEINI', checks: { ...all, calibrated: false } }, st('812888')), /Tick every check/);
+  assert.throws(() => setCylinderStatus(records, '812888', { state: 'ready', by: 'HUSSEINI', checks: { emptied: false, cleaned: false, certified: false, pressureTested: false } }, st('812888')), /Tick at least one/);
   records = setCylinderStatus(records, '812888', { state: 'ready', by: 'HUSSEINI', checks: all }, st('812888'));
   st = cylinderStatuses([], records);
   assert.equal(st('812888').state, 'ready');
@@ -76,4 +76,21 @@ test('backup cylinders are reserved for their job, can be chosen for one of its 
   assert.equal(selectable(st('B1'), 'J1', '1.02'), true, 'the job may use its own backup for a sample');
   st = cylinderStatuses([withBackups('2026-11-01T08:00:00.000Z')], {});
   assert.equal(st('B2').state, 'returned', 'unused backups return for cleaning with the job cylinders');
+});
+
+test('partial checks save as Checks in progress, keep the ticks and stay blocked until all four are done', async () => {
+  const { pendingChecks } = await bundle('app/cylinder-status.ts');
+  const jobs = [job('J1', ['2829A'], '2026-11-17T16:08:00Z')];
+  let st = cylinderStatuses(jobs, {});
+  assert.equal(st('2829A').state, 'returned');
+  let records = setCylinderStatus({}, '2829A', { state: 'ready', by: 'HUSSEINI', checks: { emptied: true, cleaned: true, certified: false, pressureTested: false }, at: '2026-11-18T08:00:00Z' }, st('2829A'));
+  st = cylinderStatuses(jobs, records);
+  assert.equal(st('2829A').state, 'checking');
+  assert.equal(selectable(st('2829A'), 'J2', '1.01'), false);
+  assert.deepEqual(pendingChecks(st('2829A').record.checks), ['Certified', 'Pressure tested']);
+  records = setCylinderStatus(records, '2829A', { state: 'ready', by: 'HUSSEINI', checks: all, at: '2026-11-18T10:00:00Z' }, st('2829A'));
+  st = cylinderStatuses(jobs, records);
+  assert.equal(st('2829A').state, 'ready');
+  assert.equal(records['2829a'].history.at(-1).fromJob, 'J1', 'the job reference carries through the in-progress step');
+  assert.deepEqual(pendingChecks({ emptied: true, cleaned: true, calibrated: true, pressureTested: true }), [], 'older records with "calibrated" count as Certified');
 });

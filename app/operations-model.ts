@@ -300,7 +300,7 @@ export type Command =
  | {type:'dispatch';engineer:string;driver:string;/** Supporting sampling employees besides the accountable engineer. */team?:string[]}
  /** The accountable sampling employee confirms the job briefing and starts the sampling work. */
  | {type:'start-job'}
- /** After the job is finished, the coordinator releases its cylinders to the sampling team for cleaning, calibration and checks. */
+ /** After the job is finished, the coordinator releases its cylinders to the sampling team for cleaning, certification and checks. */
  /** The coordinator records that the client approved the final report and instructed disposal of the samples. Cylinders are discharged only after this. */
  | {type:'client-disposal';note?:string}
  | {type:'release-cylinders';note?:string;/** Sampling employee who collects and redresses the cylinders. */assignee?:string}
@@ -385,7 +385,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   if(!command.assignee)throw Error('Select the sampling employee who releases and redresses the cylinders.');active(actor,command.assignee);
   o.cylindersReleased={by:actor.id,at:now,assignee:command.assignee};
   const d=new Date(now);const pad=(n:number)=>String(n).padStart(2,'0');
-  next.events=[...(job.events||[]),{date:`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,time:`${pad(d.getHours())}:${pad(d.getMinutes())}`,description:'Cylinders released by '+(actor.employees.find(e=>e.id===actor.id)?.name||actor.id)+' to '+(actor.employees.find(e=>e.id===command.assignee)?.name||command.assignee)+' to release and redress (dispose, clean, calibrate, pressure test): '+serials.join(', ')+(command.note?.trim()?'. Note: '+command.note.trim():''),createdBy:actor.id,createdAt:now,auto:true}];
+  next.events=[...(job.events||[]),{date:`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,time:`${pad(d.getHours())}:${pad(d.getMinutes())}`,description:'Cylinders released by '+(actor.employees.find(e=>e.id===actor.id)?.name||actor.id)+' to '+(actor.employees.find(e=>e.id===command.assignee)?.name||command.assignee)+' to release and redress (dispose, clean, certify, pressure test): '+serials.join(', ')+(command.note?.trim()?'. Note: '+command.note.trim():''),createdBy:actor.id,createdAt:now,auto:true}];
   break;
  }
  case 'job-access':{

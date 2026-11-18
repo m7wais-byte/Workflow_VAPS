@@ -273,7 +273,7 @@ function confirmation(c:Command,job:JobRecord,actor:Actor){
  if(c.type==='data-return')return `Sampling data returned to ${lead} with ${c.comments.filter(x=>x.text.trim()).length} comment(s). Status: Returned for correction.`;
  if(c.type==='data-approve')return `Sampling data approved. Next: ${lead} generates the sampling report. Status: Data approved / report generation needed.`;
  if(c.type==='client-disposal')return `Client approval of the final report and the disposal instruction are recorded for ${job.jobNumber}. Next: assign a sampling employee to discharge and redress the cylinders.`;
- if(c.type==='release-cylinders')return `Cylinders of ${job.jobNumber} released. Next: ${name(c.assignee)} discharges and redresses them (dispose, clean, calibrate, pressure test).`;
+ if(c.type==='release-cylinders')return `Cylinders of ${job.jobNumber} released. Next: ${name(c.assignee)} discharges and redresses them (dispose, clean, certify, pressure test).`;
  if(c.type==='data-review')return `Sampling data review confirmed. Next: ${lead} generates the sampling report, attaches the G-sheet file and sends it to ${approver}. Status: Data reviewed / report generation needed.`;
  if(c.type==='data-reopen')return `Reviewed sampling data reopened for correction. Next: ${lead} corrects it and the backup engineer reviews it again.`;
  if(c.type==='report-draft'&&c.kind==='sampling')return 'Sampling report draft saved. Next: review the preview and submit it for approval.';
