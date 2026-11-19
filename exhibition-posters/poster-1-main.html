@@ -1,79 +1,67 @@
-<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>Main Poster</title><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Sans:wght@500;600&family=Noto+Kufi+Arabic:wght@600;700;800&display=swap" rel="stylesheet"><style>
+<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>Main Poster</title><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Sans:wght@500;600&family=Noto+Kufi+Arabic:wght@500;700;800;900&display=swap" rel="stylesheet"><style>
 @page{size:297mm 420mm;margin:0}
-:root{--navy:#0E2A47;--navy2:#163A5E;--gold:#C9982A;--gold2:#E2B94B;--ivory:#FBF8F1;--ink:#1D2633;--muted:#5B6675;--line:#E4DCC8}
+:root{--bg:#0B2140;--bg2:#102C52;--card:rgba(255,255,255,.045);--gold:#D4A437;--gold2:#F0CD72;--txt:#EEF2F7;--mut:#A9B7C9;--ln:rgba(212,164,55,.38)}
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{width:297mm;height:420mm;background:#fff}
-body{font-family:'IBM Plex Sans Arabic',sans-serif;color:var(--ink);direction:rtl;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.page{position:relative;width:297mm;height:420mm;overflow:hidden;background:var(--ivory);display:flex;flex-direction:column}
-.frame{position:absolute;inset:7mm;border:0.6mm solid var(--gold);pointer-events:none;z-index:5}
-.frame::after{content:"";position:absolute;inset:1.6mm;border:0.25mm solid var(--gold)}
-.top{background:#fff;height:50mm;display:flex;align-items:center;justify-content:center;padding:12mm 18mm 4mm}
-.top img{height:34mm}
-.hero{position:relative;background:var(--navy);color:#fff;padding:13mm 20mm 12mm;overflow:hidden}
-.hero::before{content:"";position:absolute;inset:0;background:radial-gradient(120% 90% at 85% 0%,#1E4A75 0%,transparent 60%)}
-.hero svg.art{position:absolute;inset:0;width:100%;height:100%}
-.hero>*{position:relative}
-.goldbar{height:2.2mm;background:linear-gradient(90deg,var(--gold),var(--gold2),var(--gold))}
-.kicker{display:inline-flex;gap:3mm;align-items:center;font-size:13pt;font-weight:600;color:var(--gold2);letter-spacing:.2px}
-.kicker i{width:9mm;height:.5mm;background:var(--gold2);display:inline-block}
-h1{font-family:'Noto Kufi Arabic',sans-serif;font-weight:800;font-size:46pt;line-height:1.35;margin-top:4mm}
-.sub{font-family:'Noto Kufi Arabic',sans-serif;font-size:25pt;font-weight:600;color:var(--gold2);margin-top:1mm}
-.lead{font-size:13.5pt;line-height:1.75;color:#D5DEE9;max-width:205mm;margin-top:5mm}
-.sec{padding:0 18mm}
-.sec-h{display:flex;align-items:center;gap:4mm;margin:8mm 0 4.5mm;font-family:'Noto Kufi Arabic',sans-serif;font-weight:700;font-size:17pt;color:var(--navy)}
-.sec-h::after{content:"";flex:1;height:.35mm;background:var(--line)}
-.sec-h b{width:3mm;height:7mm;background:var(--gold);border-radius:.6mm}
+html,body{width:297mm;height:420mm}
+body{font-family:'IBM Plex Sans Arabic',sans-serif;direction:rtl;color:var(--txt);-webkit-print-color-adjust:exact;print-color-adjust:exact;background:var(--bg)}
+.page{position:relative;width:297mm;height:420mm;overflow:hidden;display:flex;flex-direction:column;
+ background:radial-gradient(90% 45% at 50% 0%,#1B4373 0%,transparent 70%),radial-gradient(70% 40% at 100% 100%,#16365F 0%,transparent 70%),linear-gradient(180deg,#0D2647,#081A33)}
+.pat{position:absolute;inset:0;width:100%;height:100%;opacity:.07;z-index:0}
+.page>*:not(.pat){position:relative;z-index:1}
+.frame{position:absolute!important;inset:8mm;border:.5mm solid var(--gold);z-index:3!important;pointer-events:none}
+.frame::before{content:"";position:absolute;inset:1.5mm;border:.2mm solid var(--ln)}
+.frame i{position:absolute;width:7mm;height:7mm;background:var(--gold);transform:rotate(45deg)}
+.frame i:nth-child(1){top:-3.5mm;right:-3.5mm}.frame i:nth-child(2){top:-3.5mm;left:-3.5mm}.frame i:nth-child(3){bottom:-3.5mm;right:-3.5mm}.frame i:nth-child(4){bottom:-3.5mm;left:-3.5mm}
 .ltr{direction:ltr;unicode-bidi:isolate;font-family:'IBM Plex Sans',sans-serif}
-.foot{margin-top:auto;background:var(--navy);color:#D5DEE9;padding:6mm 20mm 13mm;font-size:11pt;display:flex;justify-content:space-between;align-items:center;gap:8mm}
-.foot strong{color:#fff;font-weight:600}
-.foot .g{color:var(--gold2)}
-
-.info{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5mm;padding:0 18mm;margin-top:-9mm;position:relative;z-index:2}
-.card{background:#fff;border:.3mm solid var(--line);border-top:1.2mm solid var(--gold);border-radius:1.5mm;padding:5mm 6mm;display:flex;gap:4mm;align-items:center;box-shadow:0 1.5mm 4mm rgba(14,42,71,.08)}
-.card svg{width:10mm;height:10mm;color:var(--gold);flex:none}
-.card small{display:block;font-size:10.5pt;color:var(--muted);font-weight:500}
-.card div b{display:block;font-size:14.5pt;color:var(--navy);font-weight:700;line-height:1.45}
-.corners{display:grid;grid-template-columns:1fr 1fr;gap:3.6mm}
-.c{background:#fff;border:.3mm solid var(--line);border-radius:1.5mm;padding:3.6mm 4.5mm;display:flex;gap:4mm;align-items:flex-start;min-height:27mm}
-.c .n{flex:none;width:11mm;height:11mm;border-radius:50%;background:var(--navy);color:var(--gold2);display:flex;align-items:center;justify-content:center;font-family:'Noto Kufi Arabic';font-weight:700;font-size:14pt}
-.c h3{font-size:12.2pt;font-weight:700;color:var(--navy);line-height:1.5}
-.c .t{font-size:10pt;color:var(--gold);font-weight:600;margin-top:.8mm}
-.c .p{font-size:10pt;color:var(--muted);margin-top:.6mm}
+.top{display:flex;justify-content:center;padding:17mm 0 0}
+.top img{height:30mm}
+.hero{text-align:center;padding:9mm 22mm 0;position:relative}
+.hero svg.curve{position:absolute;left:0;right:0;top:4mm;width:100%;height:78mm;z-index:-1}
+.kick{display:inline-flex;align-items:center;gap:3.5mm;font-size:13pt;font-weight:600;color:var(--gold2);border:.3mm solid var(--ln);border-radius:20mm;padding:1.8mm 7mm;background:rgba(212,164,55,.07)}
+h1{font-family:'Noto Kufi Arabic';font-weight:900;font-size:50pt;line-height:1.38;margin-top:6mm;color:#fff;text-shadow:0 1mm 4mm rgba(0,0,0,.25)}
+.sub{display:flex;align-items:center;justify-content:center;gap:6mm;margin-top:2mm}
+.sub span{font-family:'Noto Kufi Arabic';font-weight:700;font-size:26pt;background:linear-gradient(90deg,#B88A27,#F3D27A,#B88A27);-webkit-background-clip:text;background-clip:text;color:transparent}
+.orn{display:flex;align-items:center;gap:1.5mm}.orn b{width:26mm;height:.4mm;background:linear-gradient(90deg,transparent,var(--gold))}.orn i{width:2.6mm;height:2.6mm;background:var(--gold);transform:rotate(45deg)}
+.orn.l b{background:linear-gradient(270deg,transparent,var(--gold))}
+.lead{font-size:13pt;line-height:1.8;color:var(--mut);max-width:200mm;margin:5mm auto 0}
+.info{margin:8mm 20mm 0;display:grid;grid-template-columns:1fr 1fr 1fr;border:.35mm solid var(--ln);border-radius:3mm;background:rgba(255,255,255,.04)}
+.info div{display:flex;align-items:center;gap:4mm;padding:5mm 6mm;justify-content:center}
+.info div+div{border-right:.35mm solid var(--ln)}
+.info svg{width:10mm;height:10mm;color:var(--gold2);flex:none}
+.info small{display:block;font-size:10pt;color:var(--mut)}
+.info b{font-size:14pt;font-weight:700;color:#fff}
+.sec{padding:0 20mm}
+.sh{display:flex;align-items:center;justify-content:center;gap:5mm;margin:9mm 0 5mm;font-family:'Noto Kufi Arabic';font-weight:800;font-size:18pt;color:#fff}
+.star{width:13mm;height:13mm;flex:none}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:3.5mm}
+.c{display:flex;gap:4mm;align-items:center;padding:3.8mm 5mm;background:var(--card);border:.3mm solid rgba(255,255,255,.10);border-radius:2.5mm;position:relative;overflow:hidden}
+.c::before{content:"";position:absolute;top:0;right:0;width:1mm;height:100%;background:linear-gradient(var(--gold2),var(--gold))}
+.badge{position:relative;width:13mm;height:13mm;flex:none}
+.badge .star{position:absolute;inset:0}
+.badge em{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-style:normal;font-family:'Noto Kufi Arabic';font-weight:800;font-size:13pt;color:#0B2140}
+.c h3{font-size:12pt;font-weight:700;line-height:1.5;color:#fff}
+.c .t{font-size:10pt;font-weight:600;color:var(--gold2);margin-top:.8mm;text-align:right}
+.c .p{font-size:9.8pt;color:var(--mut);margin-top:.5mm}
 .c.wide{grid-column:span 2}
-.sched{width:100%;border-collapse:separate;border-spacing:0;background:#fff;border:.3mm solid var(--line);border-radius:1.5mm;overflow:hidden}
-.sched td{padding:3.4mm 5mm;font-size:12pt;border-bottom:.3mm solid var(--line)}
-.sched tr:last-child td{border-bottom:0}
-.sched td.tm{width:44mm;background:var(--navy);color:#fff;font-weight:600;text-align:center;border-bottom-color:#2A4B70;font-size:12.5pt}
-.sched td.who{width:58mm;color:var(--muted);font-size:11pt}
-.sched tr.hl td:not(.tm){background:#FBF4E2}
-.note{margin-top:3.5mm;font-size:11pt;color:var(--muted);display:flex;gap:2.5mm;align-items:center}
-.note b{color:var(--navy)}
-.note i{width:2mm;height:2mm;background:var(--gold);transform:rotate(45deg);display:inline-block;flex:none}
-</style></head><body><div class="page"><div class="frame"></div>
-<div class="top"><img src="logo.png" alt="جامعة السلطان قابوس - كلية التربية"></div>
-<div class="goldbar"></div>
-<div class="hero"><svg class="art" viewBox="0 0 1000 420" preserveAspectRatio="none" aria-hidden="true">
-<defs><pattern id="g" width="25" height="25" patternUnits="userSpaceOnUse"><path d="M25 0H0V25" fill="none" stroke="#ffffff" stroke-opacity=".05" stroke-width="1"/></pattern></defs>
-<rect width="1000" height="420" fill="url(#g)"/>
-<path d="M-20 400 C 90 400 130 395 170 360 C 230 300 250 120 300 120 C 350 120 370 300 430 360 C 470 395 510 400 620 400" fill="none" stroke="#E2B94B" stroke-opacity=".35" stroke-width="2.2"/>
-<path d="M-20 400 C 90 400 130 395 170 360 C 230 300 250 120 300 120 C 350 120 370 300 430 360 C 470 395 510 400 620 400 Z" fill="#E2B94B" fill-opacity=".05"/>
-<line x1="300" y1="120" x2="300" y2="400" stroke="#E2B94B" stroke-opacity=".25" stroke-dasharray="4 6"/>
-<g fill="#ffffff" fill-opacity=".16"><circle cx="110" cy="288" r="2.5"/><circle cx="265" cy="208" r="2.5"/><circle cx="123" cy="288" r="2.5"/><circle cx="37" cy="320" r="3"/><circle cx="32" cy="335" r="3.5"/><circle cx="48" cy="317" r="2.5"/><circle cx="205" cy="204" r="3.5"/><circle cx="133" cy="249" r="2.5"/><circle cx="24" cy="329" r="2.5"/><circle cx="178" cy="211" r="3.5"/><circle cx="106" cy="276" r="3.5"/><circle cx="187" cy="207" r="2.5"/><circle cx="125" cy="249" r="2.5"/><circle cx="202" cy="211" r="3"/><circle cx="221" cy="183" r="3.5"/><circle cx="296" cy="169" r="3"/><circle cx="103" cy="282" r="2.5"/><circle cx="35" cy="271" r="3"/><circle cx="173" cy="260" r="3"/><circle cx="199" cy="186" r="2.5"/><circle cx="47" cy="265" r="2.5"/><circle cx="299" cy="179" r="3"/><circle cx="22" cy="296" r="3.5"/><circle cx="255" cy="145" r="3"/><circle cx="115" cy="246" r="3"/><circle cx="31" cy="337" r="2.5"/><circle cx="303" cy="118" r="2.5"/><circle cx="237" cy="200" r="3"/><circle cx="211" cy="257" r="3"/><circle cx="232" cy="194" r="3.5"/><circle cx="118" cy="285" r="3.5"/><circle cx="46" cy="294" r="2.5"/><circle cx="78" cy="275" r="3"/><circle cx="131" cy="296" r="3"/><circle cx="35" cy="279" r="2.5"/><circle cx="264" cy="188" r="3.5"/><circle cx="96" cy="253" r="3"/><circle cx="307" cy="166" r="2.5"/><circle cx="36" cy="332" r="2.5"/><circle cx="160" cy="269" r="3.5"/><circle cx="67" cy="289" r="3.5"/><circle cx="124" cy="273" r="3.5"/><circle cx="109" cy="304" r="3.5"/><circle cx="213" cy="244" r="3.5"/><circle cx="27" cy="351" r="3.5"/><circle cx="257" cy="155" r="3"/></g>
-<line x1="0" y1="330" x2="330" y2="140" stroke="#ffffff" stroke-opacity=".15" stroke-width="1.5"/>
-</svg>
- <div class="kicker"><i></i>طلبة القياس والتقويم يدعونكم إلى معرض تفاعلي من سبعة أركان</div>
- <h1>الذكاء الاصطناعي<br>في القياس والإحصاء</h1>
- <div class="sub">أدوات وتطبيقات</div>
- <p class="lead">في كل ركن أداة أو برنامج قائم على الذكاء الاصطناعي يخدم القياس والتقويم والإحصاء والبحث العلمي، تُعرض عرضاً حيّاً قصيراً، ثم يجرّبها الزائر بنفسه.</p>
- <div style="height:9mm"></div>
-</div>
-<div class="info">
- <div class="card"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg><div><small>الزمان</small><b>الثلاثاء ٨ ديسمبر ٢٠٢٦م</b></div></div>
- <div class="card"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><div><small>الوقت</small><b>٩:٠٠ صباحاً – ١٢:٣٠ ظهراً</b></div></div>
- <div class="card"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/></svg><div><small>المكان</small><b>صالة الكلية · الطابق الأرضي</b></div></div>
-</div>
-<div class="sec"><div class="sec-h"><b></b>أركان المعرض</div><div class="corners"><div class="c"><div class="n">١</div><div><h3>بناء المقاييس والاختبارات بالذكاء الاصطناعي</h3><div class="t ltr" style="text-align:right">AI-GENIE</div><div class="p">سامية الحارثية</div></div></div><div class="c"><div class="n">٢</div><div><h3>ربط <span class="ltr">ChatGPT</span> و <span class="ltr">Codex</span> مع R و <span class="ltr">SPSS</span></h3><div class="t ltr" style="text-align:right">ChatGPT · Codex · R · SPSS</div><div class="p">بدرية الحراصية</div></div></div><div class="c"><div class="n">٣</div><div><h3>تحليل البيانات باستخدام <span class="ltr">Copilot</span></h3><div class="t ltr" style="text-align:right">Copilot · Microsoft 365 Excel</div><div class="p">مهند البلوشي</div></div></div><div class="c"><div class="n">٤</div><div><h3>من البيانات إلى القرار: تحليل البيانات باستخدام <span class="ltr">Julius AI</span></h3><div class="t ltr" style="text-align:right">Julius AI</div><div class="p">ميثاء الهنائية</div></div></div><div class="c"><div class="n">٥</div><div><h3>أدوات المساعد البحثي</h3><div class="t ltr" style="text-align:right">NotebookLM · Claude</div><div class="p">مالك بن محمد العميري</div></div></div><div class="c"><div class="n">٦</div><div><h3><span class="ltr">ReNoor Stats AI</span>: ذكاء اصطناعي مجاني للتحليل الإحصائي القابل لإعادة الإنتاج</h3><div class="t ltr" style="text-align:right">ReNoor Stats AI</div><div class="p">الغالية الهنائية · <span class="ltr">Dr. Noor ul Sabah Rehan</span></div></div></div><div class="c wide"><div class="n">٧</div><div><h3>تحليلات ونتائج مفسّرة مع برنامج <span class="ltr">JASP AI</span></h3><div class="t ltr" style="text-align:right">JASP AI</div><div class="p">بهية الراشدية</div><div class="p" style="margin-top:1.5mm;color:#1D2633">تحليلات إحصائية كلاسيكية وبايزية عبر واجهة رسومية، مع مساعد ذكي لإجراء التحليلات وتفسير النتائج</div></div></div></div></div>
-<div class="sec"><div class="sec-h"><b></b>البرنامج الزمني</div><table class="sched"><tr class=""><td class="tm">٩:٠٠ – ٩:٣٠</td><td>التسجيل والاستقبال وتوزيع المنشورات</td><td class="who">اللجنة المنظمة</td></tr><tr class=""><td class="tm">٩:٣٠ – ٩:٤٠</td><td>الافتتاح والعرض النظري: من تاريخ الذكاء الاصطناعي إلى التحليل</td><td class="who">عايدة البوسعيدية</td></tr><tr class="hl"><td class="tm">٩:٤٠ – ١٢:٠٠</td><td>جولة المعرض: الأركان السبعة</td><td class="who">أصحاب الأركان</td></tr><tr class=""><td class="tm">١٢:٠٠ – ١٢:٣٠</td><td>الختام والتوصيات وتكريم المشاركين</td><td class="who">لجنة القياس والتقويم</td></tr></table>
-<div class="note"><i></i><span><b>في كل ركن:</b> عرض حيّ مدته ٥–٧ دقائق يتكرر كل ٢٠ دقيقة، ثم تجربة عملية للزائر.</span></div></div>
-<div class="foot" style="margin-top:7mm"><div><strong>الفئة المستهدفة:</strong> طلبة الماجستير والدكتوراه · المختصون في القياس والتقويم بوزارة التربية والتعليم</div><div class="g" style="white-space:nowrap">تنظيم: طلبة القياس والتقويم</div></div>
-</div></body></html>
+.foot{margin-top:auto;padding:5mm 22mm 15mm;display:flex;justify-content:space-between;align-items:center;font-size:10.5pt;color:var(--mut);border-top:.3mm solid var(--ln);margin-left:12mm;margin-right:12mm}
+.foot strong{color:#fff;font-weight:600}.foot .g{color:var(--gold2);font-weight:600;white-space:nowrap}
+
+.top{padding-top:14mm}.top img{height:27mm}.hero{padding-top:7mm}h1{font-size:44pt;margin-top:4mm}.lead{margin-top:3mm;font-size:12.5pt}.info{margin-top:6mm}.sh{margin:7mm 0 4mm}.c{padding:3mm 5mm}.how{margin-top:4mm}.foot{padding-top:4mm;padding-bottom:13mm}
+.tl{display:grid;grid-template-columns:repeat(4,1fr);position:relative;margin-top:2mm}
+.tl::before{content:"";position:absolute;top:15.5mm;right:8%;left:8%;height:.4mm;background:linear-gradient(90deg,var(--ln),var(--gold),var(--ln))}
+.st{text-align:center;padding:0 3mm}
+.st .tm{display:inline-block;font-weight:700;font-size:12pt;color:var(--gold2);border:.3mm solid var(--ln);border-radius:10mm;padding:1mm 4.5mm;background:#0D2647}
+.st .dot{width:5mm;height:5mm;margin:3mm auto 3.5mm;background:var(--gold);transform:rotate(45deg);box-shadow:0 0 0 1.6mm #0D2647,0 0 0 1.9mm var(--ln)}
+.st h4{font-size:12pt;font-weight:700;color:#fff;line-height:1.55}
+.st p{font-size:10pt;color:var(--mut);margin-top:1mm}
+.st.hl .tm{background:linear-gradient(90deg,#B88A27,#E9C46A);color:#0B2140;border-color:transparent}
+.p7{flex:1;margin-right:6mm;padding-right:6mm;border-right:.3mm solid var(--ln);font-size:10.5pt;line-height:1.7;color:var(--mut)}
+.how{margin:5mm auto 0;text-align:center;font-size:11pt;color:var(--mut)}.how b{color:var(--gold2)}
+</style></head><body><div class="page"><svg class="pat" aria-hidden="true"><defs><pattern id="p" width="34" height="34" patternUnits="userSpaceOnUse"><g fill="none" stroke="#F0CD72" stroke-width=".8"><rect x="7" y="7" width="20" height="20"/><rect x="7" y="7" width="20" height="20" transform="rotate(45 17 17)"/><circle cx="17" cy="17" r="4"/><path d="M0 0L7 7M34 0L27 7M0 34L7 27M34 34L27 27"/></g></pattern>
+<radialGradient id="fade" cx="50%" cy="45%" r="70%"><stop offset="0" stop-color="#fff" stop-opacity=".25"/><stop offset="1" stop-color="#fff" stop-opacity="1"/></radialGradient><mask id="m"><rect width="100%" height="100%" fill="url(#fade)"/></mask></defs><rect width="100%" height="100%" fill="url(#p)" mask="url(#m)"/></svg><div class="frame"><i></i><i></i><i></i><i></i></div><div class="top"><img src="logo-white.png" alt="جامعة السلطان قابوس - كلية التربية"></div><div class="hero"><svg class="curve" viewBox="0 0 1000 300" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="cf" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#D4A437" stop-opacity=".16"/><stop offset="1" stop-color="#D4A437" stop-opacity="0"/></linearGradient><linearGradient id="cs" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#D4A437" stop-opacity="0"/><stop offset=".3" stop-color="#D4A437" stop-opacity=".5"/><stop offset=".7" stop-color="#D4A437" stop-opacity=".5"/><stop offset="1" stop-color="#D4A437" stop-opacity="0"/></linearGradient></defs>
+<path d="M200 290 C 300 285 340 260 380 200 C 440 130 460 40 500 40 C 540 40 560 130 620 200 C 660 260 700 285 800 290 Z" fill="url(#cf)"/>
+<path d="M200 290 C 300 285 340 260 380 200 C 440 130 460 40 500 40 C 540 40 560 130 620 200 C 660 260 700 285 800 290" fill="none" stroke="url(#cs)" stroke-width="1.6"/></svg><div class="kick">معرض تفاعلي من سبعة أركان</div><h1>الذكاء الاصطناعي في<br>القياس والإحصاء</h1><div class="sub"><div class="orn"><b></b><i></i></div><span>أدوات وتطبيقات</span><div class="orn l"><i></i><b></b></div></div>
+<p class="lead">في كل ركن أداة قائمة على الذكاء الاصطناعي تخدم القياس والتقويم والإحصاء والبحث العلمي، تُعرض عرضاً حيّاً قصيراً ثم يجرّبها الزائر بنفسه.</p></div>
+<div class="info"><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg><span><small>الزمان</small><b>الثلاثاء ٨ ديسمبر ٢٠٢٦م</b></span></div><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg><span><small>الوقت</small><b>٩:٠٠ صباحاً – ١٢:٣٠ ظهراً</b></span></div><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/></svg><span><small>المكان</small><b>صالة الكلية · الطابق الأرضي</b></span></div></div><div class="sec"><div class="sh"><div class="orn"><b></b><i></i></div>أركان المعرض<div class="orn l"><i></i><b></b></div></div><div class="cards"><div class="c"><div class="badge"><svg class="star" viewBox="0 0 100 100"><defs><linearGradient id="sg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F3D27A"/><stop offset=".5" stop-color="#D4A437"/><stop offset="1" stop-color="#A97C1E"/></linearGradient></defs><rect x="17" y="17" width="66" height="66" fill="url(#sg)"/><rect x="17" y="17" width="66" height="66" fill="url(#sg)" transform="rotate(45 50 50)"/><circle cx="50" cy="50" r="27" fill="none" stroke="#0B2140" stroke-opacity=".35" stroke-width="1.5"/></svg><em>١</em></div><div><h3>بناء المقاييس والاختبارات بالذكاء الاصطناعي</h3><div class="t ltr">AI-GENIE</div><div class="p">سامية الحارثية</div></div></div><div class="c"><div class="badge"><svg class="star" viewBox="0 0 100 100"><defs><linearGradient id="sg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F3D27A"/><stop offset=".5" stop-color="#D4A437"/><stop offset="1" stop-color="#A97C1E"/></linearGradient></defs><rect x="17" y="17" width="66" height="66" fill="url(#sg)"/><rect x="17" y="17" width="66" height="66" fill="url(#sg)" transform="rotate(45 50 50)"/><circle cx="50" cy="50" r="27" fill="none" stroke="#0B2140" stroke-opacity=".35" stroke-width="1.5"/></svg><em>٢</em></div><div><h3>ربط <span class="ltr">ChatGPT</span> و <span class="ltr">Codex</span> مع R و <span class="ltr">SPSS</span></h3><div class="t ltr">ChatGPT · Codex · R · SPSS</div><div class="p">بدرية الحراصية</div></div></div><div class="c"><div class="badge"><svg class="star" viewBox="0 0 100 100"><defs><linearGradient id="sg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F3D27A"/><stop offset=".5" stop-color="#D4A437"/><stop offset="1" stop-color="#A97C1E"/></linearGradient></defs><rect x="17" y="17" width="66" height="66" fill="url(#sg)"/><rect x="17" y="17" width="66" height="66" fill="url(#sg)" transform="rotate(45 50 50)"/><circle cx="50" cy="50" r="27" fill="none" stroke="#0B2140" stroke-opacity=".35" stroke-width="1.5"/></svg><em>٣</em></div><div><h3>تحليل البيانات باستخدام <span class="ltr">Copilot</span></h3><div class="t ltr">Copilot · Microsoft 365 Excel</div><div class="p">مهند البلوشي</div></div></div><div class="c"><div class="badge"><svg class="star" viewBox="0 0 100 100"><defs><linearGradient id="sg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F3D27A"/><stop offset=".5" stop-color="#D4A437"/><stop offset="1" stop-color="#A97C1E"/></linearGradient></defs><rect x="17" y="17" width="66" height="66" fill="url(#sg)"/><rect x="17" y="17" width="66" height="66" fill="url(#sg)" transform="rotate(45 50 50)"/><circle cx="50" cy="50" r="27" fill="none" stroke="#0B2140" stroke-opacity=".35" stroke-width="1.5"/></svg><em>٤</em></div><div><h3>من البيانات إلى القرار: تحليل البيانات باستخدام <span class="ltr">Julius AI</span></h3><div class="t ltr">Julius AI</div><div class="p">ميثاء الهنائية</div></div></div><div class="c"><div class="badge"><svg class="star" viewBox="0 0 100 100"><defs><linearGradient id="sg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F3D27A"/><stop offset=".5" stop-color="#D4A437"/><stop offset="1" stop-color="#A97C1E"/></linearGradient></defs><rect x="17" y="17" width="66" height="66" fill="url(#sg)"/><rect x="17" y="17" width="66" height="66" fill="url(#sg)" transform="rotate(45 50 50)"/><circle cx="50" cy="50" r="27" fill="none" stroke="#0B2140" stroke-opacity=".35" stroke-width="1.5"/></svg><em>٥</em></div><div><h3>أدوات المساعد البحثي</h3><div class="t ltr">NotebookLM · Claude</div><div class="p">مالك بن محمد العميري</div></div></div><div class="c"><div class="badge"><svg class="star" viewBox="0 0 100 100"><defs><linearGradient id="sg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F3D27A"/><stop offset=".5" stop-color="#D4A437"/><stop offset="1" stop-color="#A97C1E"/></linearGradient></defs><rect x="17" y="17" width="66" height="66" fill="url(#sg)"/><rect x="17" y="17" width="66" height="66" fill="url(#sg)" transform="rotate(45 50 50)"/><circle cx="50" cy="50" r="27" fill="none" stroke="#0B2140" stroke-opacity=".35" stroke-width="1.5"/></svg><em>٦</em></div><div><h3><span class="ltr">ReNoor Stats AI</span>: ذكاء اصطناعي مجاني للتحليل الإحصائي القابل لإعادة الإنتاج</h3><div class="t ltr">ReNoor Stats AI</div><div class="p">الغالية الهنائية · <span class="ltr">Dr. Noor ul Sabah Rehan</span></div></div></div><div class="c wide"><div class="badge"><svg class="star" viewBox="0 0 100 100"><defs><linearGradient id="sg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#F3D27A"/><stop offset=".5" stop-color="#D4A437"/><stop offset="1" stop-color="#A97C1E"/></linearGradient></defs><rect x="17" y="17" width="66" height="66" fill="url(#sg)"/><rect x="17" y="17" width="66" height="66" fill="url(#sg)" transform="rotate(45 50 50)"/><circle cx="50" cy="50" r="27" fill="none" stroke="#0B2140" stroke-opacity=".35" stroke-width="1.5"/></svg><em>٧</em></div><div><h3>تحليلات ونتائج مفسّرة مع برنامج <span class="ltr">JASP AI</span></h3><div class="t ltr">JASP AI</div><div class="p">بهية الراشدية</div></div><div class="p7">تحليلات إحصائية كلاسيكية وبايزية عبر واجهة رسومية، مع مساعد ذكي لإجراء التحليلات وتفسير النتائج</div></div></div></div>
+<div class="sec"><div class="sh"><div class="orn"><b></b><i></i></div>البرنامج الزمني<div class="orn l"><i></i><b></b></div></div><div class="tl"><div class="st"><span class="tm">٩:٠٠ – ٩:٣٠</span><div class="dot"></div><h4>التسجيل والاستقبال وتوزيع المنشورات</h4><p>اللجنة المنظمة</p></div><div class="st"><span class="tm">٩:٣٠ – ٩:٤٠</span><div class="dot"></div><h4>الافتتاح والعرض النظري: من تاريخ الذكاء الاصطناعي إلى التحليل</h4><p>عايدة البوسعيدية</p></div><div class="st hl"><span class="tm">٩:٤٠ – ١٢:٠٠</span><div class="dot"></div><h4>جولة المعرض: الأركان السبعة</h4><p>أصحاب الأركان</p></div><div class="st"><span class="tm">١٢:٠٠ – ١٢:٣٠</span><div class="dot"></div><h4>الختام والتوصيات وتكريم المشاركين</h4><p>لجنة القياس والتقويم</p></div></div><div class="how"><b>في كل ركن:</b> عرض حيّ ٥–٧ دقائق يتكرر كل ٢٠ دقيقة، ثم تجربة عملية للزائر</div></div>
+<div class="foot"><div><strong>الفئة المستهدفة:</strong> طلبة الماجستير والدكتوراه · المختصون في القياس والتقويم بوزارة التربية والتعليم</div><div class="g">تنظيم: طلبة القياس والتقويم</div></div></div></body></html>
