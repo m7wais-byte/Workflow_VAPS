@@ -57,7 +57,7 @@ test('team leads assign their own stream to anyone in the directory; assigning g
  j=assign(j,pvt,'NASSER','SHEREIQI');j=step(j,{type:'progress',id:pvt.id,status:'In Progress',notes:'Half done'},'NASSER');
  j=assign(j,act(j,'1.01','PVT'),'AHAD','SHEREIQI');
  const a=act(j,'1.01','PVT');assert.equal(a.owner,'AHAD');assert.equal(a.status,'In Progress','progress is not discarded');
- assert.deepEqual(a.history.map(h=>[h.action,h.from||'',h.to]),[['assigned','','NASSER'],['update','',undefined],['reassigned','NASSER','AHAD']],'a progress update is kept in the history');
+ assert.deepEqual(a.history.map(h=>[h.action,h.from||'',h.to]),[['assigned','','NASSER'],['started','',undefined],['update','',undefined],['reassigned','NASSER','AHAD']],'the start and a progress update are kept in the history');
  assert.equal(teamMismatch(a,{PVT:['NASSER'],Chemical:[]},undefined,employees),false,'an assignment outside the configured team is valid');
  assert.equal(teamMismatch(a,null,undefined,employees.map(e=>e.id==='AHAD'?{...e,active:false}:e)),true,'an inactive assignee is flagged, not changed');
 });

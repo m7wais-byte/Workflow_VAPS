@@ -10,9 +10,9 @@ import { ukDate } from './uk-format';
  * One header for every task screen (laboratory, Sampling, review, reporting): job ID, task, sample, status,
  * due date and the next action, with the main action button beside it. Supporting detail goes below it.
  */
-export function TaskHeader({ eyebrow, title, jobNumber, sample, status, statusTone, due, dueLabel = 'Due', next, action }: {
+export function TaskHeader({ eyebrow, title, jobNumber, sample, status, statusTone, due, dueLabel = 'Due', next, nextLabel = 'NEXT ACTION', action }: {
   eyebrow: string; title: string; jobNumber: string; sample?: string; status: string; statusTone?: string; due?: string; dueLabel?: string;
-  /** What happens next, in one line. */next: string; /** The main action (button or link). */action?: ReactNode;
+  /** What happens next, in one line. */next: string; /** Heading of the right-hand box. */nextLabel?: string; /** The main action (button or link). */action?: ReactNode;
 }) {
   const overdue = !!due && due < localDate();
   return <header className="task-header">
@@ -26,7 +26,7 @@ export function TaskHeader({ eyebrow, title, jobNumber, sample, status, statusTo
         <div><dt>{dueLabel}</dt><dd className={overdue ? 'is-overdue' : ''}><CalendarClock size={13} aria-hidden="true" /> {due ? ukDate(due) || due : 'Not scheduled'}{overdue ? ' · overdue' : ''}</dd></div>
       </dl>
     </div>
-    <div className="task-next"><small>NEXT ACTION</small><strong>{next}</strong>{action}</div>
+    <div className="task-next"><small>{nextLabel}</small><strong>{next}</strong>{action}</div>
   </header>;
 }
 

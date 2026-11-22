@@ -17,7 +17,12 @@ const valid = (v: unknown): v is DemoSetup => {
 /** The stored demo setup (on or off), or null when absent or unreadable. */
 export function readDemoSetup(): DemoSetup | null {
   if (typeof window === 'undefined' || !window.localStorage) return null;
-  try { const raw = window.localStorage.getItem(demoSetupKey); if (!raw) return null; const value = JSON.parse(raw); return valid(value) ? value : null; } catch { return null; }
+  try {
+    const raw = window.localStorage.getItem(demoSetupKey); if (!raw) return null; const value = JSON.parse(raw); if (!valid(value)) return null;
+    // Demo setups saved before QC moved to Wilfred still name Ahad; update them once so QC review goes to Wilfred.
+    if (value.roles.qcReviewer === 'AHAD') { value.roles = { ...value.roles, qcReviewer: 'WILFRED' }; saveDemoSetup(value); }
+    return value;
+  } catch { return null; }
 }
 /** The demo setup only while it is switched on. */
 export function activeDemoSetup(): DemoSetup | null { const d = readDemoSetup(); return d?.enabled ? d : null; }

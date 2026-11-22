@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { Settings2, PlayCircle } from "lucide-react";
 import type { JobRecord } from "./page";
-import { samplingApproved, samplingTeam, samplingWorkers, samplingStarted, canManageJobAccess, canViewJobAccess, operationsFor, jobFinished, jobCylinderSerials, hasAccess, type Actor, type Command } from "./operations-model";
+import { samplingApproved, samplingTeam, samplingWorkers, samplingStarted, canManageJobAccess, canViewJobAccess, operationsFor, jobFinished, jobCylinderSerials, hasAccess, holder, type Actor, type Command } from "./operations-model";
 import { legacyPlan, planRecordCount, rowSummary } from "./sampling-plan";
 import { ukDate, ukDateTime } from "./uk-format";
 import { PersonOptions } from "./person-picker";
@@ -90,20 +90,24 @@ export function CylinderRelease({ job, actor, onCommand }: Omit<Props, "onStarte
   if (!serials.length && o.clientDisposal) return <section className="panel ops-panel cyl-release is-done"><h2>Client approved · samples disposed</h2><p>Client approval of the final report and the sample disposal instruction recorded by {name(o.clientDisposal.by)} on {ukDateTime(o.clientDisposal.at)}{o.clientDisposal.note ? ": " + o.clientDisposal.note : ""}. This job holds no cylinders.</p></section>;
   const rel = o.cylindersReleased;
   const canRelease = hasAccess(actor, "createJob") || actor.id === o.dispatchedBy;
-  if (rel) return <section className="panel ops-panel cyl-release is-done"><h2>Cylinders released</h2><p>{name(rel.by)} released {serials.length} cylinder{serials.length === 1 ? "" : "s"} on {ukDateTime(rel.at)}: {serials.join(", ")}. {rel.assignee ? name(rel.assignee) + " releases and redresses them (dispose, clean, calibrate, pressure test) in" : "The sampling team collects, cleans, calibrates and checks them in"} <a href="#sampling">Sampling → Cylinders</a>.</p></section>;
+  if (rel) return <section className="panel ops-panel cyl-release is-done"><h2>Cylinders released</h2><p>{name(rel.by)} released {serials.length} cylinder{serials.length === 1 ? "" : "s"} on {ukDateTime(rel.at)}: {serials.join(", ")}. {rel.assignee ? name(rel.assignee) + " releases and redresses them (dispose, clean, certify, pressure test) in" : "The sampling team collects, cleans, certifies and checks them in"} <a href="#sampling">Sampling → Cylinders</a>.</p></section>;
   const release = () => { try { onCommand({ type: "release-cylinders", note, assignee }); setError(""); } catch (e) { setError((e as Error).message); } };
   const client = o.clientDisposal;
+  const owner = holder(actor, "clientApproval");
+  const ownerLine = <p className="briefing-note">Responsible: <strong>{owner ? name(owner) : "Not assigned"}</strong> (Client approval & sample disposal{owner ? "" : " · assign it in Settings → Authorization"}).</p>;
   // Cylinders are discharged only after the client approves the final report and tells us to dispose of the samples.
   if (!client) return <section className="panel ops-panel cyl-release" aria-labelledby="cyl-client-title">
     <h2 id="cyl-client-title">Final report issued · waiting for the client</h2>
     <p>{serials.length ? <>This job still holds <strong>{serials.length} cylinder{serials.length === 1 ? "" : "s"}</strong>: {serials.join(", ")}. They stay with the job, and the samples are kept,</> : <>The samples are kept</>} until the client approves the final report and tells us to dispose of the samples.</p>
+    {ownerLine}
     {canRelease ? <div className="cyl-release-form"><label><span>Client message or reference (optional)</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Email from the focal point, 18/11/2026" /></label><button type="button" className="attention-button" onClick={() => { try { onCommand({ type: "client-disposal", note }); setNote(""); setError(""); } catch (e) { setError((e as Error).message); } }}>Client approved the report · dispose of the samples</button></div> : <p className="briefing-note">The job coordinator records the client&apos;s approval and disposal instruction.</p>}
     {error && <p className="ops-error" role="alert">{error}</p>}
   </section>;
   return <section className="panel ops-panel cyl-release" aria-labelledby="cyl-release-title">
     <h2 id="cyl-release-title">Client approved · discharge the cylinders</h2>
     <p className="briefing-note">Client approval and disposal instruction recorded by {name(client.by)} on {ukDateTime(client.at)}{client.note ? ": " + client.note : ""}.</p>
-    <p>This job still holds <strong>{serials.length} cylinder{serials.length === 1 ? "" : "s"}</strong>: {serials.join(", ")}. Assign a sampling employee to release and redress them: dispose of the remaining sample, clean, calibrate and pressure test them for the next job. Until then they stay blocked as In use.</p>
+    <p>This job still holds <strong>{serials.length} cylinder{serials.length === 1 ? "" : "s"}</strong>: {serials.join(", ")}. Assign a sampling employee to release and redress them: dispose of the remaining sample, clean, certify and pressure test them for the next job. Until then they stay blocked as In use.</p>
+    {ownerLine}
     {canRelease ? <div className="cyl-release-form"><label><span>Sampling employee who redresses the cylinders *</span><select value={assignee} onChange={(e) => setAssignee(e.target.value)} aria-label="Sampling employee who redresses the cylinders"><option value="">Select employee</option><PersonOptions employees={actor.employees} departments={actor.departments} me={actor.id} first={samplingTeam(job)} firstLabel="Sampling crew of this job" /></select></label><label><span>Message (optional)</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Cylinders are in the PVT lab store, shelf B" /></label><button type="button" className="attention-button" disabled={!assignee} onClick={release}>Assign release and redress</button></div> : <p className="briefing-note">The job coordinator releases the cylinders.</p>}
     {error && <p className="ops-error" role="alert">{error}</p>}
   </section>;

@@ -9,13 +9,18 @@ import type { JobRecord } from './page';
 import { flowOverdue, type JobFlow } from './job-flow';
 import { MiniTracker, OverdueBadge, StatusBadge, shortDate } from './flow-ui';
 import { WeeklyBoard } from './weekly-board-ui';
+import { ClientProgress } from './client-progress';
+import { jobSummary } from './job-workflow-model';
+import { clientLogoSource } from './client-logo';
+
+type ClientBrand = { code: string; name: string; shortName: string; logo?: string };
 
 export type DashboardJob = { job: JobRecord; flow: JobFlow };
 const location = (j: JobRecord) => [j.fieldArea, j.wellMode === 'multiple' ? (j.wells || []).filter(Boolean).join(', ') : j.well, j.facility || j.rigInstallation].filter(Boolean).join(' · ');
 type StatusFilter = '' | 'attention' | 'overdue' | 'in-progress' | 'additional';
 
-export function CompanyDashboard({ jobs, today, canActivity, onActivity, name }: { jobs: DashboardJob[]; today: string; canActivity: boolean; onActivity: () => void; name: (id?: string) => string }) {
-  const [tab, setTab] = useState<'jobs' | 'weekly'>('jobs');
+export function CompanyDashboard({ jobs, today, canActivity, onActivity, name, clients: clientMaster = [] }: { jobs: DashboardJob[]; today: string; canActivity: boolean; onActivity: () => void; name: (id?: string) => string; clients?: ClientBrand[] }) {
+  const [tab, setTab] = useState<'jobs' | 'weekly' | 'client'>('jobs');
   const [search, setSearch] = useState(''), [client, setClient] = useState(''), [stage, setStage] = useState(''), [status, setStatus] = useState<StatusFilter>(''), [completed, setCompleted] = useState(false);
   const base = useMemo(() => jobs.filter((r) => !r.flow.draft && (completed || !r.flow.closed)), [jobs, completed]);
   const clients = [...new Set(base.map((r) => r.job.clientName))].sort();
@@ -38,8 +43,8 @@ export function CompanyDashboard({ jobs, today, canActivity, onActivity, name }:
 
   return <div className="company-dashboard">
     <header className="page-head"><div><span className="eyebrow">COMPANY OVERVIEW · READ-ONLY</span><h1>Dashboard</h1><p>Where every active job stands. Open your own tasks from <a href="#my-work">My work</a>.</p></div>{canActivity && <button type="button" className="outline-button" onClick={onActivity}>Activity log</button>}</header>
-    <div className="segmented dash-tabs" role="tablist" aria-label="Dashboard view"><button type="button" role="tab" aria-selected={tab === 'jobs'} className={tab === 'jobs' ? 'active' : ''} onClick={() => setTab('jobs')}>Jobs overview</button><button type="button" role="tab" aria-selected={tab === 'weekly'} className={tab === 'weekly' ? 'active' : ''} onClick={() => setTab('weekly')}>Weekly plan</button></div>
-    {tab === 'weekly' ? <><WeeklyBoard jobs={jobs} today={today} name={name} /><p className="dash-foot">Read-only. PVT tests, equipment and dates come from the PVT Team Lead’s assignments; “R” is the report submission date shown to the client.</p></> : <>
+    <div className="segmented dash-tabs" role="tablist" aria-label="Dashboard view"><button type="button" role="tab" aria-selected={tab === 'jobs'} className={tab === 'jobs' ? 'active' : ''} onClick={() => setTab('jobs')}>Jobs overview</button><button type="button" role="tab" aria-selected={tab === 'weekly'} className={tab === 'weekly' ? 'active' : ''} onClick={() => setTab('weekly')}>Weekly plan</button><button type="button" role="tab" aria-selected={tab === 'client'} className={tab === 'client' ? 'active' : ''} onClick={() => setTab('client')}>Client view</button></div>
+    {tab === 'client' ? <ClientView jobs={jobs} today={today} clients={clientMaster} /> : tab === 'weekly' ? <><WeeklyBoard jobs={jobs} today={today} name={name} /><p className="dash-foot">Read-only. PVT tests, equipment and dates come from the PVT Team Lead’s assignments; “R” is the report submission date shown to the client.</p></> : <>
     <dl className="dash-counts" aria-label="Summary">
       <div><dt>Active jobs</dt><dd>{counts.active}</dd></div>
       <div className={counts.attention ? 'is-alert' : ''}><dt>Need attention</dt><dd>{counts.attention}</dd><small>Correction needed or blocked</small></div>
@@ -69,4 +74,23 @@ export function CompanyDashboard({ jobs, today, canActivity, onActivity, name }:
     </section>
     <p className="dash-foot">Read-only. Status is calculated from the saved workflow records, the same way as inside each job and in My work.</p></>}
   </div>;
+}
+
+/** Client view: pick a job and see exactly what the client sees (same client-safe summary as the job's Client progress tab). */
+function ClientView({ jobs, today, clients }: { jobs: DashboardJob[]; today: string; clients: ClientBrand[] }) {
+  const list = jobs.filter((r) => !r.flow.draft).sort((a, b) => Number(a.flow.closed) - Number(b.flow.closed) || a.job.jobNumber.localeCompare(b.job.jobNumber));
+  const [id, setId] = useState('');
+  const picked = list.find((r) => r.job.id === id) || list[0];
+  if (!picked) return <section className="panel dash-panel"><div className="empty-state" role="status"><strong>No jobs to show.</strong><p>Jobs appear here once they are sent to Sampling.</p></div></section>;
+  const job = picked.job;
+  const c = clients.find((x) => x.code === job.clientCode) || clients.find((x) => [x.shortName, x.name].includes(job.clientName));
+  const brand = c ? { name: c.name, shortName: c.shortName, logo: clientLogoSource(c) || undefined } : undefined;
+  return <>
+    <section className="panel dash-panel client-preview-note dash-client-bar">
+      <div><h2>Client progress view</h2><p>What the client sees for the selected job. Names, comments, workbooks and approvals are not included.</p></div>
+      <label className="select-field"><span>Job</span><select value={job.id} onChange={(e) => setId(e.target.value)}>{list.map((r) => <option key={r.job.id} value={r.job.id}>{r.job.jobNumber} · {r.job.clientName}{r.flow.closed ? ' (completed)' : ''}</option>)}</select></label>
+      <button type="button" className="outline-button" onClick={() => window.print()}>Print or save as PDF</button>
+    </section>
+    <div className="client-preview-frame"><ClientProgress summary={jobSummary(job)} today={today} brand={brand} /></div>
+  </>;
 }

@@ -19,7 +19,7 @@ export const streamLead = (stream:Stream):Responsibility=>stream==='PVT'?'pvtTea
 /** Workbook Submitted = awaiting team-lead review; Changes Requested = returned to the employee; QC Returned = back with the team lead; Completed = QC approved. */
 export type WorkState = 'Unassigned' | 'Scheduled' | 'In Progress' | 'Workbook Submitted' | 'Changes Requested' | 'Awaiting QC' | 'QC Returned' | 'Completed';
 export type FileVersion = { id:string; name:string; size:number; type:string; version:number; submittedBy:string; submittedAt:string; status:'Available'|'Changes Requested'; comments:string; /** Sheet, section or attachment reference named in a return. */target?:string; leadApprovedBy?:string; leadApprovedAt?:string; qcApprovedBy?:string; qcApprovedAt?:string; qcReturnedBy?:string; qcReturnedAt?:string; qcComments?:string };
-export type ActivityEvent = { at:string; by:string; action:'assigned'|'reassigned'|'update'|'submitted'|'lead-approved'|'lead-returned'|'qc-approved'|'qc-returned'|'dispatched'|'results-received'|'planned'; version?:number; target?:string; comments?:string; from?:string; to?:string };
+export type ActivityEvent = { at:string; by:string; action:'assigned'|'reassigned'|'started'|'update'|'submitted'|'lead-approved'|'lead-returned'|'qc-approved'|'qc-returned'|'dispatched'|'results-received'|'planned'; version?:number; target?:string; comments?:string; from?:string; to?:string };
 export type ActivityRecord = { id:string; scopeId:string; /** Shared by the PVT and Chemistry items created for one test sent to both sections. */linkId?:string; sampleId:string; title:string; stream:Stream; owner:string; /** PVT equipment chosen by the PVT Team Lead (lab-equipment.ts id). Absent = not chosen. */equipment?:string; start:string; due:string; conditions:string; notes:string; status:WorkState; files:FileVersion[]; required:boolean; kind?:'validation'|'analysis'; /** Assignment, submission and review decisions, oldest first. */history?:ActivityEvent[]; /** The assigned employee's own progress notes; notes keep the team lead's instructions. */progressNotes?:string; /** A job-specific test entered in the scope (never added to the global catalogue). */custom?:boolean; /** Performed by a third-party laboratory; the owner is the internal coordinator. Absent = performed internally. */external?:ExternalWork };
 /** Third-party execution of one activity. Recording only: nothing is sent to the provider. */
 export type ExternalWork = { provider:string; notes:string; expectedReturn:string; sentOn?:string; sentAt?:string; sentBy?:string; dispatchNotes?:string; receivedOn?:string; receivedAt?:string; receivedBy?:string };
@@ -300,7 +300,7 @@ export type Command =
  | {type:'dispatch';engineer:string;driver:string;/** Supporting sampling employees besides the accountable engineer. */team?:string[]}
  /** The accountable sampling employee confirms the job briefing and starts the sampling work. */
  | {type:'start-job'}
- /** After the job is finished, the coordinator releases its cylinders to the sampling team for cleaning, calibration and checks. */
+ /** After the job is finished, the coordinator releases its cylinders to the sampling team for cleaning, certification and checks. */
  /** The coordinator records that the client approved the final report and instructed disposal of the samples. Cylinders are discharged only after this. */
  | {type:'client-disposal';note?:string}
  | {type:'release-cylinders';note?:string;/** Sampling employee who collects and redresses the cylinders. */assignee?:string}
@@ -385,7 +385,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   if(!command.assignee)throw Error('Select the sampling employee who releases and redresses the cylinders.');active(actor,command.assignee);
   o.cylindersReleased={by:actor.id,at:now,assignee:command.assignee};
   const d=new Date(now);const pad=(n:number)=>String(n).padStart(2,'0');
-  next.events=[...(job.events||[]),{date:`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,time:`${pad(d.getHours())}:${pad(d.getMinutes())}`,description:'Cylinders released by '+(actor.employees.find(e=>e.id===actor.id)?.name||actor.id)+' to '+(actor.employees.find(e=>e.id===command.assignee)?.name||command.assignee)+' to release and redress (dispose, clean, calibrate, pressure test): '+serials.join(', ')+(command.note?.trim()?'. Note: '+command.note.trim():''),createdBy:actor.id,createdAt:now,auto:true}];
+  next.events=[...(job.events||[]),{date:`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,time:`${pad(d.getHours())}:${pad(d.getMinutes())}`,description:'Cylinders released by '+(actor.employees.find(e=>e.id===actor.id)?.name||actor.id)+' to '+(actor.employees.find(e=>e.id===command.assignee)?.name||command.assignee)+' to release and redress (dispose, clean, certify, pressure test): '+serials.join(', ')+(command.note?.trim()?'. Note: '+command.note.trim():''),createdBy:actor.id,createdAt:now,auto:true}];
   break;
  }
  case 'job-access':{
@@ -676,6 +676,8 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   if(a.status==='Completed')throw Error('Completed work is immutable; request additional work.');
   if(['Workbook Submitted','Awaiting QC','QC Returned'].includes(a.status))throw Error('The submitted workbook is under review and cannot be edited.');
   // A new progress note is kept in the history as an update, so the team lead can follow the work as it goes.
+  // The first move out of Scheduled records when the test started, so the team lead sees it has begun.
+  if(a.status==='Scheduled')(a.history||(a.history=[])).push({at:now,by:actor.id,action:'started'});
   if(command.notes.trim()&&command.notes.trim()!==(a.progressNotes||'').trim())(a.history||(a.history=[])).push({at:now,by:actor.id,action:'update',comments:command.notes.trim()});
   a.status=command.status;a.progressNotes=command.notes;break;
  }
@@ -735,7 +737,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
    r.snapshot=snapshot(command.kind);r.status='Checking';r.submittedAt=now;if(command.letterhead)r.letterhead=command.letterhead;
   } else if(command.action==='submit'){
    const direct=command.kind==='sampling'&&dataReviewRequired(job)&&!r.checker;
-   if(direct){if(actor.id!==r.preparedBy||actor.id!==job.assignedEngineerId||r.status!=='Draft')throw Error('Only the accountable sampling employee can submit this report for approval.');if(latestData(job)?.status!=='Approved')throw Error('The sampling data must be reviewed before the report is submitted.');if(!r.file)throw Error('Attach the G-sheet file before sending the report for approval.');}
+   if(direct){if(actor.id!==r.preparedBy||actor.id!==job.assignedEngineerId||r.status!=='Draft')throw Error('Only the accountable sampling employee can submit this report for approval.');if(latestData(job)?.status!=='Approved')throw Error('The sampling data must be reviewed before the report is submitted.');}
    else{const ready=command.kind==='sampling'?r.status==='Checking':r.status==='Draft';
    if(actor.id!==r.checker||!ready)throw Error('Only the named checker can forward this version.');}
    if(r.snapshot!==snapshot(command.kind))throw Error('The draft or checked evidence changed. Save an updated draft or return this version for correction before submission.');
