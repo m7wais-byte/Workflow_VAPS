@@ -1,6 +1,7 @@
 'use client';
-import { useEffect, useState, useRef, type ReactNode } from 'react';
-import { Activity, LayoutList, AlertCircle, ArrowRight, CheckCircle2, Circle, Download, Eye, FileText, Lock, Printer, ChevronDown, ChevronsUpDown, ClipboardList, ListChecks, FlaskConical, History, ShieldCheck, ShieldAlert, ScrollText, UserCheck, Layers } from 'lucide-react';
+import { useEffect, useState, useRef } from 'react';
+import { Fold } from './fold';
+import { Activity, LayoutList, AlertCircle, ArrowRight, CheckCircle2, Circle, Download, Eye, FileText, Lock, Printer, ChevronsUpDown, ClipboardList, ListChecks, FlaskConical, History, ShieldCheck, ShieldAlert, ScrollText, UserCheck, Layers } from 'lucide-react';
 import type { JobRecord } from './page';
 import type { Employee } from './employee-directory';
 import { useUnsaved, defaultCompany } from './settings-pages';
@@ -318,10 +319,6 @@ const human=(key:string)=>fieldLabel[key]||key.replace(/([a-z])([A-Z])/g,'$1 $2'
 function fieldRows(data:Record<string,unknown>){return Object.entries(data).filter(([k])=>!k.endsWith('Unit')).map(([k,v])=>[human(k),String(v??'').trim()?String(v)+(data[k+'Unit']&&/\d/.test(String(v))?' '+data[k+'Unit']:''):'—'] as const);}
 /** One sample's data-sheet values, grouped like the data sheet. */
 function sampleGroups(x:NonNullable<JobRecord['samples']>[number]){const data:Record<string,unknown>={...x.fieldData,depth:x.depth,depthUnit:x.fieldData?.depthUnit,calibrationStatus:x.calibrationStatus,pressureTestStatus:x.pressureTestStatus,equipmentCondition:x.equipmentCondition,samplingDate:ukDate(x.fieldData?.samplingDate)||x.fieldData?.samplingDate};return reviewGroups.map(([title,keys])=>[title,fieldRows(Object.fromEntries(keys.flatMap(k=>[[k,data[k]],[k+'Unit',data[k+'Unit']]])))] as const);}
-/** A collapsible banner: icon, title, one-line summary and a status chip. Click the banner to show the details. */
-function Fold({icon,title,summary,badge,tone='neutral',open=false,className='',children}:{icon:ReactNode;title:string;summary?:ReactNode;badge?:ReactNode;tone?:'neutral'|'ok'|'warn'|'risk'|'info';open?:boolean;className?:string;children:ReactNode}){
- return <details className={'fold fold-'+tone+(className?' '+className:'')} open={open||undefined}><summary><span className="fold-icon">{icon}</span><span className="fold-text"><strong>{title}</strong>{summary&&<small>{summary}</small>}</span>{badge!==undefined&&badge!==''&&<span className="fold-badge">{badge}</span>}<ChevronDown size={18} className="fold-chevron"/></summary><div className="fold-body">{children}</div></details>;
-}
 /**
  * Everything the sampling approver needs in one place, from the submitted snapshot: job, instructions, assignments,
  * preparation, samples and containers, sampling data, events, attachments and missing information.
