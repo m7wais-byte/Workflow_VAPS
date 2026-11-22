@@ -3994,3 +3994,13 @@ button.wb-cell { cursor:pointer; } button.wb-cell:hover { background:rgba(11,136
 .generic-sample-list .generic-sample-toggle{position:relative;padding-right:28px}
 .generic-sample-list .generic-sample-toggle::after{content:"";position:absolute;right:6px;top:50%;width:8px;height:8px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:translateY(-70%) rotate(45deg);transition:transform .2s}
 .generic-sample-list article.is-open .generic-sample-toggle::after{transform:translateY(-30%) rotate(225deg)}
+
+/* ---- Slim sticky tracking bar: keeps the form visible while scrolling ---- */
+html{scroll-padding-top:84px;scroll-padding-bottom:84px}
+.preparation-footer,.sampling-data-footer{min-height:0!important;padding:8px 12px 8px 16px!important;gap:12px!important;bottom:8px!important;background:rgba(255,255,255,.96)!important;backdrop-filter:blur(6px);box-shadow:0 6px 20px rgba(7,44,58,.13)!important}
+.preparation-footer>div:first-child,.sampling-data-footer>div:first-child{min-width:0;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.preparation-footer>div:first-child small,.sampling-data-footer>div:first-child small{display:none!important}
+.preparation-footer>div:first-child span,.sampling-data-footer>div:first-child span{display:inline!important;margin:0!important;font-size:12px!important;color:var(--muted)!important}
+.preparation-footer>div:first-child strong,.sampling-data-footer>div:first-child strong{margin:0!important;font-size:13px!important}
+.preparation-footer .primary-button,.preparation-footer .outline-button,.sampling-data-footer .primary-button,.sampling-data-footer .outline-button{min-height:34px}
+@media(max-width:760px){.preparation-footer,.sampling-data-footer{flex-wrap:wrap;padding:8px 10px!important}.preparation-footer>div:first-child,.sampling-data-footer>div:first-child{display:none}.preparation-footer>div:last-child,.sampling-data-footer>div:last-child{width:100%;justify-content:flex-end;flex-wrap:wrap}}
