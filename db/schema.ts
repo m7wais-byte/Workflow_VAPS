@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index, primaryKey } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index, uniqueIndex, primaryKey } from "drizzle-orm/sqlite-core";
 
 /** Client share links (existing; sharing is switched off in app/deployment.ts). */
 export const jobSummaries = sqliteTable("job_summaries", { id: text("id").primaryKey(), editHash: text("edit_hash").notNull(), audience: text("audience").notNull(), payload: text("payload").notNull(), revision: integer("revision").notNull().default(1), updatedAt: text("updated_at").notNull() });
@@ -183,3 +183,28 @@ export const onedriveFiles = sqliteTable("onedrive_files", {
   lastError: text("last_error"),
   updatedAt: text("updated_at").notNull(),
 }, (t) => [index("onedrive_files_job_idx").on(t.jobId, t.status)]);
+
+/**
+ * Outgoing email outbox and send log (server/notify.ts). One row per message; `dedupe_key` is unique, so a retried
+ * workflow action or a repeated save never queues the same message twice. Invitation rows keep no body (the one-time
+ * link must not be stored); notification rows keep their rendered subject and body so a failed send can be retried.
+ * `audience`: invite | staff | client. `status`: queued | sent | failed | blocked (recipient not allowed) | skipped.
+ */
+export const mailOutbox = sqliteTable("mail_outbox", {
+  id: text("id").primaryKey(),
+  dedupeKey: text("dedupe_key").notNull(),
+  audience: text("audience").notNull(),
+  event: text("event").notNull(),
+  jobId: text("job_id"),
+  employeeId: text("employee_id"),
+  recipient: text("recipient").notNull(),
+  subject: text("subject").notNull(),
+  textBody: text("text_body"),
+  htmlBody: text("html_body"),
+  status: text("status").notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
+  createdAt: text("created_at").notNull(),
+  sentAt: text("sent_at"),
+  updatedAt: text("updated_at").notNull(),
+}, (t) => [uniqueIndex("mail_outbox_dedupe_idx").on(t.dedupeKey), index("mail_outbox_status_idx").on(t.status, t.createdAt), index("mail_outbox_job_idx").on(t.jobId)]);

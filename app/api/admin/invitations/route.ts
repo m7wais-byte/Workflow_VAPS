@@ -2,7 +2,8 @@ import { apiEnv } from "../../../../server/env";
 import { signedIn } from "../../../../server/api";
 import { fail, readJson, reply } from "../../../../server/http";
 import { audit, cancelInvitation, createInvitation } from "../../../../server/auth";
-import { invitationMail, mailerFrom } from "../../../../server/mail";
+import { invitationMail, mailerFrom, recipientAllowed, RECIPIENT_BLOCKED } from "../../../../server/mail";
+import { deliver } from "../../../../server/notify";
 import { administratorId } from "../../../authorization";
 export const dynamic = "force-dynamic";
 const ttlHours = (env: Record<string, unknown>) => { const n = Number(env.INVITE_TTL_HOURS); return Number.isFinite(n) && n >= 1 && n <= 336 ? n : 72; };
@@ -21,11 +22,18 @@ export function POST(request: Request) {
     const configured = String(env.APP_ORIGIN || "").split(",")[0].trim().replace(/\/$/, "");
     if (!configured && mailer.mode !== "test") throw fail(503, "APP_ORIGIN (the dashboard address) is not configured, so no invitation was sent.");
     const dashboard = configured || new URL(request.url).origin;
+    if (mailer.mode !== "test" && typeof body.email === "string" && !recipientAllowed(env, body.email)) throw fail(403, RECIPIENT_BLOCKED + " No invitation was issued.");
     const invitation = await createInvitation(db, who, { employeeId: employee.id, employeeName: employee.name, email: body.email }, ttlHours(env));
     // The token travels only in the link's #fragment, which browsers never send to a server or in a Referer.
     const link = `${dashboard}/#invite=${invitation.token}`;
-    try { await mailer.send(invitationMail({ to: invitation.email, name: employee.name, employeeId: employee.id, link, expiresAt: invitation.expiresAt, dashboard })); }
-    catch (error) { await cancelInvitation(db, invitation.token); throw error; }
+    const mail = invitationMail({ to: invitation.email, name: employee.name, employeeId: employee.id, link, expiresAt: invitation.expiresAt, dashboard });
+    if (mailer.mode === "test") {
+      try { await mailer.send(mail); } catch (error) { await cancelInvitation(db, invitation.token); throw error; }
+    } else {
+      // Recorded in the send log without its body: the one-time link is never stored.
+      const sent = await deliver(env, db, { dedupeKey: `invite:${invitation.accountId}:${crypto.randomUUID()}`, audience: "invite", event: "invitation", employeeId: employee.id, mail, keepBody: false });
+      if (sent.status !== "sent") { await cancelInvitation(db, invitation.token); throw fail(sent.status === "blocked" ? 403 : 502, (sent.last_error || "The invitation email could not be sent.") + " No invitation was issued; please retry."); }
+    }
     await audit(db, { ...who, action: "account.invited", target: invitation.accountId, detail: { employeeId: employee.id, email: invitation.email, expiresAt: invitation.expiresAt, mail: mailer.mode } });
     return reply({ accountId: invitation.accountId, employeeId: employee.id, email: invitation.email, expiresAt: invitation.expiresAt, mail: mailer.mode, ...(mailer.mode === "test" ? { testLink: link } : {}) });
   });

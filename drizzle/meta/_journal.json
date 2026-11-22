@@ -50,6 +50,13 @@
       "when": 1795344251772,
       "tag": "0006_onedrive_pilot",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1795348846140,
+      "tag": "0007_mail_outbox",
+      "breakpoints": true
     }
   ]
 }
