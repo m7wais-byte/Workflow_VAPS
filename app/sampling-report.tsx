@@ -290,7 +290,19 @@ export async function exportSamplingReportPdf(element: HTMLElement, title: strin
  * Downloads the report as an A4 PDF file directly, without the print dialog.
  * Each report page is rendered on its own PDF page, so page breaks match the preview exactly.
  */
-export async function downloadSamplingReportPdf(element: HTMLElement, title: string): Promise<void> {
+export function downloadSamplingReportPdf(element: HTMLElement, title: string): Promise<void> {
+  return renderSamplingReportPdf(element, title, (worker) => worker.save());
+}
+
+/** The same A4 PDF as a File (OneDrive pilot: the approved report is copied to the job's Sampling folder). */
+export async function samplingReportPdfFile(element: HTMLElement, title: string): Promise<File> {
+  const name = `${title.replace(/[<>&"/\\:*?|]/g, '')}.pdf`;
+  const blob = await renderSamplingReportPdf(element, title, (worker) => worker.outputPdf('blob')) as Blob;
+  return new File([blob], name, { type: 'application/pdf' });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- html2pdf's chained worker is not fully typed
+async function renderSamplingReportPdf(element: HTMLElement, title: string, finish: (worker: any) => Promise<unknown>): Promise<any> {
   const pages = Array.from(element.querySelectorAll<HTMLElement>('.sr-page'));
   if (!pages.length) throw Error('The report has no pages.');
   const html2pdf = (await import('html2pdf.js')).default;
@@ -311,5 +323,5 @@ export async function downloadSamplingReportPdf(element: HTMLElement, title: str
   const fix = document.createElement('style');
   fix.textContent = 'body > div:last-child img{display:inline-block}';
   document.head.appendChild(fix);
-  try { await worker.save(); } finally { fix.remove(); }
+  try { return await finish(worker); } finally { fix.remove(); }
 }

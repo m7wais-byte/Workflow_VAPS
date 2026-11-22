@@ -140,3 +140,46 @@ export const files = sqliteTable("files", {
   uploadedBy: text("uploaded_by").notNull(),
   uploadedAt: text("uploaded_at").notNull(),
 });
+
+/* ---------- Temporary OneDrive for Business pilot (migration 0006). D1 stays the system of record. ---------- */
+
+/** The one connected VAPS Microsoft account. `sealed` / `pending` are AES-GCM encrypted (ONEDRIVE_TOKEN_KEY); never plain tokens. */
+export const onedriveAuth = sqliteTable("onedrive_auth", {
+  id: text("id").primaryKey(),
+  /** not-connected | pending | connected | expired */status: text("status").notNull(),
+  account: text("account"),
+  /** Encrypted refresh token. */sealed: text("sealed"),
+  /** Encrypted device code of a sign-in in progress. */pending: text("pending"),
+  pendingExpires: text("pending_expires"),
+  pendingInterval: integer("pending_interval"),
+  connectedAt: text("connected_at"),
+  lastError: text("last_error"),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/** One row per job copied to OneDrive: its <Job ID>, Sampling and Lab folder IDs. */
+export const onedriveJobs = sqliteTable("onedrive_jobs", {
+  jobId: text("job_id").primaryKey(),
+  folderId: text("folder_id"),
+  samplingId: text("sampling_id"),
+  labId: text("lab_id"),
+  folderUrl: text("folder_url"),
+  /** ok | error */status: text("status").notNull(),
+  lastError: text("last_error"),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/** Job files routed to a job folder (app/file-routing.ts). `source`: "upload" (R2) or "job" (scope-of-work in the job record). */
+export const onedriveFiles = sqliteTable("onedrive_files", {
+  fileId: text("file_id").primaryKey(),
+  jobId: text("job_id").notNull(),
+  purpose: text("purpose").notNull(),
+  section: text("section").notNull(),
+  source: text("source").notNull(),
+  name: text("name").notNull(),
+  /** pending | ok | error | replaced */status: text("status").notNull(),
+  itemId: text("item_id"),
+  /** The name OneDrive kept (numbered when the name was already taken). */copyName: text("copy_name"),
+  lastError: text("last_error"),
+  updatedAt: text("updated_at").notNull(),
+}, (t) => [index("onedrive_files_job_idx").on(t.jobId, t.status)]);

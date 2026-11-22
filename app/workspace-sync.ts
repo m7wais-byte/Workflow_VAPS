@@ -6,6 +6,7 @@
  * or a conflict the workspace reloads from the server, so the screen never keeps a change that was not saved.
  */
 "use client";
+import type { FilePurpose } from "./file-routing";
 import { installBrowserStore, isSharedKey, jobsKey, activityKey, type StorageLike } from "./app-storage";
 import type { JobRecord } from "./page";
 import type { Command } from "./operations-model";
@@ -151,9 +152,18 @@ export function clearWorkspace() {
 }
 
 /* ---------- files (Sites edition) ---------- */
-export async function uploadToServer(file: File, anyType: boolean) {
+/** Which job a file belongs to and what it is; the server picks its OneDrive folder from that (OneDrive pilot). */
+export type UploadTarget = { jobId: string; purpose: FilePurpose };
+export type CopyResult = { status: "off" | "ok" | "error"; message?: string; name?: string; renamed?: boolean; savedInVaps?: boolean };
+/** Sent after each job upload so the job's OneDrive panel can say what happened (`vaps-file-copy` window event). */
+export type CopyUpload = { jobId: string; name: string; purpose: FilePurpose; copy: CopyResult };
+export async function uploadToServer(file: File, anyType: boolean, target?: UploadTarget) {
   const form = new FormData(); form.set("file", file); if (anyType) form.set("anyType", "1");
-  return api<{ id: string; name: string; size: number; type: string }>("/api/files", { method: "POST", body: form });
+  if (target) { form.set("jobId", target.jobId); form.set("purpose", target.purpose); }
+  const { id, name, size, type, copy } = await api<{ id: string; name: string; size: number; type: string; copy?: CopyResult }>("/api/files", { method: "POST", body: form });
+  // The OneDrive copy is secondary: the Workflow VAPS upload already succeeded. The job panel reports the copy.
+  if (target && copy && typeof window !== "undefined") window.dispatchEvent(new CustomEvent<CopyUpload>("vaps-file-copy", { detail: { jobId: target.jobId, name, purpose: target.purpose, copy } }));
+  return { id, name, size, type };
 }
 /** Fetches a file the server releases to this employee. The server decides which files are restricted workbooks. */
 export async function fileFromServer(id: string, mode: "view" | "download"): Promise<Blob> {

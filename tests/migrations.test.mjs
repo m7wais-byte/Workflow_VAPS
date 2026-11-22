@@ -12,15 +12,17 @@ const columns = (db, t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) =
 test('the journal lists every migration file in order, and 0003–0005 only add', () => {
   const journal = JSON.parse(fs.readFileSync('drizzle/meta/_journal.json', 'utf8')).entries.map((e) => e.tag + '.sql');
   assert.deepEqual(journal, files);
-  assert.deepEqual(files, ['0000_magenta_phalanx.sql', '0001_chubby_ben_urich.sql', '0002_flawless_vanisher.sql', '0003_employee_sign_in.sql', '0004_account_sign_in_email.sql', '0005_invitations.sql']);
+  assert.deepEqual(files, ['0000_magenta_phalanx.sql', '0001_chubby_ben_urich.sql', '0002_flawless_vanisher.sql', '0003_employee_sign_in.sql', '0004_account_sign_in_email.sql', '0005_invitations.sql', '0006_onedrive_pilot.sql']);
   for (const f of ['0003_employee_sign_in.sql', '0004_account_sign_in_email.sql']) assert.doesNotMatch(fs.readFileSync('drizzle/' + f, 'utf8'), /DROP|DELETE|UPDATE |RENAME/i, f + ': no destructive statements');
   // 0005 adds and back-fills activated_at for accounts that already had passwords; it removes nothing.
   assert.doesNotMatch(fs.readFileSync('drizzle/0005_invitations.sql', 'utf8'), /DROP|DELETE|RENAME/i);
+  // 0006 (OneDrive pilot) only adds three tracking tables.
+  assert.doesNotMatch(fs.readFileSync('drizzle/0006_onedrive_pilot.sql', 'utf8'), /DROP|DELETE|UPDATE |RENAME|ALTER/i);
 });
 
 test('fresh database: all migrations apply', () => {
   const db = new DatabaseSync(':memory:'); apply(db, files);
-  assert.deepEqual(tables(db), ['accounts', 'activity_log', 'audit_log', 'auth_throttle', 'browser_archive', 'files', 'invitations', 'job_summaries', 'jobs', 'requests', 'sessions', 'settings']);
+  assert.deepEqual(tables(db), ['accounts', 'activity_log', 'audit_log', 'auth_throttle', 'browser_archive', 'files', 'invitations', 'job_summaries', 'jobs', 'onedrive_auth', 'onedrive_files', 'onedrive_jobs', 'requests', 'sessions', 'settings']);
   assert.ok(columns(db, 'audit_log').includes('account_id'));
   assert.ok(columns(db, 'accounts').includes('email'));
 });
