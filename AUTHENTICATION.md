@@ -62,10 +62,11 @@ This branch (`claude/integration-auth-data-layer`) combines the employee sign-in
 |---|---|---|
 | Administrator | MA001 (fixed) | As before: all pages; invitations and access roles; job creation, deletion and workbooks only when granted |
 | Super User | Salim Al Maqbali, Ahmed Al Shereiqi, Wilfred Mendonca, Al Yaqdhan Al Bahri (initial list) | The extra permissions configured for them in Settings → Authorization (company overview, job creation, settings, workbooks …) |
-| Normal User | Everyone else | Job details, sampling, PVT analysis, inventory, request book only, so they open **only jobs assigned to them**, including jobs covered by a workflow duty assigned to them. Other permissions have no effect, even if ticked |
+| Normal User | Everyone else | Job details, sampling, PVT analysis, inventory, request book only. A job opens only if it is **directly assigned** to them (sampling engineer or team, driver, laboratory test owner, coordinator who created or dispatched it) or it **now requires a workflow action assigned to them** (e.g. a workbook awaiting their QC review). Other permissions have no effect, even if ticked |
 
 - Only the Administrator changes access levels (the server refuses anyone else, including *Manage authorization* holders); Authorization shows each employee's level and disables Super-User-only permissions for Normal Users.
 - **Workflow duties and approval rules are unchanged**: scope selection, team-lead review, QC, final approval, client approval and the rest still follow Settings → Authorization → duties. A role never grants a duty or an approval. All current duty holders are Super Users.
+- A Normal User with a duty (e.g. QC reviewer) opens a job while it waits for their action, and not after: once the QC review is done and nothing else is assigned to them, the job closes for them again. The same rule applies to the job list, direct links, workflow actions and file downloads, all checked on the server.
 - With the default permission settings, nobody's access changes: the elevated permissions were already held only by the four Super Users and MA001.
 
 ## Email for invitations (needed before launch)

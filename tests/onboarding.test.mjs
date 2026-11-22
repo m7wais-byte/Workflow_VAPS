@@ -11,7 +11,7 @@ const { mf, DB, api, call } = await startSitesApi({
   workspace: 'app/api/workspace/route.ts', record: 'app/api/workspace/records/[key]/route.ts', job: 'app/api/jobs/[id]/route.ts', operations: 'app/api/jobs/[id]/operations/route.ts', files: 'app/api/files/route.ts', file: 'app/api/files/[id]/route.ts',
 }, [
   'export * as auth from "./server/auth.ts";', 'export { testOutbox } from "./server/mail.ts";', 'export { initialDirectory, nextEmployeeId } from "./app/employee-directory.ts";',
-  'export { defaultAuthorization, defaultResponsibilities } from "./app/authorization.ts";', 'export { demoConfiguration } from "./app/demo-data.ts";',
+  'export { defaultAuthorization, defaultResponsibilities } from "./app/authorization.ts";', 'export { demoConfiguration, buildDemoJobs } from "./app/demo-data.ts";',
   'export { defaultFieldData } from "./app/sample-defaults.ts";', 'export { cylinderCatalog } from "./app/cylinder-catalog.ts";',
 ].join('\n'), { MAIL_PROVIDER: 'test', INVITE_TTL_HOURS: '72' });
 
@@ -242,6 +242,64 @@ test('full workflow with onboarded demo accounts; Normal Users see only assigned
   const audit = await DB.prepare("SELECT action, detail FROM audit_log WHERE action IN ('account.invited', 'account.activated') OR record_id = 'vaps-access-roles-v1'").all();
   assert.ok(audit.results.some((a) => a.action === 'account.invited') && audit.results.some((a) => a.action === 'account.activated') && audit.results.some((a) => a.action === 'setting.saved'));
   for (const p of Object.values(passwords)) assert.equal((await DB.prepare('SELECT COUNT(*) AS n FROM audit_log WHERE instr(detail, ?) > 0').bind(p).first()).n, 0);
+});
+
+test('Normal User as QC reviewer: opens only the job that awaits their QC; unrelated jobs stay closed in the list, by direct request and for files', async () => {
+  const ma = await as('MA001');
+  // Demo jobs as if imported: job 003 has a workbook awaiting QC; the others do not. Their files exist in storage.
+  const files = [];
+  const demo = await api.buildDemoJobs(async (name, content) => { const f = { id: crypto.randomUUID(), name, size: content.length, type: 'text/csv' }; files.push({ ...f, content }); return f; }, new Date());
+  for (const j of demo) await DB.prepare("INSERT INTO jobs (id, job_number, payload, revision, trashed, updated_by, updated_at) VALUES (?, ?, ?, 1, 0, 'test', ?)").bind(j.id, j.jobNumber, JSON.stringify(j), new Date().toISOString()).run();
+  for (const f of files) { await globalThis.__vapsTestEnv.FILES.put(f.id, f.content); await DB.prepare("INSERT INTO files (id, name, size, type, uploaded_by, uploaded_at) VALUES (?, ?, ?, ?, 'test', ?)").bind(f.id, f.name, f.size, f.type, new Date().toISOString()).run(); }
+  // Ahad (Normal User) is the assigned QC reviewer.
+  let ws = (await call('workspace', 'GET', '/', { cookie: ma })).data;
+  const roles = JSON.parse(ws.records['vaps-responsibilities-v1']);
+  assert.equal((await call('record', 'PUT', '/', { cookie: ma, params: { key: 'vaps-responsibilities-v1' }, json: { value: JSON.stringify({ ...roles, qcReviewer: 'AHAD' }), revision: ws.revisions['vaps-responsibilities-v1'] } })).status, 200);
+  assert.equal((await invite(ma, 'AHAD')).status, 200); await activate('AHAD');
+  const ahad = await as('AHAD');
+  const byId = Object.fromEntries(demo.map((j) => [j.id, j]));
+  const awaiting = demo.filter((j) => j.operations?.activities.some((a) => a.status === 'Awaiting QC')).map((j) => j.id);
+  assert.deepEqual(awaiting, ['OM-X-26-003']);
+  // Job list: only the job that requires his QC action (Ahad has no direct assignment on any job).
+  ws = (await call('workspace', 'GET', '/', { cookie: ahad })).data;
+  assert.equal(ws.records['vaps-access-roles-v1'] ? JSON.parse(ws.records['vaps-access-roles-v1']).superUsers.includes('AHAD') : false, false, 'Normal User');
+  assert.deepEqual(ws.jobs.map((j) => j.job.id), ['OM-X-26-003']);
+  // Direct requests to an unrelated job are refused, whatever the action.
+  const job6 = byId['OM-X-26-006'];
+  const direct = await call('operations', 'POST', '/', { cookie: ahad, params: { id: job6.id }, json: { commands: [{ type: 'request-addition', title: 'Probe', reason: 'Probe', destination: 'PVT' }], revision: 1 } });
+  assert.equal(direct.status, 403);
+  assert.equal((await call('job', 'PUT', '/', { cookie: ahad, params: { id: job6.id }, json: { job: job6, revision: 1 } })).status, 403);
+  // Files: an unrelated job's report document is refused; the QC job's report document opens (job access, not workbook permission).
+  const reportFile = (j) => j.operations.samplingReports.at(-1)?.file?.id;
+  // A file referenced only by jobs he cannot open (job 004's final report; the demo G-sheet is shared with job 003).
+  const isolated = files.find((f) => !JSON.stringify(byId['OM-X-26-003']).includes(f.id) && !f.name.endsWith('.csv') && demo.some((j) => JSON.stringify(j).includes(f.id)));
+  assert.ok(isolated, 'a report document referenced only by other jobs'); const finalReport = isolated.id;
+  assert.equal((await call('file', 'GET', '/', { cookie: ahad, params: { id: finalReport } })).status, 403, 'file of an unrelated job');
+  assert.equal((await call('file', 'GET', '/', { cookie: await as('WILFRED'), params: { id: finalReport } })).status, 200, 'the same file opens for a Super User with access to that job');
+  assert.equal((await call('file', 'GET', '/', { cookie: ahad, params: { id: reportFile(byId['OM-X-26-003']) } })).status, 200);
+  // He performs the QC review on the server as himself.
+  const pending = byId['OM-X-26-003'].operations.activities.find((a) => a.status === 'Awaiting QC');
+  const qc = await call('operations', 'POST', '/', { cookie: ahad, params: { id: 'OM-X-26-003' }, json: { commands: [{ type: 'qc-review', id: pending.id, decision: 'approve', target: '', comments: '' }], revision: 1 } });
+  assert.equal(qc.status, 200, JSON.stringify(qc.data));
+  assert.equal(qc.data.job.operations.activities.find((a) => a.id === pending.id).qcApprovedBy ?? qc.data.job.operations.activities.find((a) => a.id === pending.id).files.at(-1).qcApprovedBy, 'AHAD');
+  // Once nothing awaits his action, the job closes for him again (no direct assignment).
+  assert.deepEqual((await call('workspace', 'GET', '/', { cookie: ahad })).data.jobs.map((j) => j.job.id), []);
+  // Super Users keep their configured duty access (Wilfred, PVT Supervisor and final approval, sees job 003).
+  assert.ok((await call('workspace', 'GET', '/', { cookie: await as('WILFRED') })).data.jobs.some((j) => j.job.id === 'OM-X-26-003'));
+  // Restore the agreed QC reviewer.
+  ws = (await call('workspace', 'GET', '/', { cookie: ma })).data;
+  assert.equal((await call('record', 'PUT', '/', { cookie: ma, params: { key: 'vaps-responsibilities-v1' }, json: { value: JSON.stringify({ ...roles, qcReviewer: 'WILFRED' }), revision: ws.revisions['vaps-responsibilities-v1'] } })).status, 200);
+});
+
+test('Normal Users keep direct assignments: engineers, backups and drivers open their jobs only', async () => {
+  const jobsOf = async (who) => (await call('workspace', 'GET', '/', { cookie: await as(who) })).data.jobs.map((j) => j.job.id).sort();
+  const ali = await jobsOf('ALI'), mohsin = await jobsOf('MOHSIN'), husseini = await jobsOf('HUSSEINI'), nasser = await jobsOf('NASSER');
+  for (const [who, list] of [['ALI', ali], ['MOHSIN', mohsin], ['HUSSEINI', husseini], ['NASSER', nasser]]) {
+    const all = (await DB.prepare('SELECT payload FROM jobs').all()).results.map((r) => JSON.parse(r.payload));
+    const expected = all.filter((j) => !j.trash && (j.assignedDriverId === who || j.assignedEngineerId === who || (j.samplingTeamIds || []).includes(who) || (j.operations?.activities || []).some((a) => a.owner === who))).map((j) => j.id).sort();
+    for (const id of expected) assert.ok(list.includes(id), `${who} keeps assigned job ${id}`);
+    for (const id of list) assert.ok(expected.includes(id) || id === 'OM-X-26-003', `${who} sees only assigned jobs (got ${id})`);
+  }
 });
 
 test.after(async () => { await mf.dispose(); });
