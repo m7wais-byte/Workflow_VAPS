@@ -302,3 +302,43 @@ export async function acceptInvitation(db: D1Database, config: AuthConfig, input
   const account = await db.prepare("SELECT * FROM accounts WHERE id = ?").bind(invitation.account_id).first<AccountRow>();
   return startSession(db, config, account!, nowDate);
 }
+
+/* ---------- One-time Administrator setup ---------- */
+
+/**
+ * First sign-in account on a hosting platform without direct database access (e.g. Sites): the person holding the
+ * server secret ADMIN_SETUP_TOKEN creates the Administrator account (MA001 only) and chooses its password in the
+ * browser. It works only while no MA001 account exists; the insert itself refuses a second account, so two
+ * simultaneous requests cannot both succeed. Without the secret (or with one shorter than 32 characters) setup is off.
+ */
+export const SETUP_MIN_SECRET = 32;
+export const SETUP_UNAVAILABLE = "Administrator setup is not available on this server.";
+export const SETUP_DONE = "Administrator setup has already been completed. Sign in instead.";
+const SETUP_LIMIT = 5;
+export const setupSecret = (env: Record<string, unknown>) => { const s = env.ADMIN_SETUP_TOKEN; return typeof s === "string" && s.length >= SETUP_MIN_SECRET ? s : null; };
+export const setupOpen = async (db: D1Database, administratorId: string) => !(await db.prepare("SELECT id FROM accounts WHERE employee_id = ?").bind(administratorId).first());
+
+export async function completeAdministratorSetup(db: D1Database, config: AuthConfig, input: { secret: string; token: unknown; password: unknown; address: string; administratorId: string }, employeeActive: EmployeeCheck, nowDate = new Date()) {
+  const now = nowDate.getTime(), at = nowDate.toISOString(), key = "setup:" + input.address;
+  if ((await throttleState(db, key, now)).locked) throw fail(429, "Too many attempts. Wait 15 minutes and try again.");
+  // Compare fingerprints of equal length in constant time.
+  const given = typeof input.token === "string" ? input.token : "";
+  const ok = timingSafeEqualHex(await sha256Hex(given), await sha256Hex(input.secret));
+  if (!ok) { await recordFailure(db, key, SETUP_LIMIT, now); await audit(db, { action: "account.setup_refused", detail: { reason: "secret" } }, at); throw fail(403, "The setup secret is not correct."); }
+  if (!(await setupOpen(db, input.administratorId))) throw fail(409, SETUP_DONE);
+  if (!(await employeeActive(input.administratorId))) throw fail(409, "The Administrator's employee record is not active. Nothing was created.");
+  const username = input.administratorId.toLowerCase();
+  const problem = passwordProblem(input.password, username);
+  if (problem) throw fail(400, problem);
+  const id = crypto.randomUUID(), hash = await hashPassword(input.password as string);
+  // One statement: the row is written only if no Administrator account exists at that moment.
+  const created = await db.prepare(`INSERT INTO accounts (id, username, employee_id, password_hash, must_change_password, active, created_at, created_by, updated_at, activated_at, password_changed_at)
+    SELECT ?, ?, ?, ?, 0, 1, ?, 'administrator-setup', ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM accounts WHERE employee_id = ? OR username = ?)`)
+    .bind(id, username, input.administratorId, hash, at, at, at, at, input.administratorId, username).run().catch(() => ({ meta: { changes: 0 } }));
+  if (created.meta.changes !== 1) throw fail(409, SETUP_DONE);
+  await db.prepare("DELETE FROM auth_throttle WHERE key = ?").bind(key).run();
+  await audit(db, { accountId: id, employeeId: input.administratorId, action: "account.setup", target: id, detail: { via: "administrator setup" } }, at);
+  const account = await db.prepare("SELECT * FROM accounts WHERE id = ?").bind(id).first<AccountRow>();
+  return startSession(db, config, account!, nowDate);
+}
+const timingSafeEqualHex = (a: string, b: string) => { let diff = a.length ^ b.length; for (let i = 0; i < Math.max(a.length, b.length); i++) diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0); return diff === 0; };

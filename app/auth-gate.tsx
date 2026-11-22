@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from
 import { assetUrl } from "./deployment";
 import { api, ApiError, clearWorkspace, loadWorkspace, onSync, settled, type Me } from "./workspace-sync";
 
-type State = { kind: "invite"; token: string } | { kind: "checking" } | { kind: "signed-out"; message?: string } | { kind: "must-change"; username: string } | { kind: "ready"; me: Me; generation: number; notice?: string } | { kind: "error"; message: string };
+type State = { kind: "setup" } | { kind: "invite"; token: string } | { kind: "checking" } | { kind: "signed-out"; message?: string } | { kind: "must-change"; username: string } | { kind: "ready"; me: Me; generation: number; notice?: string } | { kind: "error"; message: string };
 
 export type SessionProps = { me: Me; generation: number; signOut: () => Promise<void>; reload: (notice?: string) => void; notice?: string };
 
@@ -32,7 +32,10 @@ export function AuthGate({ children }: { children: (session: SessionProps) => Re
   useEffect(() => {
     const invitation = /^#invite=([a-f0-9]{64})$/.exec(location.hash);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- the fragment exists only in the browser
-    if (invitation) setState({ kind: "invite", token: invitation[1] }); else void start();
+    if (invitation) setState({ kind: "invite", token: invitation[1] });
+    // One-time Administrator setup (`<site>/#setup`), available only while the server allows it.
+    else if (location.hash === "#setup") setState({ kind: "setup" });
+    else void start();
   }, [start]);
   useEffect(() => {
     const ended = (event: Event) => { clearWorkspace(); setState({ kind: "signed-out", message: (event as CustomEvent<string>).detail || "Your session has ended. Sign in again." }); };
@@ -48,6 +51,7 @@ export function AuthGate({ children }: { children: (session: SessionProps) => Re
     clearWorkspace(); setState({ kind: "signed-out", message: "You have signed out." });
   }, []);
 
+  if (state.kind === "setup") return <AdministratorSetup onDone={() => { history.replaceState(null, "", location.pathname + location.search); setState({ kind: "checking" }); void start("Administrator account created. Next time, sign in with MA001 and this password."); }} onCancel={() => { history.replaceState(null, "", location.pathname + location.search); setState({ kind: "checking" }); void start(); }} />;
   if (state.kind === "invite") return <InvitationScreen token={state.token} onDone={(message) => { history.replaceState(null, "", location.pathname + location.search); setState({ kind: "checking" }); void start(message); }} onCancel={() => { history.replaceState(null, "", location.pathname + location.search); setState({ kind: "checking" }); void start(); }} />;
   if (state.kind === "checking") return <div className="login-loading"><img src={assetUrl("/vaps-logo.png")} alt="VAPS" /><span>Checking your session…</span></div>;
   if (state.kind === "error") return <LoginLayout><div className="login-card"><span className="eyebrow">EMPLOYEE ACCESS</span><h2>Workspace unavailable</h2><div className="login-error" role="alert"><span>!</span>{state.message}</div><button className="login-submit" type="button" onClick={() => { setState({ kind: "checking" }); void start(); }}>Retry</button></div></LoginLayout>;
@@ -149,5 +153,38 @@ function InvitationScreen({ token, onDone, onCancel }: { token: string; onDone: 
         <button className="login-submit" type="submit" disabled={busy}>{busy ? "Activating…" : "Set password and sign in"}</button>
       </form></>}
     {!info && error && <><div className="login-error" role="alert"><span>!</span>{error}</div><button className="login-submit" type="button" onClick={onCancel}>Go to sign-in</button></>}
+  </div></LoginLayout>;
+}
+
+/** One-time Administrator setup: the holder of the server's setup secret creates MA001 and chooses its password. */
+function AdministratorSetup({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const [open, setOpen] = useState<boolean | null>(null), [unavailable, setUnavailable] = useState("");
+  const [form, setForm] = useState({ token: "", password: "", confirm: "" });
+  const [error, setError] = useState(""), [busy, setBusy] = useState(false);
+  useEffect(() => { api<{ open: boolean }>("/api/setup", { method: "POST", json: { action: "check" } }).then((r) => setOpen(r.open)).catch((e: Error) => setUnavailable(e.message)); }, []);
+  async function submit(event: FormEvent) {
+    event.preventDefault(); if (busy) return;
+    if (form.password !== form.confirm) { setError("The passwords do not match."); return; }
+    setBusy(true); setError("");
+    try { await api("/api/setup", { method: "POST", json: { action: "complete", token: form.token, password: form.password } }); onDone(); }
+    catch (e) { setError(e instanceof Error ? e.message : "Setup failed. Nothing was created."); setBusy(false); }
+  }
+  return <LoginLayout><div className="login-card">
+    <div className="login-mobile-logo"><img src={assetUrl("/vaps-logo.png")} alt="VAPS" /></div>
+    <span className="eyebrow">ONE-TIME SETUP</span>
+    <h2>Administrator account</h2>
+    {open === null && !unavailable && <p role="status">Checking setup…</p>}
+    {(unavailable || open === false) && <><div className="login-error" role="alert"><span>!</span>{unavailable || "Administrator setup has already been completed. Sign in instead."}</div><button className="login-submit" type="button" onClick={onCancel}>Go to sign-in</button></>}
+    {open && <form onSubmit={submit}>
+      <p>Creates the Administrator account for employee ID <strong>MA001</strong>. Enter the setup secret configured on the server, then choose your password.</p>
+      <input type="text" name="username" autoComplete="username" value="MA001" readOnly hidden />
+      <div className="login-fields">
+        <label><span>Setup secret</span><input type="password" autoComplete="off" required value={form.token} onChange={(e) => setForm({ ...form, token: e.target.value })} /></label>
+        <label><span>New password</span><input type="password" autoComplete="new-password" required minLength={12} maxLength={128} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /><small className="field-hint">At least 12 characters. A short sentence is easy to remember.</small></label>
+        <label><span>Confirm password</span><input type="password" autoComplete="new-password" required value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} /></label>
+      </div>
+      {error && <div className="login-error" role="alert"><span>!</span>{error}</div>}
+      <button className="login-submit" type="submit" disabled={busy}>{busy ? "Creating…" : "Create Administrator account"}</button>
+    </form>}
   </div></LoginLayout>;
 }

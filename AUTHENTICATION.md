@@ -92,11 +92,20 @@ DNS on the sending domain (from the provider's dashboard): SPF and DKIM records,
 | Migrations | `drizzle/0001`–`0005` | 0003–0004 add only; 0005 adds invitations and marks accounts that already have a password as activated. Verified fresh and as upgrades |
 | `AUTH_SESSION_MAX_HOURS` | optional, default `12` (1–72) | Absolute session lifetime |
 | `AUTH_SESSION_IDLE_MINUTES` | optional, default `120` (5–1440) | Idle timeout |
+| `ADMIN_SETUP_TOKEN` | secret, only for the one-time setup | Remove after the Administrator account exists |
 | `APP_ORIGIN` | **required for invitations** | The dashboard URL (first value); further comma-separated values are extra allowed origins |
 
 HTTPS is required in production (the `__Host-` cookie is Secure). The only secret is the mail provider's API key (see Email for invitations).
 
-### Creating the first administrator
+### Creating the Administrator on Sites (one-time setup)
+Sites gives no direct database access, so the Administrator account is created in the browser:
+1. In the Sites panel, add the secret **`ADMIN_SETUP_TOKEN`**: a random value of at least 32 characters, e.g. from `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`. Keep it private.
+2. Open `<site address>/#setup`, enter the secret, and choose your password. This creates **MA001 only** (any other ID in the request is ignored), activates it and signs you in.
+3. Setup then closes for good: once an MA001 account exists, every further attempt is refused, even with the secret still set. Simultaneous attempts cannot create a second account (the database insert itself is conditional). Five wrong secrets pause setup for 15 minutes from that address.
+4. Remove `ADMIN_SETUP_TOKEN` from the Sites panel afterwards. Without it (or with a value shorter than 32 characters) setup is switched off entirely.
+The secret and the password are never logged or written to the audit trail; the audit records `account.setup` and any refused attempts.
+
+### Creating the first administrator (VAPS-owned Cloudflare / direct database access)
 ```bash
 node scripts/create-account.mjs ma001 MA001
 ```
