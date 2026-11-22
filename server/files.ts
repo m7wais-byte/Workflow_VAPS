@@ -8,6 +8,7 @@ import { fail } from "./http";
 import { audit } from "./auth";
 import { can, loadJobs, visibleJobs, type Context, type Who } from "./workspace";
 import type { Actor } from "../app/operations-model";
+import { isSection, type Section } from "./sharepoint";
 
 export const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const workbookName = /\.(xlsx?|xlsm|csv|pdf|docx?|ods)$/i;
@@ -16,6 +17,19 @@ export function filesBucket(env: Record<string, unknown>): R2Bucket {
   const bucket = env.FILES as R2Bucket | undefined;
   if (!bucket) throw fail(503, "File storage is not configured on this server (R2 binding FILES). No file was stored.");
   return bucket;
+}
+
+/**
+ * Microsoft 365 pilot: an upload made for a job names the job and its workflow section (sampling | lab). The employee
+ * must be able to open that job; this is checked before anything is stored. No job given: stored in VAPS only.
+ */
+export async function uploadTarget(db: D1Database, ctx: Context, actor: Actor, form: FormData): Promise<{ jobId: string; section: Section } | null> {
+  const jobId = form.get("jobId"), section = form.get("section");
+  if (jobId === null && section === null) return null;
+  if (typeof jobId !== "string" || !jobId || !isSection(section)) throw fail(400, "The upload must name its job and section (Sampling or Lab).");
+  const stored = (await loadJobs(db)).get(jobId);
+  if (!stored || !visibleJobs(ctx, actor, new Map([[jobId, stored]])).length) throw fail(stored ? 403 : 404, stored ? "You do not have access to the job this file belongs to." : "Save the job before attaching files to it.");
+  return { jobId, section };
 }
 
 export async function uploadFile(db: D1Database, bucket: R2Bucket, who: Who, form: FormData, at = new Date().toISOString()) {

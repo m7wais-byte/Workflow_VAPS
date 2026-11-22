@@ -140,3 +140,30 @@ export const files = sqliteTable("files", {
   uploadedBy: text("uploaded_by").notNull(),
   uploadedAt: text("uploaded_at").notNull(),
 });
+
+/* ---------- Microsoft 365 pilot (migration 0006). D1 stays the system of record; these track the SharePoint copy. ---------- */
+
+/** One row per job copied to SharePoint: its <Job ID>, Sampling and Lab folder IDs and its Job Register item. */
+export const sharepointJobs = sqliteTable("sharepoint_jobs", {
+  jobId: text("job_id").primaryKey(),
+  folderId: text("folder_id"),
+  samplingId: text("sampling_id"),
+  labId: text("lab_id"),
+  folderUrl: text("folder_url"),
+  registerItemId: text("register_item_id"),
+  /** folders | ok | error */status: text("status").notNull(),
+  lastError: text("last_error"),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/** Uploaded files routed to a job section (sampling | lab). `sp_name` is the name SharePoint kept (numbered on a clash). */
+export const sharepointFiles = sqliteTable("sharepoint_files", {
+  fileId: text("file_id").primaryKey(),
+  jobId: text("job_id").notNull(),
+  section: text("section").notNull(),
+  /** pending | ok | error */status: text("status").notNull(),
+  spItemId: text("sp_item_id"),
+  spName: text("sp_name"),
+  lastError: text("last_error"),
+  updatedAt: text("updated_at").notNull(),
+}, (t) => [index("sharepoint_files_job_idx").on(t.jobId, t.status)]);

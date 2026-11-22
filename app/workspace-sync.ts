@@ -151,9 +151,15 @@ export function clearWorkspace() {
 }
 
 /* ---------- files (Sites edition) ---------- */
-export async function uploadToServer(file: File, anyType: boolean) {
+/** Where an upload belongs in the workflow; the server copies it to that job's SharePoint folder (Microsoft 365 pilot). */
+export type UploadTarget = { jobId: string; section: "sampling" | "lab" };
+export async function uploadToServer(file: File, anyType: boolean, target?: UploadTarget) {
   const form = new FormData(); form.set("file", file); if (anyType) form.set("anyType", "1");
-  return api<{ id: string; name: string; size: number; type: string }>("/api/files", { method: "POST", body: form });
+  if (target) { form.set("jobId", target.jobId); form.set("section", target.section); }
+  const { id, name, size, type, sharepoint } = await api<{ id: string; name: string; size: number; type: string; sharepoint?: { status: string; message?: string; name?: string; renamed?: boolean } }>("/api/files", { method: "POST", body: form });
+  // The SharePoint copy is secondary: the VAPS upload succeeded. Report a failure or a renamed copy without blocking.
+  if (sharepoint?.status === "error" || sharepoint?.renamed) console.warn("SharePoint:", sharepoint.status === "error" ? sharepoint.message : `a file with this name already exists in the folder; this copy was saved as ${sharepoint.name}.`);
+  return { id, name, size, type };
 }
 /** Fetches a file the server releases to this employee. The server decides which files are restricted workbooks. */
 export async function fileFromServer(id: string, mode: "view" | "download"): Promise<Blob> {
