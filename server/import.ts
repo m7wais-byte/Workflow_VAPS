@@ -8,9 +8,15 @@
  *     (INSERT … ON CONFLICT DO NOTHING). Each imported record gets an audit entry. Running the same import again
  *     changes nothing.
  *
- * A record that differs from the database copy is a conflict: it is reported and left out, never merged. Uploaded
- * files are verified and counted but not stored yet; they move to file storage (R2) in a later step, so the export
- * file remains their copy until then.
+ * A record that differs from the database copy is a conflict: it is reported and left out, never merged.
+ *
+ * Settings: the six workflow settings are checked by settings-store; the other shared settings the signed-in app reads
+ * (clients, company, equipment, request lists, cylinders) are checked with the same readers as the Sites API
+ * (server/workspace.ts) and imported into `settings` too. Every non-job record is also archived verbatim.
+ *
+ * Files: verified against their fingerprints and, when file storage (R2 binding FILES) is available, stored under
+ * their existing IDs so the references inside imported jobs stay valid. Without file storage they are only counted
+ * and the export file remains their copy.
  */
 import type { JobRecord } from '../app/page';
 import { administratorId } from '../app/authorization';
@@ -20,13 +26,21 @@ import { directoryKey } from '../app/employee-directory';
 import { exportId, sha256, verifyExport, type BrowserExport } from '../app/export-format';
 import { loadSettings, normalise, readDirectory, serverSettingKeys, type SettingKey, type Stored } from './settings-store';
 import { auditAfterChange, StoreError, type D1Like } from './d1';
+import { sharedKeys } from '../app/app-storage';
+import { context as recordContext, validateRecord } from './workspace';
+
+/** Shared settings the Sites app reads beyond the six workflow settings in settings-store. */
+export const appSettingKeys = sharedKeys.filter(k => !(serverSettingKeys as readonly string[]).includes(k));
+/** The part of an R2 bucket the import uses. */
+export type FileBucket = { put(key: string, value: ArrayBuffer | Uint8Array, options?: { httpMetadata?: { contentType?: string } }): Promise<unknown> };
+const fromBase64 = (b64: string) => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
 
 export const jobsKey = 'vaps-demo-jobs-v1';
 /** D1 stores at most 2 MB per row; stay below it. */
 const maxRowBytes = 1_900_000;
 const bytes = (s: string) => new TextEncoder().encode(s).length;
 
-export type PlanItem = { kind: 'setting' | 'job' | 'request' | 'archive'; id: string; outcome: 'add' | 'unchanged' | 'conflict' | 'skipped-demo'; note?: string };
+export type PlanItem = { kind: 'setting' | 'job' | 'request' | 'archive' | 'file'; id: string; outcome: 'add' | 'unchanged' | 'conflict' | 'skipped-demo'; note?: string };
 type Row = { kind: PlanItem['kind']; id: string; value: string; trashed?: boolean; jobNumber?: string };
 export type ImportPlan = {
   exportId: string; exportedAt: string; exportedBy: string; origin: string;
@@ -66,6 +80,19 @@ export async function planImport(db: D1Like, text: string, options: { includeDem
     catch (e) { plan.problems.push(`Setting ${key} cannot be imported: ${e instanceof Error ? e.message : 'invalid'}`); continue; }
     if (bytes(value) > maxRowBytes) { plan.problems.push(`Setting ${key} is too large for one database row.`); continue; }
     const existing = stored[key as SettingKey];
+    if (!existing) { plan.items.push({ kind: 'setting', id: key, outcome: 'add' }); plan.rows.push({ kind: 'setting', id: key, value }); }
+    else plan.items.push({ kind: 'setting', id: key, outcome: existing.value === value ? 'unchanged' : 'conflict', ...(existing.value === value ? {} : { note: 'The database already holds a different version. It was kept; this one was not imported.' }) });
+  }
+  // Other shared settings, validated against the export's own directory and settings with the Sites API's readers.
+  const exportCtx = recordContext(new Map(sharedKeys.filter(k => local[k] !== undefined).map(k => [k, local[k]])));
+  const { results: storedApp } = await db.prepare(`SELECT key, value FROM settings WHERE key IN (${appSettingKeys.map(() => '?').join(', ')})`).bind(...appSettingKeys).all<{ key: string; value: string }>();
+  for (const key of appSettingKeys) {
+    if (local[key] === undefined) continue;
+    let value: string;
+    try { value = validateRecord(exportCtx, key, local[key]); }
+    catch (e) { plan.problems.push(`Setting ${key} cannot be imported: ${e instanceof Error ? e.message : 'invalid'}`); continue; }
+    if (bytes(value) > maxRowBytes) { plan.problems.push(`Setting ${key} is too large for one database row.`); continue; }
+    const existing = storedApp.find(r => r.key === key);
     if (!existing) { plan.items.push({ kind: 'setting', id: key, outcome: 'add' }); plan.rows.push({ kind: 'setting', id: key, value }); }
     else plan.items.push({ kind: 'setting', id: key, outcome: existing.value === value ? 'unchanged' : 'conflict', ...(existing.value === value ? {} : { note: 'The database already holds a different version. It was kept; this one was not imported.' }) });
   }
@@ -125,11 +152,19 @@ export async function planImport(db: D1Like, text: string, options: { includeDem
     if (archived.some(a => a.key === key)) { plan.items.push({ kind: 'archive', id: key, outcome: 'unchanged' }); continue; }
     plan.items.push({ kind: 'archive', id: key, outcome: 'add' }); plan.rows.push({ kind: 'archive', id: key, value: local[key] });
   }
+  // Uploaded files (already verified against the manifest by verifyExport), keyed by their existing IDs.
+  const { results: storedFiles } = await db.prepare("SELECT id FROM files").all<{ id: string }>();
+  for (const f of data.files) {
+    if (!/^[\w-]{1,80}$/.test(f.id)) { plan.problems.push(`Uploaded file ${f.name} has an unusable ID.`); continue; }
+    if (storedFiles.some(r => r.id === f.id)) { plan.items.push({ kind: 'file', id: f.id, outcome: 'unchanged' }); continue; }
+    plan.items.push({ kind: 'file', id: f.id, outcome: 'add' });
+    plan.rows.push({ kind: 'file', id: f.id, value: JSON.stringify({ name: f.name, type: f.type, size: f.size, sha256: f.sha256, base64: f.base64 }) });
+  }
   return plan;
 }
 
 /** Writes the plan's "add" rows. Refuses a plan with problems. Returns how many rows were actually added. */
-export async function applyImport(db: D1Like, plan: ImportPlan, actorId: string, now = new Date().toISOString()): Promise<{ added: Record<PlanItem['kind'], number> }> {
+export async function applyImport(db: D1Like, plan: ImportPlan, actorId: string, now = new Date().toISOString(), options: { bucket?: FileBucket } = {}): Promise<{ added: Record<PlanItem['kind'], number>; filesWaiting: number }> {
   if (plan.problems.length) throw new StoreError('The import has problems to resolve first. Nothing was imported.', 400);
   // The administrator imports. Before the first directory exists, the directory being imported must name them.
   const stored = await loadSettings(db);
@@ -138,7 +173,7 @@ export async function applyImport(db: D1Like, plan: ImportPlan, actorId: string,
   if (actorId !== administratorId || !directory?.employees.some(e => e.id === actorId && e.active)) throw new StoreError('Only the active administrator can import records.', 403);
 
   const provenance = { exportId: plan.exportId, exportedAt: plan.exportedAt, exportedBy: plan.exportedBy, origin: plan.origin, note: 'Copied from a browser export. Names and times inside the record were recorded in the browser before authenticated sign-in and are kept as recorded.' };
-  const pairs = await Promise.all(plan.rows.map(async (row) => {
+  const pairs = await Promise.all(plan.rows.filter(row => row.kind !== 'file').map(async (row) => {
     const detail = JSON.stringify({ ...provenance, sha256: await sha256(row.value) });
     const write = row.kind === 'setting' ? db.prepare("INSERT INTO settings (key, value, revision, updated_by, updated_at) VALUES (?, ?, 1, ?, ?) ON CONFLICT(key) DO NOTHING").bind(row.id, row.value, actorId, now)
       : row.kind === 'job' ? db.prepare("INSERT INTO jobs (id, job_number, payload, revision, trashed, updated_by, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?) ON CONFLICT(id) DO NOTHING").bind(row.id, row.jobNumber!, row.value, row.trashed ? 1 : 0, actorId, now)
@@ -146,7 +181,7 @@ export async function applyImport(db: D1Like, plan: ImportPlan, actorId: string,
       : db.prepare("INSERT INTO browser_archive (export_id, key, value, sha256, exported_at, imported_by, imported_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(export_id, key) DO NOTHING").bind(plan.exportId, row.id, row.value, await sha256(row.value), plan.exportedAt, actorId, now);
     return { kind: row.kind, write, log: db.prepare(auditAfterChange).bind(now, actorId, 'imported', row.kind === 'archive' ? 'archive' : row.kind, row.kind === 'archive' ? plan.exportId + ':' + row.id : row.id, detail) };
   }));
-  const added: Record<PlanItem['kind'], number> = { setting: 0, job: 0, request: 0, archive: 0 };
+  const added: Record<PlanItem['kind'], number> = { setting: 0, job: 0, request: 0, archive: 0, file: 0 };
   // Settings first, so the directory exists before anything that refers to it. 25 records per transaction.
   const order = ['setting', 'job', 'request', 'archive'];
   pairs.sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
@@ -155,15 +190,27 @@ export async function applyImport(db: D1Like, plan: ImportPlan, actorId: string,
     const results = await db.batch(chunk.flatMap(p => [p.write, p.log]));
     chunk.forEach((p, j) => { added[p.kind] += results[j * 2].meta.changes; });
   }
+  // Files: bytes to R2 first (same ID, so a re-run overwrites with identical bytes), then the metadata row and audit entry.
+  const fileRows = plan.rows.filter(row => row.kind === 'file');
+  for (const row of options.bucket ? fileRows : []) {
+    const f = JSON.parse(row.value) as { name: string; type: string; size: number; sha256: string; base64: string };
+    await options.bucket!.put(row.id, fromBase64(f.base64), { httpMetadata: { contentType: f.type || 'application/octet-stream' } });
+    const [result] = await db.batch([
+      db.prepare("INSERT INTO files (id, name, size, type, uploaded_by, uploaded_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING").bind(row.id, f.name.slice(0, 200), f.size, (f.type || 'application/octet-stream').slice(0, 120), actorId, now),
+      db.prepare(auditAfterChange).bind(now, actorId, 'imported', 'file', row.id, JSON.stringify({ ...provenance, sha256: f.sha256, size: f.size })),
+    ]);
+    added.file += result.meta.changes;
+  }
+  const filesWaiting = options.bucket ? 0 : fileRows.length;
   const total = Object.values(added).reduce((a, b) => a + b, 0);
-  if (total) await db.prepare("INSERT INTO audit_log (at, actor_id, action, record_type, record_id, detail) VALUES (?, ?, ?, ?, ?, ?)").bind(now, actorId, 'import-run', 'import', plan.exportId, JSON.stringify({ ...provenance, added, filesNotYetStored: plan.files })).run();
-  return { added };
+  if (total) await db.prepare("INSERT INTO audit_log (at, actor_id, action, record_type, record_id, detail) VALUES (?, ?, ?, ?, ?, ?)").bind(now, actorId, 'import-run', 'import', plan.exportId, JSON.stringify({ ...provenance, added, filesNotYetStored: filesWaiting })).run();
+  return { added, filesWaiting };
 }
 
 /** A short text report of a plan, with IDs and counts only (no record contents). */
 export function planReport(plan: ImportPlan): string {
   const by = (kind: PlanItem['kind']) => { const items = plan.items.filter(i => i.kind === kind); const n = (o: PlanItem['outcome']) => items.filter(i => i.outcome === o).length; return `${kind.padEnd(8)} add ${n('add')}, unchanged ${n('unchanged')}, conflict ${n('conflict')}${kind === 'job' ? `, demo skipped ${n('skipped-demo')}` : ''}`; };
-  const lines = [`Export ${plan.exportId.slice(0, 12)} · exported ${plan.exportedAt} by ${plan.exportedBy} from ${plan.origin}`, by('setting'), by('job'), by('request'), by('archive'), `files    ${plan.files.count} verified (${(plan.files.bytes / 1048576).toFixed(1)} MB) · kept in the export file until file storage is set up`];
+  const lines = [`Export ${plan.exportId.slice(0, 12)} · exported ${plan.exportedAt} by ${plan.exportedBy} from ${plan.origin}`, by('setting'), by('job'), by('request'), by('archive'), by('file') + ` · ${plan.files.count} verified (${(plan.files.bytes / 1048576).toFixed(1)} MB); stored only where file storage (R2) is configured`];
   for (const i of plan.items.filter(i => i.outcome === 'conflict')) lines.push(`CONFLICT ${i.kind} ${i.id}: ${i.note || 'differs from the database copy; not imported.'}`);
   for (const w of plan.warnings) lines.push('WARNING  ' + w);
   for (const p of plan.problems) lines.push('PROBLEM  ' + p);

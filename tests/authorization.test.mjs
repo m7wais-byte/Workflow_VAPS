@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import ts from 'typescript';
-const code=ts.transpileModule(fs.readFileSync('app/authorization.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+import { inlineStorage } from './fixtures/inline-storage.mjs';
+const code=ts.transpileModule(inlineStorage(fs.readFileSync('app/authorization.ts','utf8')),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
 const {defaultAuthorization,readAuthorization,allowed}=await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));
 const ids=['SALIM','WILFRED','ALI','MA001'];
 test('only Salim can create jobs by default, including no administrator bypass',()=>{

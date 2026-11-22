@@ -32,7 +32,7 @@ const rejects = (promise, status, pattern) => assert.rejects(promise, (e) => e.n
 
 test('migrations create the server tables next to the existing share table', () => {
   const tables = d1().sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_vaps_%' ORDER BY name").all().map((r) => r.name);
-  assert.deepEqual(tables, ['audit_log', 'browser_archive', 'job_summaries', 'jobs', 'requests', 'settings']);
+  assert.deepEqual(tables, ['accounts', 'activity_log', 'audit_log', 'auth_throttle', 'browser_archive', 'files', 'job_summaries', 'jobs', 'requests', 'sessions', 'settings']);
 });
 
 test('a workflow command runs as the server-side actor with server time and one audit entry', async () => {

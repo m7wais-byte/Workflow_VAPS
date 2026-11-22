@@ -1,3 +1,4 @@
+import { appStorage, demoStorage } from './app-storage';
 export const authorizationKey = 'vaps-authorization-v1';
 export const administratorId = 'MA001';
 export const permissionLabels = {
@@ -69,9 +70,9 @@ export function allowed(policy: Authorization, id: string | undefined, permissio
 
 /** While the labelled demo setup is on, its duties replace the saved ones for the duties it lists. Settings are not changed. */
 export function withDemoRoles(saved: Responsibilities): Responsibilities {
-  // Read directly (same key and shape as demo-setup.ts) so this module stays free of imports.
+  // Read directly (same key and shape as demo-setup.ts). Never applied in the Sites edition (demoStorage() is null there).
   let demo: { enabled?: boolean; roles?: Record<string, string> } | null = null;
-  try { demo = typeof window !== 'undefined' && window.localStorage ? JSON.parse(window.localStorage.getItem('vaps-demo-setup-v1') || 'null') : null; } catch { demo = null; }
+  try { const store = demoStorage(); demo = store ? JSON.parse(store.getItem('vaps-demo-setup-v1') || 'null') : null; } catch { demo = null; }
   if (!demo?.enabled || !demo.roles || typeof demo.roles !== 'object') return saved;
   return Object.fromEntries((Object.keys(responsibilityLabels) as Responsibility[]).map(key => [key, typeof demo!.roles![key] === 'string' ? demo!.roles![key] : saved[key]])) as Responsibilities;
 }
@@ -127,8 +128,9 @@ export function migrateDriverAccess(policy: Authorization, ids: string[]): Autho
 }
 /** Saved duties for views without an actor. Unreadable settings block every duty instead of restoring defaults. */
 export function storedResponsibilities(): Responsibilities {
-  if (typeof window === 'undefined' || !window.localStorage) return { ...defaultResponsibilities };
+  const store = appStorage();
+  if (!store) return { ...defaultResponsibilities };
   let saved: Responsibilities;
-  try { saved = readResponsibilities(window.localStorage.getItem(responsibilitiesKey)); } catch { saved = { ...unassignedResponsibilities }; }
+  try { saved = readResponsibilities(store.getItem(responsibilitiesKey)); } catch { saved = { ...unassignedResponsibilities }; }
   return withDemoRoles(saved);
 }

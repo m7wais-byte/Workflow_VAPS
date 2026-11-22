@@ -3,9 +3,10 @@
  * request book, for the server import (server/import.ts). Nothing in the browser is changed or deleted.
  */
 import { administratorId } from './authorization';
-import { directoryKey, loadDirectory } from './employee-directory';
+import { directoryKey, initialDirectory, loadDirectory } from './employee-directory';
+import { serverMode } from './app-storage';
 import { makeExport, sha256, type ExportFile } from './export-format';
-import { loadRequests } from './request-store';
+import { loadLocalRequests } from './request-store';
 import { allStoredFiles } from './workbook-storage';
 
 function base64(bytes: Uint8Array): string {
@@ -28,10 +29,13 @@ export async function exportAllRecords(actorId: string, includeFiles: boolean): 
     files.push({ id, name: (file as File).name || id, type: file.type, size: bytes.length, sha256: await sha256(bytes), base64: base64(bytes) });
   }
   let requests: unknown[] = [];
-  try { requests = await loadRequests(); } catch { throw Error('The request book could not be read. Nothing was exported.'); }
+  // Always this browser's own register (IndexedDB), also in the Sites edition where the app reads the server's.
+  try { requests = await loadLocalRequests(); } catch { throw Error('The request book could not be read. Nothing was exported.'); }
   const now = new Date().toISOString();
   // A directory never edited in this browser is not saved; the app uses its built-in list, so that list is exported.
-  const data = await makeExport({ local, files, requests, exportedBy: actorId, exportedAt: now, origin: location.origin, defaults: { [directoryKey]: JSON.stringify(loadDirectory()) } });
+  // In the Sites edition the app's directory comes from the server; the export describes this browser only.
+  const builtIn = serverMode ? JSON.stringify(initialDirectory()) : JSON.stringify(loadDirectory());
+  const data = await makeExport({ local, files, requests, exportedBy: actorId, exportedAt: now, origin: location.origin, defaults: { [directoryKey]: builtIn } });
   const day = now.slice(0, 10);
   return { blob: new Blob([JSON.stringify(data)], { type: 'application/json' }), fileName: `vaps-export-${day}.json`, counts: data.manifest.counts };
 }

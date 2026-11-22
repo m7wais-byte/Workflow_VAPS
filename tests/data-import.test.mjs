@@ -73,15 +73,17 @@ test('import into an empty database: IDs, job numbers and records preserved, dem
   const plan = await planImport(db, await exportText());
   assert.deepEqual(plan.problems, []);
   const count = (kind, outcome) => plan.items.filter((i) => i.kind === kind && i.outcome === outcome).length;
-  assert.equal(count('setting', 'add'), 3);
+  assert.equal(count('setting', 'add'), 4, 'three workflow settings plus the client list the Sites app reads');
+  assert.equal(count('file', 'add'), files.length);
   assert.equal(count('job', 'add'), 4);
   assert.equal(count('job', 'skipped-demo'), demoJobs.length - 3);
   assert.equal(count('request', 'add'), 2);
   assert.equal(count('archive', 'add'), 2, 'clients and the activity log are archived verbatim');
   assert.equal(plan.files.count, files.length);
 
-  const { added } = await applyImport(db, plan, 'MA001', T);
-  assert.deepEqual(added, { setting: 3, job: 4, request: 2, archive: 2 });
+  const { added, filesWaiting } = await applyImport(db, plan, 'MA001', T);
+  assert.deepEqual(added, { setting: 4, job: 4, request: 2, archive: 2, file: 0 });
+  assert.equal(filesWaiting, files.length, 'without file storage the files are only verified and counted');
   for (const job of [...realJobs, fresh]) {
     const row = db.sqlite.prepare('SELECT payload, job_number, revision FROM jobs WHERE id = ?').get(job.id);
     assert.equal(row.payload, JSON.stringify(job), job.id + ' stored exactly as exported');
@@ -105,8 +107,8 @@ test('importing the same export again changes nothing', async () => {
   await applyImport(db, await planImport(db, text), 'MA001', T);
   const audits = db.sqlite.prepare('SELECT COUNT(*) AS n FROM audit_log').get().n;
   const again = await planImport(db, text);
-  assert.ok(again.items.every((i) => i.outcome === 'unchanged' || i.outcome === 'skipped-demo'));
-  assert.deepEqual((await applyImport(db, again, 'MA001', T)).added, { setting: 0, job: 0, request: 0, archive: 0 });
+  assert.ok(again.items.every((i) => i.outcome === 'unchanged' || i.outcome === 'skipped-demo' || i.kind === 'file'), 'files wait for file storage');
+  assert.deepEqual((await applyImport(db, again, 'MA001', T)).added, { setting: 0, job: 0, request: 0, archive: 0, file: 0 });
   assert.equal(db.sqlite.prepare('SELECT COUNT(*) AS n FROM audit_log').get().n, audits);
 });
 
@@ -140,4 +142,20 @@ test('blocking problems, demo opt-in, missing files and administrator-only impor
   const db = d1();
   await assert.rejects(applyImport(db, await planImport(db, await exportText()), 'SALIM', T), /administrator/);
   assert.equal(db.sqlite.prepare('SELECT COUNT(*) AS n FROM jobs').get().n, 0);
+});
+
+test('with file storage, uploaded files move to R2 under their existing IDs, once', async () => {
+  const db = d1(); const text = await exportText();
+  const bucket = new Map(); const r2 = { put: async (key, value) => { bucket.set(key, Buffer.from(value)); } };
+  const { added, filesWaiting } = await applyImport(db, await planImport(db, text), 'MA001', T, { bucket: r2 });
+  assert.equal(added.file, files.length); assert.equal(filesWaiting, 0);
+  for (const f of files) {
+    assert.equal(bucket.get(f.id).toString('base64'), f.base64, f.name + ' bytes unchanged');
+    const row = db.sqlite.prepare('SELECT name, size FROM files WHERE id = ?').get(f.id);
+    assert.deepEqual({ ...row }, { name: f.name, size: f.size });
+    assert.equal((await listAudit(db, 'file', f.id))[0].action, 'imported');
+  }
+  const again = await planImport(db, text);
+  assert.ok(again.items.filter((i) => i.kind === 'file').every((i) => i.outcome === 'unchanged'));
+  assert.equal((await applyImport(db, again, 'MA001', T, { bucket: r2 })).added.file, 0);
 });

@@ -1,5 +1,6 @@
 import type { Stream } from './operations-model';
 import { activeDemoSetup } from './demo-setup';
+import { appStorage } from './app-storage';
 /** Laboratory team membership groups employees in planning. Membership never grants a permission. */
 export type LabTeams = Record<Stream, string[]>;
 export const labTeamsKey = 'vaps-lab-teams-v1';
@@ -25,8 +26,9 @@ export function readLabTeams(raw: string | null, ids: string[]): LabTeams {
 }
 /** Saved teams, or null when unreadable (assignment is then blocked rather than opened to everyone). */
 export function storedLabTeams(ids: string[]): LabTeams | null {
-  if (typeof window === 'undefined' || !window.localStorage) return emptyLabTeams();
+  const store = appStorage();
+  if (!store) return emptyLabTeams();
   const demo = activeDemoSetup();
   if (demo) return { PVT: demo.teams.PVT.filter(id => ids.includes(id)), Chemical: demo.teams.Chemical.filter(id => ids.includes(id)) };
-  try { return readLabTeams(window.localStorage.getItem(labTeamsKey), ids); } catch { return null; }
+  try { return readLabTeams(store.getItem(labTeamsKey), ids); } catch { return null; }
 }

@@ -1,3 +1,4 @@
+import { appStorage } from './app-storage';
 // Units each client works in (Settings → Clients). The sampling data sheet opens in the client's units;
 // every other unit stays available in the unit dropdown of each field.
 
@@ -26,8 +27,9 @@ export const unitsSummary = (units?: ClientUnits) => units ? `${presetOf(units)}
 
 /** Units saved for a client in Settings → Clients, read from this browser's client list. Undefined when none are set. */
 export function storedClientUnits(clientCode?: string): ClientUnits | undefined {
-  if (!clientCode || typeof localStorage === 'undefined') return undefined;
-  try { const list = JSON.parse(localStorage.getItem('vaps-demo-clients-v1') || '[]'); const found = Array.isArray(list) ? list.find((c) => c && c.code === clientCode) : undefined; return found?.units || undefined; } catch { return undefined; }
+  const store = appStorage();
+  if (!clientCode || !store) return undefined;
+  try { const list = JSON.parse(store.getItem('vaps-demo-clients-v1') || '[]'); const found = Array.isArray(list) ? list.find((c) => c && c.code === clientCode) : undefined; return found?.units || undefined; } catch { return undefined; }
 }
 
 /** Data sheet value field → quantity. The unit is stored next to the value as `<field>Unit`. */

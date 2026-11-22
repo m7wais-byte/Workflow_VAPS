@@ -1,4 +1,6 @@
-export type Employee = { id: string; name: string; role: string; password: string; initials: string; departmentId: string; positionId: string; employeeCode: string; email: string; phone: string; active: boolean };
+import { appStorage, serverMode } from './app-storage';
+/** `password` exists only in the browser-only GitHub Pages demo; Sites accounts and password hashes live on the server. */
+export type Employee = { id: string; name: string; role: string; password?: string; initials: string; departmentId: string; positionId: string; employeeCode: string; email: string; phone: string; active: boolean };
 export type DirectoryOption = { id: string; name: string; active: boolean };
 export type Directory = { employees: Employee[]; departments: DirectoryOption[]; positions: DirectoryOption[] };
 export const directoryKey = 'vaps-directory-v1';
@@ -10,15 +12,17 @@ export const seedPeople = [
 export function initialDirectory(): Directory {
  const roles = [...new Set(seedPeople.map(p => p[2]))];
  const options = roles.map(name => ({id: name, name, active: true}));
- return { departments: options.map(o => ({...o})), positions: options.map(o => ({...o})), employees: seedPeople.map(([id,name,role]) => ({id,name,role,password:'1234',initials:name.split(' ').map(n=>n[0]).slice(0,2).join(''),departmentId:role,positionId:role,employeeCode:id,email:'',phone:'',active:true})) };
+ return { departments: options.map(o => ({...o})), positions: options.map(o => ({...o})), employees: seedPeople.map(([id,name,role]) => ({id,name,role,...(serverMode ? {} : {password:'1234'}),initials:name.split(' ').map(n=>n[0]).slice(0,2).join(''),departmentId:role,positionId:role,employeeCode:id,email:'',phone:'',active:true})) };
 }
 export function loadDirectory(): Directory {
- const raw = window.localStorage.getItem(directoryKey);
+ const store = appStorage();
+ const raw = store ? store.getItem(directoryKey) : null;
  if (!raw) return initialDirectory();
  const value = JSON.parse(raw) as Directory;
  if (!Array.isArray(value.employees) || !Array.isArray(value.departments) || !Array.isArray(value.positions) || !value.employees.some(e=>e.id==='MA001' && e.active)) throw Error('Employee directory could not be loaded. Saved data has been preserved.');
  const migrated = migrateDirectory(value);
- if (migrated !== value) window.localStorage.setItem(directoryKey, JSON.stringify(migrated));
+ // The Sites server applies the same migration when it reads the directory; the browser never rewrites shared settings on load.
+ if (migrated !== value && !serverMode) store?.setItem(directoryKey, JSON.stringify(migrated));
  return migrated;
 }
 export function validateDirectory(next: Directory) {
@@ -43,6 +47,6 @@ export function migrateDirectory(value: Directory): Directory {
  const ali = value.employees.find(e => e.id === 'ALI');
  const departmentId = ali?.departmentId || 'transport', positionId = ali?.positionId || 'transport';
  if (!value.departments.some(o => o.id === departmentId) || !value.positions.some(o => o.id === positionId)) return value;
- const humaid: Employee = { id: 'HUMAID', name: 'Humaid Al Habsi', role: ali?.role || 'transport', password: '1234', initials: 'HA', departmentId, positionId, employeeCode: value.employees.some(e => e.employeeCode.trim().toLowerCase() === 'humaid') ? '' : 'HUMAID', email: '', phone: '', active: true };
+ const humaid: Employee = { id: 'HUMAID', name: 'Humaid Al Habsi', role: ali?.role || 'transport', ...(serverMode ? {} : { password: '1234' }), initials: 'HA', departmentId, positionId, employeeCode: value.employees.some(e => e.employeeCode.trim().toLowerCase() === 'humaid') ? '' : 'HUMAID', email: '', phone: '', active: true };
  return { ...value, employees: [...value.employees, humaid] };
 }
