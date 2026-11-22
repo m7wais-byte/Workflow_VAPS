@@ -55,7 +55,7 @@ function LoginLayout({ children }: { children: ReactNode }) {
     <section className="login-visual" aria-label="VAPS PVT Lab & Sampling introduction">
       <div className="login-brand"><img src={assetUrl("/vaps-logo.png")} alt="VAPS" /><span>INTERNAL OPERATIONS</span></div>
       <div className="login-visual-copy"><span className="eyebrow">PETROLEUM LABORATORY SERVICES</span><h1>Technical workflows.<br />Clear responsibility.</h1><p>A focused workspace for managing PVT laboratory jobs, sampling records, and operational accountability.</p></div>
-      <div className="login-security"><span className="status-dot" /><div><strong>VAPS employees only</strong><small>Sign in with the username and password issued to you. Accounts are created by your administrator.</small></div></div>
+      <div className="login-security"><span className="status-dot" /><div><strong>VAPS employees only</strong><small>Sign in with your username or work email and your password. Accounts are created by your administrator.</small></div></div>
     </section>
     <section className="login-form-side">{children}</section>
   </main>;
@@ -79,7 +79,7 @@ function LoginScreen({ message, onSignedIn }: { message?: string; onSignedIn: ()
       <p>Internal Laboratory Workflow Management</p>
       {message && !error && <p className="login-info" role="status">{message}</p>}
       <div className="login-fields">
-        <label><span>Username</span><input name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} required value={form.username} onChange={(e) => { setForm({ ...form, username: e.target.value }); setError(""); }} /></label>
+        <label><span>Username or email</span><input name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} required value={form.username} onChange={(e) => { setForm({ ...form, username: e.target.value }); setError(""); }} /></label>
         <label><span>Password</span><div className="password-field"><input name="password" type={show ? "text" : "password"} autoComplete="current-password" required value={form.password} onChange={(e) => { setForm({ ...form, password: e.target.value }); setError(""); }} /><button type="button" onClick={() => setShow(!show)} aria-label={show ? "Hide password" : "Show password"}>{show ? "Hide" : "Show"}</button></div></label>
       </div>
       {error && <div className="login-error" role="alert"><span>!</span>{error}</div>}

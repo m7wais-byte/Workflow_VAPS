@@ -4014,3 +4014,7 @@ button.wb-cell { cursor:pointer; } button.wb-cell:hover { background:rgba(11,136
 .settings-panel label.ops-check{flex-direction:row;align-items:center;gap:10px}
 .import-report { max-height:320px; overflow:auto; padding:12px 14px; border:1px solid #c7dadf; border-radius:6px; background:#f7fafb; font-size:.8125rem; white-space:pre-wrap; }
 .import-choose { display:inline-flex; align-items:center; gap:8px; cursor:pointer; width:max-content; }
+.account-settings .email-edit { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+.account-settings .email-edit input { max-width:240px; }
+.account-settings td .text-button { display:block; margin-top:2px; }
+.account-settings .muted-text { color:#6b818c; }

@@ -19,6 +19,12 @@ This branch (`claude/integration-auth-data-layer`) combines the employee sign-in
 - Accounts never grant permissions. Permissions and duties stay in Settings → Authorization, as before.
 - Employee records can be deactivated but not removed (IDs are permanent). Deactivating the employee or the account blocks sign-in and ends existing sessions.
 
+### Sign-in email (migration 0004)
+- Settings → Sign-in accounts lets holders of *Manage authorization* add, change or remove an account's **sign-in email** (also when creating the account). This is the login email on the account, separate from the contact email in the employee directory.
+- Employees sign in with their **username or their email**, and the same password. Accounts without an email keep using the username only.
+- Emails are stored trimmed and lower-case with a unique index, so the same address cannot be given to two accounts in any capitalisation (also under concurrent requests). Usernames cannot contain "@", so the two never collide.
+- Failed attempts count per account, so trying the username and the email does not double the allowed guesses. Every change is audited (`account.email_changed`, before and after).
+
 ### Passwords
 - Stored only as PBKDF2-HMAC-SHA-256 hashes (random 16-byte salt, 100,000 iterations — the Cloudflare Workers maximum) via the platform Web Crypto API. The algorithm and work factor are stored with each hash; hashes are upgraded at the next sign-in if the setting is raised.
 - Minimum 12 characters. Administrators issue random temporary passwords (shown once); the employee must change it before anything else works.
@@ -99,3 +105,9 @@ Nothing is imported automatically. Production starts empty with the built-in def
 6. **Prompt 3 (administrator):** `is_admin` instead of `MA001`, administrator transfer, server-enforced last-administrator rule at account level, and an audit viewer.
 7. **Two job-write paths:** the HTTP routes use `server/workspace.ts`; the data layer's `server/job-store.ts` / `settings-store.ts` apply the same model functions and are used by the import and its tests. Consolidating them is a follow-up.
 8. **Account lifecycle:** there is no self-service password reset (by design: an administrator issues a temporary password). Microsoft 365 sign-in and email notifications are deferred.
+
+## Planned access model (confirmed, not implemented)
+Recorded for a later change; nothing below is in the code yet, and roles and deployment remain deferred.
+- **Administrator:** a designated employee other than Mohammed (MA001). Today the administrator is still the hard-coded `MA001`.
+- **Super Users:** configurable extra permissions on top of a normal user.
+- **Normal Users:** can open only the jobs assigned to them. Today job access also follows duties (scope selection, team lead, QC, final approval) and *Company overview*; narrowing this is part of the later change.

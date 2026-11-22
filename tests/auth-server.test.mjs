@@ -294,4 +294,50 @@ test('send to sampling: the coordinator saves and dispatches in one server step;
   assert.equal((await call('job', 'PUT', '/api/jobs/OM-X-26-097', { cookie: await signIn('ALI'), params: { id: other.id }, json: { job: other, revision: 0, commands: [dispatch] } })).status, 403);
 });
 
+test('email sign-in: authorized staff set an email; email and username both sign in; duplicates refused whatever the case', async () => {
+  const ma = await signIn('MA001');
+  const setEmail = (cookie, employeeId, email) => call('account', 'POST', '/api/admin/accounts/x', { cookie, params: { id: accounts[employeeId].id }, json: { action: 'set-email', email } });
+  const set = await setEmail(ma, 'SALIM', '  Salim.AlMaqbali@VAPS.example ');
+  assert.equal(set.status, 200, JSON.stringify(set.data)); assert.equal(set.data.email, 'salim.almaqbali@vaps.example');
+  const listed = (await call('accounts', 'GET', '/api/admin/accounts', { cookie: ma })).data.accounts.find((a) => a.id === accounts.SALIM.id);
+  assert.equal(listed.email, 'salim.almaqbali@vaps.example');
+  // Email in any capitalisation, and the username, sign in to the same employee with the existing password.
+  for (const name of ['SALIM.ALMAQBALI@vaps.example', 'salim.almaqbali@vaps.example', 'salim.vaps']) {
+    const r = await call('login', 'POST', '/api/auth/login', { json: { username: name, password: accounts.SALIM.password } });
+    assert.equal(r.status, 200, name);
+    assert.equal((await call('session', 'GET', '/api/auth/session', { cookie: cookieOf(r.setCookie) })).data.employeeId, 'SALIM');
+  }
+  // Accounts without an email keep signing in with the username.
+  assert.equal((await call('login', 'POST', '/api/auth/login', { json: { username: 'wilfred.vaps', password: accounts.WILFRED.password } })).status, 200);
+  // The same address for another account is refused, whatever the capitalisation, also at account creation.
+  const dup = await setEmail(ma, 'WILFRED', 'SALIM.almaqbali@Vaps.Example');
+  assert.equal(dup.status, 409); assert.match(dup.data.error, /already used/);
+  const created = await call('accounts', 'POST', '/api/admin/accounts', { cookie: ma, json: { username: 'ranjith.vaps', employeeId: 'RANJITH', email: 'Salim.Almaqbali@vaps.example' } });
+  assert.equal(created.status, 409);
+  assert.equal((await setEmail(ma, 'WILFRED', 'not-an-email')).status, 400);
+  // Only Manage authorization holders change emails.
+  assert.equal((await setEmail(await signIn('NASSER'), 'NASSER', 'nasser@vaps.example')).status, 403);
+  // A wrong password by email fails with the same message as by username.
+  const wrongEmail = await call('login', 'POST', '/api/auth/login', { json: { username: 'salim.almaqbali@vaps.example', password: 'not the password' } });
+  const unknownEmail = await call('login', 'POST', '/api/auth/login', { json: { username: 'nobody@vaps.example', password: 'not the password' } });
+  assert.deepEqual([wrongEmail.status, unknownEmail.status], [401, 401]); assert.equal(wrongEmail.data.error, unknownEmail.data.error);
+  // Removing the email: the email no longer signs in, the username still does.
+  assert.equal((await setEmail(ma, 'SALIM', '')).data.email, null);
+  assert.equal((await call('login', 'POST', '/api/auth/login', { json: { username: 'salim.almaqbali@vaps.example', password: accounts.SALIM.password } })).status, 401);
+  assert.equal((await call('login', 'POST', '/api/auth/login', { json: { username: 'salim.vaps', password: accounts.SALIM.password } })).status, 200);
+  const audited = await DB.prepare("SELECT detail FROM audit_log WHERE action = 'account.email_changed' AND record_id = ? ORDER BY id").bind(accounts.SALIM.id).all();
+  assert.deepEqual(audited.results.map((r) => JSON.parse(r.detail)), [{ before: null, after: 'salim.almaqbali@vaps.example' }, { before: 'salim.almaqbali@vaps.example', after: null }]);
+});
+
+test('email sign-in: the username and the email share one failed-attempt limit', async () => {
+  const ma = await signIn('MA001');
+  await call('account', 'POST', '/api/admin/accounts/x', { cookie: ma, params: { id: accounts.YAQEEN.id }, json: { action: 'set-email', email: 'yaqeen@vaps.example' } });
+  for (const [i, name] of ['yaqeen.vaps', 'yaqeen@vaps.example', 'yaqeen.vaps', 'YAQEEN@vaps.example', 'yaqeen.vaps'].entries())
+    assert.equal((await call('login', 'POST', '/api/auth/login', { json: { username: name, password: 'guess ' + i } })).status, 401);
+  for (const name of ['yaqeen.vaps', 'yaqeen@vaps.example'])
+    assert.equal((await call('login', 'POST', '/api/auth/login', { json: { username: name, password: accounts.YAQEEN.password } })).status, 429, name);
+  const reset = await api.auth.resetAccountPassword(DB, admin, accounts.YAQEEN.id);
+  assert.equal((await call('login', 'POST', '/api/auth/login', { json: { username: 'yaqeen@vaps.example', password: reset.temporaryPassword } })).status, 200, 'an administrator reset clears the pause');
+});
+
 test.after(async () => { await mf.dispose(); });
