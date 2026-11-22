@@ -187,7 +187,7 @@ export function externalStage(a:ActivityRecord):string{
 }
 export const externalLabel=(a:Pick<ActivityRecord,'external'>)=>a.external?'External · '+(a.external.provider||'provider not recorded'):'';
 const externalFrom=(e?:ExecutionChoice):ExternalWork|undefined=>e?.by==='Third-party'?{provider:(e.provider||'').trim(),notes:(e.notes||'').trim(),expectedReturn:e.expectedReturn||''}:undefined;
-export type Actor = { id:string; employees:Employee[]; policy:Authorization; roles?:Responsibilities; /** Current test routing; null when the saved settings cannot be read. */routing?:TestRouting|null; /** Laboratory team lists; null when the saved settings cannot be read. */teams?:LabTeams|null; /** Every job, for advisory schedule-overlap checks in pickers. */jobs?:JobRecord[]; /** Department names for grouping pickers. */departments?:{id:string;name:string}[] };
+export type Actor = { id:string; employees:Employee[]; policy:Authorization; /** Catalogue test IDs, including tests added in Settings → Tests. The server passes them; the browser omits them and reads its own storage. */catalogue?:string[]; roles?:Responsibilities; /** Current test routing; null when the saved settings cannot be read. */routing?:TestRouting|null; /** Laboratory team lists; null when the saved settings cannot be read. */teams?:LabTeams|null; /** Every job, for advisory schedule-overlap checks in pickers. */jobs?:JobRecord[]; /** Department names for grouping pickers. */departments?:{id:string;name:string}[] };
 /** The valid holder of a duty for this actor's settings ('' when unassigned or invalid). */
 export const holder=(actor:Actor,key:Responsibility)=>roleHolder(actor.roles||defaultResponsibilities,key,actor.employees);
 export function hasAccess(actor:Actor,permission:Permission) {return actor.employees.some(e=>e.id===actor.id&&e.active)&&((actor.id==='MA001'&&!explicitPermissions.includes(permission))||actor.policy[permission].includes(actor.id));}
@@ -232,7 +232,7 @@ const releasedIn=(v:LabScopeVersion|undefined,sampleId:string,stream:Stream,test
 export function labScopeProblems(job:JobRecord,samples:Omit<SampleScope,'containerType'|'containerLabel'>[],conditions:Operations['conditions'],routing:TestRouting|null|undefined,roles:Responsibilities,previous?:LabScopeVersion,actor?:Actor,phase?:1|2):string[]{
  const problems:string[]=[];
  if(!routing)return ['Laboratory test routing settings cannot be read. Ask an administrator to restore them in Settings → Authorization.'];
- const ids=(job.samples||[]).map(s=>s.id);const catalogue=catalogueIds();
+ const ids=(job.samples||[]).map(s=>s.id);const catalogue=actor?.catalogue||catalogueIds();
  if(samples.length!==ids.length||ids.some(id=>samples.filter(s=>s.sampleId===id).length!==1))problems.push('Every job sample needs one scope entry.');
  const execProblems=(label:string,what:string,e:ExecutionChoice|undefined)=>{
   if(e?.by!=='Third-party')return;

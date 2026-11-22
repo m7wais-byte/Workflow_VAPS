@@ -20,7 +20,7 @@ import { defaultRequestLists, readRequestLists, requestListsKey, type RequestLis
 import { OverlapNotice } from './person-picker';
 import { readLabTeams, storedLabTeams, labTeamsKey, emptyLabTeams, type LabTeams } from './lab-teams';
 import { PvtLab, type LabTestProgress } from "./pvt-lab";
-import { labComplete, reconcileLabScope, type LabPlan } from "./lab-work";
+import { labComplete, type LabPlan } from "./lab-work";
 import { ClientLogo } from "./client-logo";
 import { cylinderCatalog } from "./cylinder-catalog";
 import { syncShare, getShare, pauseShare, resumeShare } from "./job-sharing";
@@ -33,6 +33,7 @@ import { defaultFieldData, samplingPointFor, samplingPointOptions } from "./samp
 import { applyClientUnits, clientUnitFor, presetOf, unitPresets, unitQuantities, unitsSummary, type ClientUnits } from "./client-units";
 import { containerComplete, containerId, containerLabel, containerNoun, containerTypeName, containerTypes, containerVolumes, isAtmospheric, type ContainerType } from "./sample-container";
 import { buildDemoJobs, demoClient, demoLogin, demoConfiguration } from "./demo-data";
+import { assertActiveAssignments, prepareJobForSave } from "./job-save";
 import { storeWorkbook } from "./workbook-storage";
 import { cylinderStatusKey, cylinderStatuses, readCylinderStatus, selectable, cylinderStateLabel, type CylinderStatusMap, type EffectiveStatus } from "./cylinder-status";
 import { CylinderRegister } from "./cylinder-register";
@@ -40,7 +41,7 @@ import { teamName } from "./team-name";
 import { planRecords, planRecordCount, planErrors, legacyPlan, newPlanRow, rowSummary, isSeparator, CASED_HOLE, type SamplingPlanRow } from "./sampling-plan";
 import { coordinator, canWork, type TeamWork } from "./team-workflow";
 import { JobWorkflow } from "./job-workflow";
-import { jobProgress, trackChanges, type JobProgress, type StageId, type TrackEvent } from "./job-workflow-model";
+import { jobProgress, type JobProgress, type StageId, type TrackEvent } from "./job-workflow-model";
 import { authorizationKey, defaultAuthorization, readAuthorization, allowed, driverMigrationKey, migrateDriverAccess, responsibilitiesKey, defaultResponsibilities, readResponsibilities, roleHolder, retiredResponsibilities, responsibilityLabels, storedResponsibilities, unassignedResponsibilities, type Authorization, type Permission, type Responsibilities } from "./authorization";
 import { AuthorizationSettings } from "./authorization-settings";
 import { initialDirectory, loadDirectory, validateDirectory, directoryKey, type Employee, type Directory } from "./employee-directory";
@@ -834,18 +835,8 @@ export default function Home() {
   const isOverdue = (item: JobRecord) => !isClosed(item) && Boolean(item.dueDate && item.dueDate < today);
 
   function persistJobs(next: JobRecord[]) {
-    const refs=(j:JobRecord)=>[j.responsibleId,j.jobResponsibleId,j.assignedEngineerId,j.assignedDriverId,...j.stages.map(s=>s.assignedTo),...Object.values(j.teamWork||{}).map(t=>t.owner),...Object.values(j.labPlan?.assignees||{}),j.report?.preparedBy];
-    for(const item of next) {if(item.trash)continue;const old=storedJobs.find(j=>j.id===item.id);const previous=old?refs(old):[];if(refs(item).some(id=>id&&!previous.includes(id)&&!demoEmployees.some(e=>e.id===id&&e.active))) throw Error('New assignments require an active employee.');}
-
-    const tracked = next.map(item => {
-      if (item.trash) return item;
-      const reconciled = item.operations ? item : reconcileLabScope(item);
-      const task = reconciled.teamWork?.analysis;
-      if (task?.completedAt && !labComplete(reconciled)) {
-        reconciled.teamWork = {...reconciled.teamWork, analysis: {...task, completedAt: undefined}};
-      }
-      return trackChanges(reconciled, storedJobs.find(previous => previous.id === item.id));
-    });
+    for(const item of next) assertActiveAssignments(item, storedJobs.find(j=>j.id===item.id), id=>demoEmployees.some(e=>e.id===id&&e.active));
+    const tracked = next.map(item => prepareJobForSave(item, storedJobs.find(previous => previous.id === item.id)));
     // A caller that only sees active jobs never drops the ones in Trash.
     const all = [...tracked, ...storedJobs.filter((item) => item.trash && !next.some((other) => other.id === item.id))];
     try { window.localStorage.setItem(jobsStorageKey, JSON.stringify(all)); } catch { setNotice("The job could not be saved. Browser storage may be full. Your entered information is still available; retry after freeing space."); throw Error("Job save failed. No stored records were changed."); }
