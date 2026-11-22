@@ -217,6 +217,23 @@ test('Graph down: the save still succeeds, the failure is logged, MA001 retries 
   assert.equal(again.data.status, 'sent'); assert.equal(graph.sent.length, sent + 1, 'already sent: not sent again');
 });
 
+test('a send interrupted mid-way ("sending") is retryable by MA001 only once it is stale, and is sent once', async () => {
+  const ma = await as('MA001');
+  const failed = (await rows()).find((x) => x.status === 'sent' && x.audience === 'staff');
+  const at = new Date().toISOString();
+  // Simulate a worker that stopped after claiming the row: a fresh "sending" row is left alone.
+  await DB.prepare("UPDATE mail_outbox SET status = 'sending', sent_at = NULL, updated_at = ? WHERE id = ?").bind(at, failed.id).run();
+  const sent = graph.sent.length;
+  const fresh = await call('mail', 'POST', '/', { cookie: ma, json: { action: 'retry', id: failed.id } });
+  assert.equal(fresh.data.status, 'sending'); assert.equal(graph.sent.length, sent, 'a send still in progress is not repeated');
+  const old = new Date(Date.now() - api.notify.STALE_SENDING_MS - 60_000).toISOString();
+  await DB.prepare('UPDATE mail_outbox SET updated_at = ? WHERE id = ?').bind(old, failed.id).run();
+  const r = await call('mail', 'POST', '/', { cookie: ma, json: { action: 'retry', id: failed.id } });
+  assert.equal(r.data.status, 'sent'); assert.equal(graph.sent.length, sent + 1);
+  const again = await call('mail', 'POST', '/', { cookie: ma, json: { action: 'retry', id: failed.id } });
+  assert.equal(again.data.status, 'sent'); assert.equal(graph.sent.length, sent + 1, 'sent once');
+});
+
 test('notifications are off unless configured; staff and client switches are independent', async () => {
   const saved = { staff: env.NOTIFY_STAFF, client: env.NOTIFY_CLIENT };
   try {

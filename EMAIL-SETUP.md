@@ -12,7 +12,7 @@ Employee notifications come from the same calculation as each employee's *My wor
 
 Client emails contain only the client progress view: job number, the client's own reference, the milestone and its date, stage statuses and the confirmed expected completion date. They contain no staff names, comments, internal statuses, links into the workspace or files. The final report itself is still issued by VAPS through the agreed channel.
 
-**Duplicates.** Every message has a unique key in the `mail_outbox` table: event, recipient, job, and the job revision or report version that produced it. A retried or repeated request cannot queue the same message twice, and a message that was sent is never sent again. A failed send never undoes the workflow step. It stays in the log with the reason, and MA001 can retry it (`POST /api/admin/mail { action: "retry", id }`). `GET /api/admin/mail` (MA001 only) shows the configuration and the latest messages with their outcome.
+**Duplicates.** Every message has a unique key in the `mail_outbox` table: event, recipient, job, and the job revision or report version that produced it. A retried or repeated request cannot queue the same message twice, and a message that was sent is never sent again. A failed send never undoes the workflow step. It stays in the log with the reason, and MA001 can retry it (`POST /api/admin/mail { action: "retry", id }`). A message left in *sending* for more than 10 minutes (the server stopped mid-send) can also be retried. Check bsg@visionaps.com's Sent Items first, because Microsoft may already have delivered it. `GET /api/admin/mail` (MA001 only) shows the configuration and the latest messages with their outcome.
 
 ## 1. What the VAPS Microsoft 365 administrator configures
 

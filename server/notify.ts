@@ -127,9 +127,13 @@ export async function deliver(env: Record<string, unknown>, db: D1Database, q: Q
   return attempt(env, db, row, q.mail, at);
 }
 
-/** One send attempt for a queued or failed row. A row is claimed first, so two retries cannot both send it. */
+/** A row left in "sending" longer than this (the worker stopped mid-send) can be retried by MA001. */
+export const STALE_SENDING_MS = 10 * 60_000;
+const staleBefore = (at: string) => new Date(new Date(at).getTime() - STALE_SENDING_MS).toISOString();
+
+/** One send attempt for a queued or failed row (or a stale "sending" row). A row is claimed first, so two retries cannot both send it. */
 async function attempt(env: Record<string, unknown>, db: D1Database, row: OutboxRow, mail: Mail, at: string): Promise<OutboxRow> {
-  const claim = await db.prepare("UPDATE mail_outbox SET status = 'sending', attempts = attempts + 1, updated_at = ? WHERE id = ? AND status IN ('queued', 'failed')").bind(at, row.id).run();
+  const claim = await db.prepare("UPDATE mail_outbox SET status = 'sending', attempts = attempts + 1, updated_at = ? WHERE id = ? AND (status IN ('queued', 'failed') OR (status = 'sending' AND updated_at < ?))").bind(at, row.id, staleBefore(at)).run();
   if (claim.meta.changes !== 1) return (await db.prepare("SELECT * FROM mail_outbox WHERE id = ?").bind(row.id).first<OutboxRow>())!;
   const mailer = mailerFrom(env);
   let status = "sent", error: string | null = null;
@@ -140,12 +144,14 @@ async function attempt(env: Record<string, unknown>, db: D1Database, row: Outbox
   return (await db.prepare("SELECT * FROM mail_outbox WHERE id = ?").bind(row.id).first<OutboxRow>())!;
 }
 
-/** MA001: retry one failed (or still queued) notification. Invitations are re-sent from Sign-in accounts instead. */
+/** MA001: retry one failed, still queued or stale "sending" notification. Invitations are re-sent from Sign-in accounts instead. */
 export async function retry(env: Record<string, unknown>, db: D1Database, id: string, at = new Date().toISOString()) {
   const row = await db.prepare("SELECT * FROM mail_outbox WHERE id = ?").bind(id).first<OutboxRow>();
   if (!row) return null;
   if (row.audience === "invite" || !row.html_body || !row.text_body) return { ...row, last_error: "Invitations are not stored; send a new invitation from Settings → Sign-in accounts." };
-  if (row.status !== "failed" && row.status !== "queued") return row;
+  // "sending" is retried only when stale: the earlier attempt never recorded its outcome. Microsoft may still have
+  // delivered it, so MA001 checks bsg@visionaps.com's Sent Items before retrying such a row.
+  if (row.status !== "failed" && row.status !== "queued" && !(row.status === "sending" && row.updated_at < staleBefore(at))) return row;
   return attempt(env, db, row, { to: row.recipient, subject: row.subject, text: row.text_body, html: row.html_body }, at);
 }
 
