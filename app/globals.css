@@ -3924,3 +3924,42 @@ button.wb-cell { cursor:pointer; } button.wb-cell:hover { background:rgba(11,136
 .equip-preview { border-radius:4px; padding:5px 8px; font-size:12px; font-weight:650; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .equip-list .text-button { justify-self:end; white-space:nowrap; }
 @media(max-width:640px){ .equip-list li { grid-template-columns:44px 1fr; } .equip-list .equip-preview { display:none; } .equip-list .text-button { grid-column:2; justify-self:start; } .equip-add { grid-template-columns:44px 1fr; } .equip-add .outline-button { grid-column:1 / -1; justify-content:center; } }
+
+/* ---- Collapsible banners (sampling data review + sampling report) ---- */
+.fold-toolbar{display:flex;align-items:center;justify-content:space-between;margin:18px 0 6px}
+.fold-toolbar>span{font-size:12px;font-weight:750;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.fold-toolbar .text-button{display:inline-flex;align-items:center;gap:5px;color:var(--teal-dark);font-weight:650;font-size:13px}
+.fold-list{display:flex;flex-direction:column;gap:10px;margin:10px 0 14px}
+.sampling-review .fold-list>.fold,.report-panel .fold-list>.fold{margin:0}
+.fold{border:1px solid var(--line);border-left:4px solid var(--idle-line);border-radius:10px;background:var(--paper);transition:box-shadow .15s,border-color .15s}
+.fold:hover{box-shadow:0 3px 12px rgba(16,44,59,.07)}
+.fold[open]{box-shadow:0 3px 14px rgba(16,44,59,.08)}
+.fold>summary{display:flex;align-items:center;gap:12px;padding:12px 14px;cursor:pointer;list-style:none;user-select:none}
+.fold>summary::-webkit-details-marker{display:none}
+.fold>summary:focus-visible{outline:3px solid var(--teal);outline-offset:2px;border-radius:8px}
+.fold-icon{flex:none;width:36px;height:36px;border-radius:9px;display:grid;place-items:center;background:var(--idle-bg);color:var(--idle)}
+.fold-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.fold-text strong{font-size:15px;color:var(--navy);font-weight:700}
+.fold-text small{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fold[open] .fold-text small{white-space:normal}
+.fold-badge{flex:none;font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;background:var(--idle-bg);color:var(--idle);border:1px solid var(--idle-line)}
+.fold-chevron{flex:none;min-width:18px;color:var(--muted);transition:transform .2s}
+.fold[open] .fold-chevron{transform:rotate(180deg)}
+.fold-body{padding:4px 16px 16px 62px;border-top:1px solid var(--line-2)}
+.fold-body>:first-child{margin-top:12px}
+.fold-ok{border-left-color:var(--ok)}.fold-ok .fold-icon{background:var(--ok-bg);color:var(--ok)}.fold-ok .fold-badge{background:var(--ok-bg);color:var(--ok);border-color:var(--ok-line)}
+.fold-warn{border-left-color:var(--warn-strong)}.fold-warn .fold-icon{background:var(--warn-bg);color:var(--warn)}.fold-warn .fold-badge{background:var(--warn-bg);color:var(--warn);border-color:var(--warn-line)}
+.fold-risk{border-left-color:var(--risk);background:#fffafa}.fold-risk .fold-icon{background:var(--risk-bg);color:var(--risk)}.fold-risk .fold-badge{background:var(--risk-bg);color:var(--risk);border-color:var(--risk-line)}
+.fold-info{border-left-color:var(--teal)}.fold-info .fold-icon{background:var(--mint);color:var(--teal-dark)}.fold-info .fold-badge{background:var(--mint);color:var(--teal-dark);border-color:#b7dcd5}
+.fold-body .rv-grid{margin-top:12px}
+.fold-body .fold-gap{margin:14px 0 6px}
+.fold-body .rv-more{margin-top:10px}
+.fold.return-form{padding:0;margin-top:0}.fold.return-form>summary{font-weight:400;color:inherit}
+.fold.return-form .fold-body{display:grid;gap:8px}.fold.return-form .fold-body>button{justify-self:start}
+.rv-next{display:flex;align-items:flex-start;gap:6px;margin-top:6px}
+.rv-next svg{flex:none;margin-top:3px;color:var(--teal)}
+.rv-allclear{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0 0;padding:10px 14px;border:1px solid var(--ok-line);border-radius:10px;background:var(--ok-bg);color:var(--ok)}
+.rv-allclear strong{font-size:14px}.rv-allclear span{font-size:13.5px;color:#2f6b49}
+.report-panel .fold .rp-preview{margin:0}
+.report-panel .fold .rp-preview:not(.is-full) .rp-preview-head{justify-content:flex-end}
+@media(max-width:760px){.fold-body{padding:4px 12px 14px}.fold>summary{gap:10px;padding:11px 12px}.fold-icon{width:32px;height:32px}.fold-text small{white-space:normal}}
