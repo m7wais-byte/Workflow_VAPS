@@ -1,4 +1,5 @@
 'use client';
+import { serverMode } from './app-storage';
 import { useState, type ReactNode } from 'react';
 import { itemSearchText, rowSearchText, type Alert, type BlockedItem, type InboxRow, type Setting, type UpcomingItem, type WaitingItem, type WorkItem } from './work-items';
 import type { JobFlow } from './job-flow';
@@ -103,7 +104,7 @@ export function MyWork({ now, upcoming, waiting, blocked, blockedActions, alerts
           <div className="inbox-go" role="cell"><button type="button" className="outline-button" onClick={() => onOpenJob(r)}>Open job</button></div>
         </div></div>; })}{!lists.jobs.length && <p className="inbox-empty" role="status">{term ? 'No jobs match this search.' : 'You have no assigned work on any active job. The Dashboard shows company-wide progress.'}</p>}</>}
     </div>
-    <div className="inbox-foot">{pager}<span>Browser-local trial: records stay in this browser; the demo selector is not secure sign-in.</span></div>
+    <div className="inbox-foot">{pager}{!serverMode && <span>Browser-only demo: records stay in this browser and sign-in is not secure.</span>}</div>
   </div>;
 }
 

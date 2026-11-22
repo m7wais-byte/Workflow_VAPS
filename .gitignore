@@ -47,3 +47,7 @@ yarn-error.log*
 /output/
 /tmp/
 *.tsbuildinfo
+
+# Browser exports and local staging databases contain operational records: never commit them
+vaps-export-*.json
+*.sqlite

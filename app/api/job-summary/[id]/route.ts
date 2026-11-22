@@ -1,5 +1,9 @@
 import { summaryDb } from "../../../../db/summary-store";
 import { sanitizeSummary } from "../../../summary-validation";
+import { apiEnv } from "../../../../server/env";
+import { signedIn } from "../../../../server/api";
+/** Publishing and withdrawing a summary are internal actions: they need a signed-in VAPS session as well as the edit key. */
+const requireEmployee = (request: Request) => signedIn(apiEnv(), request, async () => Response.json({ ok: true }));
 export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ id: string }> };
 const validId = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
@@ -14,6 +18,7 @@ export async function GET(request: Request, context: Context) {
  } catch { return reply({ error: "Summary is temporarily unavailable. Please retry." }, 503); }
 }
 export async function PUT(request: Request, context: Context) {
+ const auth = await requireEmployee(request); if (!auth.ok) return auth;
  const { id } = await context.params; if (!validId(id)) return reply({ error: "Invalid link" }, 400);
  let hash: string; try { hash = await editHash(request); } catch { return reply({ error: "An edit key is required" }, 401); }
  let body; let summary;
@@ -26,6 +31,7 @@ export async function PUT(request: Request, context: Context) {
  } catch { return reply({ error: "Could not save the summary. Your job is unchanged; please retry." }, 503); }
 }
 export async function DELETE(request: Request, context: Context) {
+ const auth = await requireEmployee(request); if (!auth.ok) return auth;
  const { id } = await context.params; if (!validId(id)) return reply({ error: "Invalid link" }, 400);
  let hash; try { hash = await editHash(request); } catch { return reply({ error: "An edit key is required" }, 401); }
  try { const result = await summaryDb().prepare("DELETE FROM job_summaries WHERE id = ? AND edit_hash = ?").bind(id, hash).run(); if (!result.meta.changes) return reply({ error: "The link or edit key is invalid." }, 403); return reply({ stopped: true }); } catch { return reply({ error: "Sharing could not be stopped. Please retry." }, 503); }

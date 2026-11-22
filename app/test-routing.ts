@@ -1,4 +1,5 @@
 import { activeDemoSetup } from './demo-setup';
+import { appStorage } from './app-storage';
 import { catalogueIds, defaultRouting } from './test-catalogue';
 /**
  * Default team for each catalogue test, maintained in Settings → Tests. A test routed Unassigned (or with no entry)
@@ -31,9 +32,10 @@ export function readTestRouting(raw: string | null, ids?: string[]): TestRouting
 }
 /** Saved routing, or null when it cannot be read (scope release is then blocked rather than guessed). */
 export function storedTestRouting(): TestRouting | null {
-  if (typeof window === 'undefined' || !window.localStorage) return effectiveRouting({});
+  const store = appStorage();
+  if (!store) return effectiveRouting({});
   const demo = activeDemoSetup();
-  try { const saved = readTestRouting(window.localStorage.getItem(testRoutingKey)); return demo ? { ...saved, ...demo.routing } : saved; } catch { return null; }
+  try { const saved = readTestRouting(store.getItem(testRoutingKey)); return demo ? { ...saved, ...demo.routing } : saved; } catch { return null; }
 }
 export const routingChoice = (routing: TestRouting, id: string): RoutingChoice => routing[id] || 'Unassigned';
 export const testsFor = (stream: 'PVT' | 'Chemical', routing: TestRouting) => catalogueIds().filter(test => routing[test] === stream || routing[test] === 'Both');

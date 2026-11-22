@@ -93,7 +93,7 @@ A browser-only build is published at https://m7wais-byte.github.io/Workflow_VAPS
 
 ## Launch status
 
-This is a review build, not a production release. Sign-in is a browser-local demonstration, access checks run in the browser, records live in one browser, and external client sharing is switched off. See “Remaining production blockers” in [WORKFLOW-IMPLEMENTATION.md](WORKFLOW-IMPLEMENTATION.md).
+This is a review build, not a production release. The Sites edition now has individual employee sign-in with server sessions, shared server storage and server-side permission checks; see [AUTHENTICATION.md](AUTHENTICATION.md) for configuration, the first-administrator bootstrap and the remaining blockers. The GitHub Pages edition stays a browser-only demo with no real accounts. External client sharing is switched off.
 
 ## Useful Commands
 

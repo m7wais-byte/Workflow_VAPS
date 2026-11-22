@@ -1,3 +1,4 @@
+import { appStorage } from './app-storage';
 import { scopeTestGroups, isValidationTest } from './lab-work';
 
 /**
@@ -49,8 +50,9 @@ export function readCustomTests(raw: string | null): CatalogueTest[] {
   });
 }
 export function storedCustomTests(): CatalogueTest[] {
-  if (typeof window === 'undefined' || !window.localStorage) return [];
-  try { return readCustomTests(window.localStorage.getItem(testCatalogueKey)); } catch { return []; }
+  const store = appStorage();
+  if (!store) return [];
+  try { return readCustomTests(store.getItem(testCatalogueKey)); } catch { return []; }
 }
 /** Every catalogue test, built-in first, in section order. */
 export function catalogueTests(custom: CatalogueTest[] = storedCustomTests()): CatalogueTest[] {
