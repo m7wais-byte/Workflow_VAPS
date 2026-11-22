@@ -139,7 +139,7 @@ test('data sheet: sampling point and depth are separate; opening pressure is rec
  assert.match(standardSheetErrors({...can,containerVolume:'',fieldData:all}).join(' '),/the IATA can volume is required/);
 });
 
-test('new flow: the backup engineer confirms the data review, the report needs its G-sheet file, and approval publishes it directly',()=>{
+test('new flow: the backup engineer confirms the data review, the G-sheet file is optional, and approval publishes it directly',()=>{
  const j=sent();
  assert.equal(samplingStatus(j).next,'Backup engineer confirms the data review');assert.equal(samplingStatus(j).owner,'HUSSEINI');
  assert.throws(()=>step(j,{type:'data-review'},'MOHSIN'),/Only the backup sampling engineer/,'the accountable engineer cannot confirm his own data when a backup is on the job');
@@ -150,9 +150,9 @@ test('new flow: the backup engineer confirms the data review, the report needs i
  assert.equal(latestData(r).status,'Approved');assert.equal(latestData(r).reviewedBy,'HUSSEINI');assert.equal(latestData(r).submittedBy,'MOHSIN');assert.equal(samplingDataLocked(r),true);
  assert.equal(samplingStatus(r).key,'report-generation');assert.equal(samplingStatus(r).owner,'MOHSIN');
  assert.throws(()=>step(r,{type:'data-review'},'HUSSEINI'),/already reviewed/);
- // The report cannot be sent without the G-sheet file; with it, it goes straight to the approver.
+ // The G-sheet file is optional: the report can be sent without it, and with it, it goes straight to the approver.
  const bare=step(r,{type:'report-draft',kind:'sampling',text:'Summary',checker:''},'MOHSIN');
- assert.throws(()=>step(bare,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN'),/Attach the G-sheet file/);
+ assert.equal(samplingStatus(step(bare,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN')).key,'report-review');
  r=step(r,{type:'report-draft',kind:'sampling',text:'Summary',checker:'',file:GS},'MOHSIN');
  r=step(r,{type:'report-action',kind:'sampling',action:'submit',comments:''},'MOHSIN');
  assert.equal(samplingStatus(r).key,'report-review');assert.equal(samplingStatus(r).owner,'SALIM');

@@ -737,7 +737,7 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
    r.snapshot=snapshot(command.kind);r.status='Checking';r.submittedAt=now;if(command.letterhead)r.letterhead=command.letterhead;
   } else if(command.action==='submit'){
    const direct=command.kind==='sampling'&&dataReviewRequired(job)&&!r.checker;
-   if(direct){if(actor.id!==r.preparedBy||actor.id!==job.assignedEngineerId||r.status!=='Draft')throw Error('Only the accountable sampling employee can submit this report for approval.');if(latestData(job)?.status!=='Approved')throw Error('The sampling data must be reviewed before the report is submitted.');if(!r.file)throw Error('Attach the G-sheet file before sending the report for approval.');}
+   if(direct){if(actor.id!==r.preparedBy||actor.id!==job.assignedEngineerId||r.status!=='Draft')throw Error('Only the accountable sampling employee can submit this report for approval.');if(latestData(job)?.status!=='Approved')throw Error('The sampling data must be reviewed before the report is submitted.');}
    else{const ready=command.kind==='sampling'?r.status==='Checking':r.status==='Draft';
    if(actor.id!==r.checker||!ready)throw Error('Only the named checker can forward this version.');}
    if(r.snapshot!==snapshot(command.kind))throw Error('The draft or checked evidence changed. Save an updated draft or return this version for correction before submission.');
