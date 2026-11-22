@@ -44,16 +44,28 @@ No password, token or client secret passes through chat, GitHub or the browser:
 4. Open **Authentication**, go to **Advanced settings**, set **Allow public client flows** to **Yes**, and select **Save**.
    - Do not create a client secret. This app uses none.
 5. Open **API permissions → Add a permission → Microsoft Graph → Delegated permissions** and add:
-   - `Files.ReadWrite.All`, so the app can open the shared parent folder link and write into it
-   - `User.Read`
-   - `offline_access`
-6. If your tenant does not let users consent to apps, VAPS IT must select **Grant admin consent for VAPS**.
+   - `Files.ReadWrite`, which covers only files in the signed-in account's **own** OneDrive
+   - `User.Read`, used to confirm which account approved
+   - `offline_access`, so copies keep working without signing in again
+   Do **not** add `Files.ReadWrite.All`.
+6. These permissions normally need no admin consent. If your tenant blocks user consent, VAPS IT must select **Grant admin consent for VAPS**.
 
 If you cannot open App registrations, your tenant blocks it. VAPS IT does steps 2–6 and sends you the two IDs.
 
-`Files.ReadWrite.All` is delegated. The app can act only as you, on files you can already reach. It is still broader than one folder, so for the pilot use a dedicated parent folder, and disconnect when the pilot ends (see Ending the pilot).
+### Why `Files.ReadWrite` and not narrower or broader
+| Permission | Result |
+|---|---|
+| `Files.ReadWrite.All` | **Not used.** It reaches every file the account can open, including files other people shared with it. It is only needed when the parent folder is in someone else's OneDrive, which this pilot does not support. |
+| **`Files.ReadWrite`** (chosen) | Microsoft lists it as the least-privileged delegated permission for opening a sharing link (`/shares`), creating folders and uploading. It reaches only the connected account's own OneDrive. **The parent folder must therefore be in your own OneDrive.** |
+| `Files.ReadWrite.AppFolder` | Would limit the app to one `Apps/<app>` folder, but Microsoft documents it as personal-accounts only. It is not supported for OneDrive for Business. |
+| `Files.SelectedOperations.Selected` | Per-item grants. It needs admin consent and an admin assignment for each item, and Microsoft's docs are unclear on folder-level grants. Too heavy for a temporary pilot. |
 
-### Step 2: private server configuration (Sites hosting → environment)
+`Files.ReadWrite` still covers your whole OneDrive, not just one folder. For the pilot, use a dedicated parent folder and disconnect when the pilot ends (see Ending the pilot).
+
+### Step 2: private server configuration (Sites panel)
+Enter these in the **Sites panel** of the Workflow VAPS site, the same place `ADMIN_SETUP_TOKEN` was added during
+Administrator setup (AUTHENTICATION.md). Add the two **secrets** as secrets, not as plain variables, so the link and
+the key are encrypted and never shown again. Do not paste the link into chat, GitHub, email or the repository.
 | Name | Kind | Value |
 |---|---|---|
 | `ONEDRIVE_CLIENT_ID` | variable | Application (client) ID from step 1 |
@@ -78,13 +90,22 @@ The code expires after about 15 minutes. If it expires, select **Get a new code*
 - In Workflow VAPS, as MA001: the admin route's `disconnect` removes the stored token.
 - In Microsoft: go to **https://myapplications.microsoft.com**, open **Workflow VAPS OneDrive Pilot** and revoke its permissions, or have IT delete the app registration.
 
-## Real OneDrive test (sample data)
-1. Create a sample job with a fictional client, field and well, then save it. Expect `<Job ID>/Sampling` and `<Job ID>/Lab` in the parent folder.
-2. Add a sample G-sheet in Sampling review & report. Expect it in `Sampling`.
-3. Add a sample lab workbook to a laboratory activity. Expect it in `Lab`.
-4. Save the job again. Expect no new folders.
-5. Upload the G-sheet again with the same name. Expect both files in `Sampling`, and the panel showing the numbered name.
-6. Temporarily disconnect, or block OneDrive, then upload a file. Expect the panel to show "Original saved in Workflow VAPS. OneDrive copy failed". Reconnect, then as MA001 select **Retry OneDrive copy**. Expect the file to be copied.
+## Live OneDrive test (sample data)
+Run this after step 3, in the deployed review build. Keep your OneDrive parent folder open in a second browser tab.
+
+1. **Save one sample job.** As SALIM (the default job creator), create a job with a fictional client, field and well, and save it.
+   - Refresh the OneDrive tab. Expect `<Job ID>` with `Sampling` and `Lab` inside it.
+   - In Workflow VAPS, the job's **OneDrive copy** panel shows **Synced** and an **Open folder** link.
+2. **One upload to Sampling.** Open Sampling review & report and attach a sample G-sheet (any small `.csv`).
+   - Expect it in `<Job ID>/Sampling`, and the panel says "copied to OneDrive (Sampling)".
+3. **One upload to Lab.** On a laboratory activity, attach a sample workbook.
+   - Expect it in `<Job ID>/Lab`, and the panel says "copied to OneDrive (Lab)".
+4. **Save again.** Edit the description and save.
+   - Expect no new folders, and no second `<Job ID>` or `<Job ID> 1`.
+   - Expect no duplicate files: the G-sheet and the workbook each appear once.
+5. **Optional extra checks:**
+   - Upload the same G-sheet name again: both files are kept, and the panel shows the numbered name.
+   - Disconnect, then upload: the panel shows "Original saved in Workflow VAPS. OneDrive copy failed". Reconnect, then select **Retry OneDrive copy**.
 
 Automated equivalent, which contacts no Microsoft service: `node --test tests/onedrive-pilot.test.mjs`.
 

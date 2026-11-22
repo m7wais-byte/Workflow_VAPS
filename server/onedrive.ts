@@ -9,7 +9,7 @@
  *  - OneDrive unavailable: the Workflow VAPS save/upload still succeeds; the failure is recorded, shown in the job, and
  *    retried on the next save or by MA001.
  *
- * Authorization: delegated, with the VAPS Microsoft account that owns (or can edit) the parent folder, through the
+ * Authorization: delegated (Files.ReadWrite), with the VAPS Microsoft account that owns the parent folder, through the
  * device sign-in flow (microsoft.com/devicelogin). MA001 starts it in Workflow VAPS; the account holder signs in and
  * approves. The app registration is a public client, so there is no client secret. The refresh token is stored in D1
  * encrypted with ONEDRIVE_TOKEN_KEY (AES-GCM); access tokens live only in memory. Nothing here is sent to the browser
@@ -24,7 +24,13 @@ export type SyncStatus = { status: "off" | "ok" | "error"; message?: string };
 type Who = { accountId: string; employeeId: string };
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
-const SCOPE = "offline_access User.Read Files.ReadWrite.All";
+/**
+ * Least privilege: delegated Files.ReadWrite reaches only the signed-in account's own OneDrive, which is enough for a
+ * parent folder in that OneDrive (Microsoft lists it as least privileged for /shares, folder creation and upload).
+ * No admin consent is required by default. Files.ReadWrite.All would only be needed for a folder in someone else's
+ * OneDrive, which this pilot does not support.
+ */
+const SCOPE = "offline_access User.Read Files.ReadWrite";
 const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
 /** Null when the pilot is not configured: Workflow VAPS then works exactly as before. */
@@ -39,7 +45,7 @@ class GraphError extends Error { constructor(readonly status: number, message: s
 const NOT_CONNECTED = "OneDrive is not connected. MA001 must connect the VAPS Microsoft account in Workflow VAPS.";
 /** Messages shown to employees never include tokens, codes, IDs, the folder link or Graph response bodies. */
 const safeMessage = (e: unknown) => e instanceof GraphError
-  ? (e.status === 412 ? NOT_CONNECTED : e.status === 401 || e.status === 403 ? "OneDrive refused access (the connected account cannot write to the pilot folder, or its sign-in has expired)." : e.status === 404 ? "The OneDrive pilot folder was not found (check the folder link in the server settings)." : `OneDrive returned an error (${e.status}).`)
+  ? (e.status === 412 ? NOT_CONNECTED : e.status === 401 || e.status === 403 ? "OneDrive refused access (the connected account cannot write to the pilot folder, or its sign-in has expired)." : e.status === 404 ? "The OneDrive pilot folder was not found. It must be a folder in the connected account's own OneDrive (check the folder link in the server settings)." : `OneDrive returned an error (${e.status}).`)
   : "OneDrive could not be reached.";
 
 /* ---------- Token storage (refresh token encrypted at rest) ---------- */

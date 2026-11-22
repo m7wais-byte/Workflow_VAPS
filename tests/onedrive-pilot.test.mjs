@@ -26,7 +26,7 @@ globalThis.fetch = async (input, init = {}) => {
   if (url.hostname === 'login.microsoftonline.com') {
     const form = new URLSearchParams(String(init.body));
     assert.equal(form.get('client_id'), ENV.ONEDRIVE_CLIENT_ID); assert.equal(form.get('client_secret'), null, 'public client: no secret');
-    if (url.pathname.endsWith('/devicecode')) { assert.match(form.get('scope'), /offline_access/); assert.match(form.get('scope'), /Files\.ReadWrite\.All/); return json({ device_code: 'device-code-secret', user_code: 'SMPL-CODE', verification_uri: 'https://microsoft.com/devicelogin', expires_in: 900, interval: 5 }); }
+    if (url.pathname.endsWith('/devicecode')) { assert.match(form.get('scope'), /offline_access/); assert.deepEqual(form.get('scope').split(' ').sort(), ['Files.ReadWrite', 'User.Read', 'offline_access'], 'least privilege: no Files.ReadWrite.All'); return json({ device_code: 'device-code-secret', user_code: 'SMPL-CODE', verification_uri: 'https://microsoft.com/devicelogin', expires_in: 900, interval: 5 }); }
     const grant = form.get('grant_type');
     if (grant === 'urn:ietf:params:oauth:grant-type:device_code') { assert.equal(form.get('device_code'), 'device-code-secret'); return ms.approved ? json(issue()) : json({ error: 'authorization_pending' }, 400); }
     if (grant === 'refresh_token') { const rt = form.get('refresh_token'); if (!ms.refresh.has(rt)) return json({ error: 'invalid_grant' }, 400); return json(issue()); }
