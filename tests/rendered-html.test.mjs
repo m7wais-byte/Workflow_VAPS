@@ -18,7 +18,9 @@ test("server-renders the VAPS workspace shell", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   const html = await response.text();
   assert.match(html, /<title>VAPS \| PVT Lab &amp; Sampling<\/title>/);
-  assert.match(html, /Loading local workspace/);
+  // Sites edition: nothing of the workspace is rendered until the server confirms a session.
+  assert.match(html, /Checking your session/);
+  assert.doesNotMatch(html, /Demo: view as employee|Loading local workspace/);
   assert.doesNotMatch(html, /Your site is taking shape|Codex/);
 });
 

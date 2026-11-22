@@ -1,3 +1,4 @@
+import { appStorage } from './app-storage';
 /**
  * PVT laboratory equipment the PVT Team Lead assigns to each test, with the colour used on the weekly plan
  * (the same colour code as the printed plan). Chemistry tests carry no equipment.
@@ -45,8 +46,9 @@ export function readEquipment(raw: string | null): LabEquipment[] {
 let cache: { raw: string | null; list: LabEquipment[] } | undefined;
 /** The saved list (active and inactive). Unreadable saved data falls back to the built-in list; Settings reports the problem. */
 export function storedEquipment(): LabEquipment[] {
-  if (typeof window === 'undefined' || !window.localStorage) return defaultEquipment;
-  const raw = window.localStorage.getItem(equipmentKey);
+  const store = appStorage();
+  if (!store) return defaultEquipment;
+  const raw = store.getItem(equipmentKey);
   if (cache && cache.raw === raw) return cache.list;
   let list = defaultEquipment;
   try { list = readEquipment(raw); } catch { /* keep the built-in list */ }

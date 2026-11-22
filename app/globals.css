@@ -3994,3 +3994,18 @@ button.wb-cell { cursor:pointer; } button.wb-cell:hover { background:rgba(11,136
 .generic-sample-list .generic-sample-toggle{position:relative;padding-right:28px}
 .generic-sample-list .generic-sample-toggle::after{content:"";position:absolute;right:6px;top:50%;width:8px;height:8px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:translateY(-70%) rotate(45deg);transition:transform .2s}
 .generic-sample-list article.is-open .generic-sample-toggle::after{transform:translateY(-30%) rotate(225deg)}
+
+/* Employee sign-in (Sites edition) */
+.login-info { margin-top:16px; padding:10px 12px; border:1px solid #c7dadf; border-radius:6px; background:#f3f9f9; color:#244153; font-size:.875rem; }
+.login-alt { display:block; margin:14px auto 0; }
+.field-hint { display:block; margin-top:6px; color:#6b818c; font-size:.8125rem; }
+.password-change { max-width:420px; }
+.password-change .login-fields { margin-top:18px; }
+.profile-password .password-change { margin-top:4px; }
+.temp-password { margin:6px 0 18px; padding:16px 18px; border:1px solid #9fd3cb; border-left:4px solid var(--teal); border-radius:8px; background:#f1faf8; color:#1d3d4a; }
+.temp-password h3 { margin:0 0 6px; font-size:1rem; color:var(--navy); }
+.temp-password p { margin:4px 0; font-size:.875rem; }
+.temp-password code { padding:2px 8px; border-radius:4px; background:#fff; border:1px solid #c7dadf; font-size:1rem; letter-spacing:.04em; user-select:all; }
+.temp-password button { margin-top:10px; }
+.account-settings td input { width:100%; max-width:240px; }
+.account-settings td small { display:block; color:#6b818c; }

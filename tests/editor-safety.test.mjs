@@ -5,8 +5,9 @@ const page = fs.readFileSync(new URL('../app/page.tsx', import.meta.url), 'utf8'
 // Found while testing the sampling forms through the interface: a refused save must never be reported as saved.
 test('draft saves confirm only when the job was actually saved', () => {
  assert.match(page, /function updateCurrentJob\([^)]*\): boolean/);
- for (const message of ['Sampling Preparation draft saved on this device.', 'Sampling Data draft saved on this device.', 'Sampling report draft saved on this device.']) {
-  assert.match(page, new RegExp(`if \\(updateCurrentJob\\([^;]*\\)\\) setNotice\\("${message.replace('.', '\\.')}"\\)`), message);
+  // "on this device" is added only in the browser-only demo edition (`onDevice`).
+ for (const message of ['Sampling Preparation draft saved', 'Sampling Data draft saved', 'Sampling report draft saved']) {
+  assert.match(page, new RegExp(`if \\(updateCurrentJob\\([^;]*\\)\\) setNotice\\(\`${message}\\$\\{onDevice\\}\\.\`\\)`), message);
  }
  assert.equal(page.includes('draft saved to local demo data'), false, 'no unconditional save messages remain');
 });

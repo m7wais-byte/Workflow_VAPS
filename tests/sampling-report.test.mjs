@@ -161,7 +161,8 @@ test('approved versions use the letterhead saved with them; later record edits d
 test('the workflow saves the letterhead with the draft, refreshes it on submission and freezes it at approval', async () => {
   const ops = await bundle('app/operations-model.ts');
   const ts = (await import('typescript')).default;
-  const load = (p) => import('data:text/javascript;base64,' + Buffer.from(ts.transpileModule(fs.readFileSync(p, 'utf8'), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText).toString('base64'));
+  const { inlineStorage } = await import('./fixtures/inline-storage.mjs');
+  const load = (p) => import('data:text/javascript;base64,' + Buffer.from(ts.transpileModule(inlineStorage(fs.readFileSync(p, 'utf8')), { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText).toString('base64'));
   const { initialDirectory } = await load('app/employee-directory.ts');
   const { defaultAuthorization, defaultResponsibilities } = await load('app/authorization.ts');
   const employees = initialDirectory().employees, policy = defaultAuthorization(employees.map((e) => e.id));

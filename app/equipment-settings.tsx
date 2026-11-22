@@ -1,10 +1,11 @@
 'use client';
+import { appStorage } from "./app-storage";
 import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import { addEquipment, updateEquipment, equipmentKey, readEquipment, textOn, type LabEquipment } from './lab-equipment';
 
 function load(): { list: LabEquipment[]; error: string } {
-  try { return { list: readEquipment(window.localStorage.getItem(equipmentKey)), error: '' }; }
+  try { return { list: readEquipment(appStorage()?.getItem(equipmentKey) ?? null), error: '' }; }
   catch { return { list: readEquipment(null), error: 'The saved equipment list could not be read. Saved data has been preserved; the built-in list is shown and cannot be changed until it is repaired.' }; }
 }
 
@@ -17,7 +18,7 @@ export function EquipmentSettings() {
   const [state, setState] = useState(load), [name, setName] = useState(''), [color, setColor] = useState('#0b887e'), [message, setMessage] = useState(''), [problem, setProblem] = useState('');
   const { list, error } = state;
   const save = (next: () => LabEquipment[], done: string) => {
-    try { const value = next(); window.localStorage.setItem(equipmentKey, JSON.stringify(value)); setState({ list: value, error: '' }); setMessage(done); setProblem(''); return true; }
+    try { const value = next(); appStorage()!.setItem(equipmentKey, JSON.stringify(value)); setState({ list: value, error: '' }); setMessage(done); setProblem(''); return true; }
     catch (e) { setProblem((e as Error).message || 'The list could not be saved.'); setMessage(''); return false; }
   };
   return <section className="panel settings-panel equip-settings">

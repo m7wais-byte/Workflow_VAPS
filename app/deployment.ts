@@ -1,6 +1,9 @@
 // Build-target helpers shared by the Sites (Vinext/Cloudflare) build and the static GitHub Pages build.
 // Vite replaces `import.meta.env` at build time; plain Node/esbuild (tests) leaves it undefined, which means the Sites defaults.
-const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env ?? {};
+const viteEnv = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
+const env = viteEnv ?? {};
+/** True in builds made by Vite (Sites and GitHub Pages). Plain Node test bundles leave `import.meta.env` undefined. */
+export const viteBuild = viteEnv !== undefined;
 
 /** True only in the static GitHub Pages build (vite.pages.config.ts), which has no server, D1 database or API routes. */
 export const staticPages = env.VITE_VAPS_TARGET === "github-pages";

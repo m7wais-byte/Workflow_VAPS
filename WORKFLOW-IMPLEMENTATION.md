@@ -324,6 +324,8 @@ Business rules, duties, permissions, approvals, QC, returns and stored records a
 Verification: TypeScript and lint (0 errors) passed. 174 automated tests passed, 2 environment-dependent tests skipped, including 12 new tests for workflow status (draft, sampling, mixed PVT/Chemical with Validation and a return, Chemical-only, PVT-only, additional work, transfer, client privacy and server validation) and job access (assignees, duties, supervisory permissions, drafts/Trash, command refusal). Sites build (`npm test`) and Pages build passed. Browser checks on the demo data: the Dashboard has no interactive job elements, filters and the no-match state work; a team lead opened a task from My work and approved it; a Chemical employee was refused `#workflow/…` and `#new-job/…` links to a PVT-only job; Dashboard, My work, job workflow, Jobs register and client progress were captured at 1440, 820 and 390 px with no page-wide horizontal overflow and no console errors.
 
 ### Remaining production blockers
+> **Update (November 2026):** items 1–3 are addressed in the Sites edition by employee sign-in, server sessions, shared D1/R2 storage and server-side permission checks — see [AUTHENTICATION.md](AUTHENTICATION.md), which lists what remains (hosting confirmation, reviewed migration of browser records). The text below describes the earlier state.
+
 1. **Authentication:** the employee ID/password and "Demo: view as employee" selector are a browser-local demonstration, not secure sign-in. Anyone with the browser can choose any profile.
 2. **Authorization:** all job-access and permission checks run in the browser over browser storage. They stop access through the app but not someone using developer tools. Server-side enforcement needs real accounts and a backend that owns the job records.
 3. **Shared storage:** jobs, settings and workbooks live in one browser (localStorage/IndexedDB); there is no multi-user or multi-device synchronization or backup.
@@ -398,3 +400,7 @@ composition analysis. It does not read or change jobs.
   number; `requestsOverview` adds the Dashboard, All requests, import / export and Settings → Request Book lists.
 - Like the rest of the workspace, records are stored per browser until shared storage exists (see Remaining
   production blockers). Use one laboratory computer for the request book and export regularly.
+
+## Employee sign-in and server-side permissions (November 2026)
+
+The Sites edition signs each employee in with an individual username and password; the server session identifies the employee and every read and change is re-checked on the server with the existing workflow rules. The "Demo: view as employee" selector is removed from both editions. Records are held in shared server storage (D1, and R2 for files); nothing is imported from browsers automatically. Details, deployment configuration, verification and remaining blockers: [AUTHENTICATION.md](AUTHENTICATION.md).

@@ -1,4 +1,15 @@
 import { baseNumber, draftRecords, groupKey, nextBase, stageNumbers, type RequestDraft, type RequestRecord } from './request-book';
+import { serverMode } from './app-storage';
+import { api } from './workspace-sync';
+
+// Sites edition: the register is shared on the server, which applies the same numbering in one transaction and
+// records the signed-in employee as the one who saved (server/requests.ts). GitHub Pages demo: IndexedDB as below.
+const server = {
+  load: () => api<{ records: RequestRecord[] }>('/api/requests').then((r) => r.records),
+  save: (draft: RequestDraft, today: string) => api<{ records: RequestRecord[] }>('/api/requests', { method: 'POST', json: { draft, today } }).then((r) => r.records),
+  put: (record: RequestRecord) => api<{ record: RequestRecord }>('/api/requests/' + encodeURIComponent(record.no), { method: 'PUT', json: { record } }).then((r) => r.record),
+  import: (records: RequestRecord[]) => api<{ added: number; skipped: number }>('/api/requests/import', { method: 'POST', json: { records } }),
+};
 
 // Request records stay in this browser's IndexedDB (the register grows past what localStorage can hold beside the
 // jobs). Like the rest of the workspace there is no shared server yet, so another computer keeps its own register.
@@ -26,13 +37,14 @@ async function transaction<T>(mode: IDBTransactionMode, work: (store: IDBObjectS
   } finally { db.close(); }
 }
 
-export const loadRequests = () => transaction<RequestRecord[]>('readonly', (store, done) => { const all = store.getAll(); all.onsuccess = () => done(all.result as RequestRecord[]); });
+export const loadRequests = (): Promise<RequestRecord[]> => serverMode ? server.load() : transaction<RequestRecord[]>('readonly', (store, done) => { const all = store.getAll(); all.onsuccess = () => done(all.result as RequestRecord[]); });
 
 /**
  * Saves a new or edited request with all its stages. The request numbers are worked out inside the transaction from
  * the numbers stored at that moment, so two tabs can never be given the same number.
  */
 export function saveRequest(draft: RequestDraft, savedBy: string, today: string): Promise<RequestRecord[]> {
+  if (serverMode) return server.save(draft, today);
   return transaction<RequestRecord[]>('readwrite', (store, done, fail) => {
     const keys = store.getAllKeys();
     keys.onsuccess = () => {
@@ -53,10 +65,11 @@ export function saveRequest(draft: RequestDraft, savedBy: string, today: string)
 }
 
 /** Replaces one stored record (status buttons in Open items). */
-export const putRequest = (record: RequestRecord) => transaction<RequestRecord>('readwrite', (store, done) => { store.put(record); done(record); });
+export const putRequest = (record: RequestRecord): Promise<RequestRecord> => serverMode ? server.put(record) : transaction<RequestRecord>('readwrite', (store, done) => { store.put(record); done(record); });
 
 /** Adds imported records. Request numbers already in the register are left untouched and counted as skipped. */
 export function importRequests(records: RequestRecord[]): Promise<{ added: number; skipped: number }> {
+  if (serverMode) return server.import(records);
   return transaction('readwrite', (store, done) => {
     const keys = store.getAllKeys();
     keys.onsuccess = () => {

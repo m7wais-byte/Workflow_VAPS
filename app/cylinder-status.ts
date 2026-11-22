@@ -1,3 +1,4 @@
+import { appStorage } from './app-storage';
 // Cylinder status register. A cylinder can be chosen for a job only when it is Ready and not in use.
 // In use and Returned (needs cleaning) come from the jobs themselves, so they never drift from the workflow:
 //  - In use: a job that is not in Trash records the cylinder serial on one of its samples and has not released it.
@@ -54,7 +55,7 @@ const key = (serial: string) => serial.trim().toLowerCase();
 
 export function readCylinderStatus(raw?: string | null): CylinderStatusMap {
   try {
-    const text = raw !== undefined ? raw : typeof localStorage === 'undefined' ? null : localStorage.getItem(cylinderStatusKey);
+    const text = raw !== undefined ? raw : appStorage()?.getItem(cylinderStatusKey) ?? null;
     const value = text ? JSON.parse(text) : {};
     return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   } catch { return {}; }

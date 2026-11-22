@@ -1,8 +1,9 @@
 import { operationMilestones } from './operations-model';
 import { roleHolder, storedResponsibilities } from "./authorization";
 import { loadDirectory, initialDirectory } from "./employee-directory";
+import { appStorage } from "./app-storage";
 /** Employee records for resolving a configured duty; falls back to the seed list outside the browser. */
-const loadEmployeesSafe = () => { try { return typeof window === "undefined" ? initialDirectory().employees : loadDirectory().employees; } catch { return []; } };
+const loadEmployeesSafe = () => { try { return appStorage() ? loadDirectory().employees : initialDirectory().employees; } catch { return []; } };
 import type { JobRecord } from "./page";
 import { currentProgress, labComplete, labProgress, labRequested, validationRequested, isValidationTest, scopeText } from "./lab-work";
 import { jobFlow, clientState, scopeSummary, clientStatus, type JobFlow } from "./job-flow";

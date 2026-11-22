@@ -51,6 +51,15 @@ import { Bell, Inbox, BriefcaseBusiness, ChevronRight, ClipboardList, FileText, 
 import { Fold } from "./fold";
 import { DateInput, TimeInput, ukDate, ukDateTime } from "./uk-date";
 import { DOWNHOLE_TOOL, cylinderTypes, migrateJobNames, migrateCylinder, renameSource } from "./naming";
+import { appStorage, serverMode, type StorageLike } from "./app-storage";
+import { jobIntent, onSync, allJobNumbers } from "./workspace-sync";
+import { AuthGate, PasswordChangeForm, type SessionProps } from "./auth-gate";
+import { AccountSettings } from "./account-settings";
+
+/** Workspace storage: browser storage in the GitHub Pages demo, the server-backed workspace in the Sites edition. */
+const store = () => appStorage() as StorageLike;
+/** "on this device" applies only to the browser-only GitHub Pages demo. */
+const onDevice = serverMode ? "" : " on this device";
 
 function ReviewData({ value }: { value: Record<string, unknown> }) {
   return <dl className="review-data-grid">{Object.entries(value).filter(([key]) => key !== "dataUrl").map(([key, entry]) => <div key={key}><dt>{key.replace(/([a-z])([A-Z])/g, "$1 $2")}</dt><dd>{entry && typeof entry === "object" ? <ReviewData value={entry as Record<string, unknown>} /> : typeof entry === "boolean" ? (entry ? "Yes" : "No") : String(entry ?? "") || "Not recorded"}</dd></div>)}</dl>;
@@ -477,7 +486,12 @@ const emptySamples = (): Sample[] => ["1.01", "1.02", "1.03"].map((id) => ({
   id, sampler: DOWNHOLE_TOOL, bottle: "PDS", samplerSerial: "", bottleSerial: "", bottleCapacity: "", calibrationStatus: "Not Checked", pressureTestStatus: "Not Checked", equipmentCondition: "Not Checked", preparedBy: "", preparedAt: "", preparationRemarks: "", fieldData: defaultFieldData(), dataComplete: false, dataCompletedBy: "", dataCompletedAt: "", pressure: "", temperature: "", depth: "", notes: "",
 }));
 
+/** Sites edition: the workspace opens only after server sign-in. GitHub Pages: the browser-only demo, as before. */
 export default function Home() {
+  return serverMode ? <AuthGate>{(session) => <Workspace key={session.me.accountId + ":" + session.generation} session={session} />}</AuthGate> : <Workspace />;
+}
+
+function Workspace({ session }: { session?: SessionProps }) {
   const [directory, setDirectory] = useState(initialDirectory);
   const demoEmployees = directory.employees;
   const [directoryError, setDirectoryError] = useState('');
@@ -496,7 +510,7 @@ export default function Home() {
   useEffect(() => {
     // Saved records live in browser storage, so they are loaded after mount to keep server and client HTML identical.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    try { setDirectory(loadDirectory()); const raw=localStorage.getItem('vaps-company-v1'); if(raw) setCompany(JSON.parse(raw)); } catch(e) { setDirectoryError(e instanceof Error?e.message:'Could not load settings.'); }
+    try { setDirectory(loadDirectory()); const raw=store().getItem('vaps-company-v1'); if(raw) setCompany(JSON.parse(raw)); } catch(e) { setDirectoryError(e instanceof Error?e.message:'Could not load settings.'); }
     const route = (event?: HashChangeEvent) => { if(event && window.confirmSettingsLeave && !window.confirmSettingsLeave()){history.replaceState(null,"",event.oldURL);return;} const parts=location.hash.slice(1).split('/'); if(parts[0]==='settings') { setWorkspaceViewState('settings'); setSettingsPage(parts[1]||''); } else {setWorkspaceViewState((parts[0] || 'my-work') as WorkspaceView);if(parts[0]==='new-job'&&parts[1])setEditorRoute(parts.slice(1));if(parts[0]==='workflow'){if(parts[1])setWorkflowJobId(decodeURIComponent(parts[1]));setOperationTab(parts[2]?.split('?')[0]||'overview');setLegacyView(false);}}; };
     route(); window.addEventListener('hashchange',route); return ()=>window.removeEventListener('hashchange',route);
   }, []);
@@ -505,24 +519,26 @@ export default function Home() {
   function openOperation(item:JobRecord,tab='overview') {location.assign('#workflow/'+encodeURIComponent(item.id)+'/'+tab);}
   function runOperation(id:string,command:Command|Command[]) {
     if(!currentEmployee)throw Error('Select an active trial profile.');
-    const stored:JobRecord[]=JSON.parse(localStorage.getItem(jobsStorageKey)||'[]');
+    const stored:JobRecord[]=JSON.parse(store().getItem(jobsStorageKey)||'[]');
     const target=stored.find(j=>j.id===id);if(!target)throw Error('Job no longer exists.');
     const shown=jobs.find(j=>j.id===id);if(target.operations?.revision!==shown?.operations?.revision)throw Error('This job changed in another view. Refresh before saving; your edits have been retained.');
     // A batch (e.g. one Assign-to for several activities) applies each command in order and saves once; any refusal saves nothing.
-    const actor=freshActor();const updated=(Array.isArray(command)?command:[command]).reduce((job,c)=>applyJobOperation(job,c,actor),target);
+    const actor=freshActor();const commands=Array.isArray(command)?command:[command];const updated=commands.reduce((job,c)=>applyJobOperation(job,c,actor),target);
+    // Sites edition: the server applies the same commands again with the signed-in employee and stores its result.
+    jobIntent(id,{kind:'operations',commands});
     persistJobs(stored.map(j=>j.id===id?updated:j));
   }
   /** Settings re-read at the moment of action, so a review panel opened earlier cannot act on stale assignments. */
   function freshActor(): Actor {
     if(!currentEmployee)throw Error('Select an active trial profile.');
     const employees=loadDirectory().employees;
-    return {id:currentEmployee.id,employees,policy:readAuthorization(localStorage.getItem(authorizationKey),employees.map(e=>e.id)),roles:storedResponsibilities(),routing:storedTestRouting(),teams:storedLabTeams(employees.map(e=>e.id))};
+    return {id:currentEmployee.id,employees,policy:readAuthorization(store().getItem(authorizationKey),employees.map(e=>e.id)),roles:storedResponsibilities(),routing:storedTestRouting(),teams:storedLabTeams(employees.map(e=>e.id))};
   }
   function setWorkspaceView(view: 'workflow' | WorkspaceView) { location.assign('#'+view); }
   function saveDirectory(next: Directory) {
     if(!hasPermission('employees') || directoryError) throw Error('You cannot manage the employee directory.');
     for(const e of next.employees) {const old=directory.employees.find(p=>p.id===e.id);for(const [kind,key] of [['departments','departmentId'],['positions','positionId']] as const){if(e[key]!==old?.[key]&&!next[kind].some(o=>o.id===e[key]&&o.active))throw Error('Choose an active department and position.');}}
-    validateDirectory(next); localStorage.setItem(directoryKey,JSON.stringify(next)); setDirectory(next);
+    validateDirectory(next); store().setItem(directoryKey,JSON.stringify(next)); setDirectory(next);
     if(currentEmployee) setCurrentEmployee(next.employees.find(e=>e.id===currentEmployee.id && e.active)||null);
   }
   const [stage, setStage] = useState<Stage>("job");
@@ -558,20 +574,20 @@ export default function Home() {
   useEffect(() => {
     const load = () => {
       try {
-        const raw=window.localStorage.getItem(authorizationKey); const ids=loadDirectory().employees.map(person=>person.id); let policy=readAuthorization(raw,ids);
+        const raw=store().getItem(authorizationKey); const ids=loadDirectory().employees.map(person=>person.id); let policy=readAuthorization(raw,ids);
         // One-time driver access for an employee added by migration; later administrator edits are kept.
-        if(!window.localStorage.getItem(driverMigrationKey)){ policy=migrateDriverAccess(policy,ids); window.localStorage.setItem(authorizationKey,JSON.stringify(policy)); window.localStorage.setItem(driverMigrationKey,new Date().toISOString()); }
-        else if(raw===null) window.localStorage.setItem(authorizationKey,JSON.stringify(policy));
+        if(!serverMode && !store().getItem(driverMigrationKey)){ policy=migrateDriverAccess(policy,ids); store().setItem(authorizationKey,JSON.stringify(policy)); store().setItem(driverMigrationKey,new Date().toISOString()); }
+        else if(raw===null && !serverMode) store().setItem(authorizationKey,JSON.stringify(policy));
         setAuthorization(policy); setAuthorizationError("");
       }
       catch { setAuthorizationError("Saved authorization could not be loaded. Access is disabled until the settings are restored."); }
-      try { const raw=window.localStorage.getItem(responsibilitiesKey); const roles=readResponsibilities(raw); if(raw===null) window.localStorage.setItem(responsibilitiesKey,JSON.stringify(roles)); setResponsibilities(roles); setResponsibilitiesError(""); }
+      try { const raw=store().getItem(responsibilitiesKey); const roles=readResponsibilities(raw); if(raw===null && !serverMode) store().setItem(responsibilitiesKey,JSON.stringify(roles)); setResponsibilities(roles); setResponsibilitiesError(""); }
       catch { setResponsibilities({...unassignedResponsibilities}); setResponsibilitiesError("Saved responsibilities could not be loaded. Every workflow duty is blocked until they are saved again."); }
-      try { const custom = readCustomTests(window.localStorage.getItem(testCatalogueKey)); const raw = readSavedRouting(window.localStorage.getItem(testRoutingKey), catalogueIds(custom)); setCustomTests(custom); setSavedRoutingRaw(raw); setTestRouting(effectiveRouting(raw)); setTestRoutingError(""); }
+      try { const custom = readCustomTests(store().getItem(testCatalogueKey)); const raw = readSavedRouting(store().getItem(testRoutingKey), catalogueIds(custom)); setCustomTests(custom); setSavedRoutingRaw(raw); setTestRouting(effectiveRouting(raw)); setTestRoutingError(""); }
       catch { setTestRouting({}); setTestRoutingError("Saved test catalogue or routing could not be loaded. Laboratory scope release is blocked until it is restored."); }
       setDemoSetupState(readDemoSetup());
-      try { setRequestLists(readRequestLists(window.localStorage.getItem(requestListsKey))); setRequestListsError(''); } catch { setRequestListsError('Request Book lists could not be read. Saved data has been preserved; the built-in lists are shown and cannot be changed until it is repaired.'); }
-      try { setLabTeams(readLabTeams(window.localStorage.getItem(labTeamsKey), loadDirectory().employees.map(person => person.id))); setLabTeamsError(""); }
+      try { setRequestLists(readRequestLists(store().getItem(requestListsKey))); setRequestListsError(''); } catch { setRequestListsError('Request Book lists could not be read. Saved data has been preserved; the built-in lists are shown and cannot be changed until it is repaired.'); }
+      try { setLabTeams(readLabTeams(store().getItem(labTeamsKey), loadDirectory().employees.map(person => person.id))); setLabTeamsError(""); }
       catch { setLabTeams(emptyLabTeams()); setLabTeamsError("Saved laboratory teams could not be loaded. Test assignment is blocked until they are saved again."); }
     };
     load();
@@ -589,14 +605,14 @@ export default function Home() {
   const [cylinderRecords, setCylinderRecords] = useState<CylinderStatusMap>({});
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { setCylinderRecords(readCylinderStatus()); }, []);
-  function saveCylinderRecords(next: CylinderStatusMap, message: string) { window.localStorage.setItem(cylinderStatusKey, JSON.stringify(next)); setCylinderRecords(next); setNotice(message); recordActivity(message, "Cylinders"); }
+  function saveCylinderRecords(next: CylinderStatusMap, message: string) { store().setItem(cylinderStatusKey, JSON.stringify(next)); setCylinderRecords(next); setNotice(message); recordActivity(message, "Cylinders"); }
   useEffect(() => {
     try {
-      const rawSaved = JSON.parse(window.localStorage.getItem(bottleStorageKey) || "[]");
+      const rawSaved = JSON.parse(store().getItem(bottleStorageKey) || "[]");
       if (!Array.isArray(rawSaved)) throw new Error("Invalid cylinder inventory");
       // Custom cylinders saved with the neutral Type A–E names are converted back to the original type names.
       const saved = rawSaved.map((bottle) => bottle && typeof bottle.type === "string" && typeof bottle.specification === "string" ? migrateCylinder(bottle) : bottle);
-      if (JSON.stringify(saved) !== JSON.stringify(rawSaved)) window.localStorage.setItem(bottleStorageKey, JSON.stringify(saved));
+      if (JSON.stringify(saved) !== JSON.stringify(rawSaved) && !serverMode) store().setItem(bottleStorageKey, JSON.stringify(saved));
       const loaded: Bottle[] = [];
       for (const bottle of saved) {
         if (!bottle || ![bottle.type, bottle.serial, bottle.capacity, bottle.specification].every((value) => typeof value === "string")) throw new Error("Invalid cylinder record");
@@ -615,7 +631,7 @@ export default function Home() {
   // Jobs in Trash stay stored (for restoration and ID numbering) but leave every list, queue and count.
   const jobs = storedJobs.filter((item) => !isTrashed(item));
   const [seenSampling, setSeenSampling] = useState<Record<string, string[]>>({});
-  useEffect(() => { try { const raw = localStorage.getItem(samplingSeenKey); // Per-browser marker of which shared events this employee has opened.
+  useEffect(() => { try { const raw = store().getItem(samplingSeenKey); // Per-browser marker of which shared events this employee has opened.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (raw) setSeenSampling(JSON.parse(raw)); } catch { /* indicators simply show again */ } }, []);
   const [activities, setActivities] = useState<Activity[]>(defaultActivities);
@@ -666,41 +682,46 @@ export default function Home() {
   const [pdfExporting, setPdfExporting] = useState(false);
   const [notice, setNotice] = useState("");
   const [demoLoading, setDemoLoading] = useState(false);
+  const [passwordFormKey, setPasswordFormKey] = useState(0);
 
   useEffect(() => {
     try {
-      const employeeId = window.sessionStorage.getItem(sessionStorageKey);
+      // Sites edition: the signed-in employee comes from the server session, never from browser storage or the URL.
+      const employeeId = serverMode ? session?.me.employeeId ?? null : window.sessionStorage.getItem(sessionStorageKey);
       setCurrentEmployee(loadDirectory().employees.find((employee) => employee.id === employeeId && employee.active) ?? null);
-        const storedJobs = window.localStorage.getItem(jobsStorageKey);
-        const storedActivities = window.localStorage.getItem(activityStorageKey);
+      if (session?.notice) setNotice(session.notice);
+        const storedJobs = store().getItem(jobsStorageKey);
+        const storedActivities = store().getItem(activityStorageKey);
         if (storedJobs) {
           const rawJobs = JSON.parse(storedJobs) as JobRecord[];
           // Jobs saved with the old tool and cylinder names are converted once and saved back.
           const parsedJobs = rawJobs.map(migrateJobNames);
-          if (parsedJobs.some((item, index) => item !== rawJobs[index])) window.localStorage.setItem(jobsStorageKey, JSON.stringify(parsedJobs));
+          if (!serverMode && parsedJobs.some((item, index) => item !== rawJobs[index])) store().setItem(jobsStorageKey, JSON.stringify(parsedJobs));
           // Saved records live in browser storage, so they are loaded after mount to keep server and client HTML identical.
           // eslint-disable-next-line react-hooks/set-state-in-effect
           setJobs(parsedJobs);
-          const storedCounter = Number(window.localStorage.getItem(globalCounterStorageKey));
+          const storedCounter = Number(store().getItem(globalCounterStorageKey));
           const derivedCounter = parsedJobs.reduce((maximum, item) => {
             const match = item.id.match(/^[A-Z]{2}-[A-Z0-9]-(\d{2})-(\d+)$/i);
             return match?.[1] === trackingYearShort ? Math.max(maximum, Number(match[2]) || 0) : maximum;
           }, 0);
           setGlobalCounter(Math.max(storedCounter || 0, derivedCounter));
         } else {
-          setGlobalCounter(Number(window.localStorage.getItem(globalCounterStorageKey)) || 0);
+          setGlobalCounter(Number(store().getItem(globalCounterStorageKey)) || 0);
         }
         if (storedActivities) setActivities(JSON.parse(storedActivities));
     } catch {
-      window.sessionStorage.removeItem(sessionStorageKey);
+      if (!serverMode) window.sessionStorage.removeItem(sessionStorageKey);
     } finally {
       setAuthReady(true);
     }
-  }, []);
+  }, [session]);
+  // The server's stored version of a job replaces the one shown (workflow commands are applied by the server).
+  useEffect(() => onSync((event) => { if (event.type === "job") setJobs((current) => current.some((item) => item.id === event.job.id) ? current.map((item) => item.id === event.job.id ? event.job : item) : [event.job, ...current]); }), []);
 
   useEffect(() => {
     try {
-      const stored = window.localStorage.getItem(clientStorageKey);
+      const stored = store().getItem(clientStorageKey);
       if (!stored) return;
       const parsed = JSON.parse(stored) as Client[];
       if (Array.isArray(parsed) && parsed.length && parsed.every((item) => typeof item.code === "string" && typeof item.name === "string")) {
@@ -718,9 +739,10 @@ export default function Home() {
   const selectedClient = clients.find((item) => item.code === client);
   const clientName = selectedClient?.shortName || selectedClient?.name || "";
   const clientJobPrefix = client.trim().toUpperCase().slice(0, 1);
-  const nextSequence = nextJobSequence(globalCounter, storedJobs, trackingYearShort);
+  const numberedJobs = serverMode ? [...storedJobs, ...allJobNumbers().filter((item) => !storedJobs.some((other) => other.id === item.id))] : storedJobs;
+  const nextSequence = nextJobSequence(globalCounter, numberedJobs, trackingYearShort);
   const generatedJobId = `${job.countryCode}-${clientJobPrefix}-${trackingYearShort}-${String(nextSequence).padStart(3, "0")}`;
-  const jobId = createdJobId || nextJobRecordId(generatedJobId, storedJobs);
+  const jobId = createdJobId || nextJobRecordId(generatedJobId, numberedJobs);
   const displayJobId = storedJobs.find(item => item.id === createdJobId)?.jobNumber || generatedJobId;
   const samplingTypeLabel = samplingType === "Other" && job.otherSamplingType.trim() ? `Other — ${job.otherSamplingType.trim()}` : samplingType;
   const activeClients = clients.filter((item) => item.active);
@@ -848,9 +870,9 @@ export default function Home() {
     });
     // A caller that only sees active jobs never drops the ones in Trash.
     const all = [...tracked, ...storedJobs.filter((item) => item.trash && !next.some((other) => other.id === item.id))];
-    try { window.localStorage.setItem(jobsStorageKey, JSON.stringify(all)); } catch { setNotice("The job could not be saved. Browser storage may be full. Your entered information is still available; retry after freeing space."); throw Error("Job save failed. No stored records were changed."); }
+    try { store().setItem(jobsStorageKey, JSON.stringify(all)); } catch { setNotice("The job could not be saved. Browser storage may be full. Your entered information is still available; retry after freeing space."); throw Error("Job save failed. No stored records were changed."); }
     setJobs(all);
-    for (const item of tracked) if (!item.trash) { void syncShare(item).catch(() => setNotice("Job saved on this device, but its shared summary could not be updated. Open Workflow and choose Update shared summary to retry.")); }
+    for (const item of tracked) if (!item.trash) { void syncShare(item).catch(() => setNotice(`Job saved${onDevice}, but its shared summary could not be updated. Open Workflow and choose Update shared summary to retry.`)); }
   }
 
   function resumeJob(item: JobRecord, navigate=true) {
@@ -951,28 +973,30 @@ export default function Home() {
 
   function persistActivities(next: Activity[]) {
     setActivities(next);
-    window.localStorage.setItem(activityStorageKey, JSON.stringify(next));
+    store().setItem(activityStorageKey, JSON.stringify(next));
   }
 
   /** Moves a job to Trash. Permission is checked against settings read now, inside trashJob, not only by hiding the button. */
   async function moveJobToTrash(id: string) {
-    const stored: JobRecord[] = JSON.parse(window.localStorage.getItem(jobsStorageKey) || "[]");
+    const stored: JobRecord[] = JSON.parse(store().getItem(jobsStorageKey) || "[]");
     const target = stored.find((item) => item.id === id);
     if (!target) throw Error("Job no longer exists.");
     const now = new Date().toISOString();
     const updated = trashJob(target, freshActor(), now);
     // The client link is withdrawn before the job leaves the lists; it keeps its address for restoration.
     if (getShare(id)?.enabled) await pauseShare(id);
+    jobIntent(id, { kind: "trash" });
     persistJobs(stored.map((item) => item.id === id ? updated : item));
     recordActivity("Job moved to Trash", id, now);
   }
   function restoreJobFromTrash(id: string) {
-    const stored: JobRecord[] = JSON.parse(window.localStorage.getItem(jobsStorageKey) || "[]");
+    const stored: JobRecord[] = JSON.parse(store().getItem(jobsStorageKey) || "[]");
     const target = stored.find((item) => item.id === id);
     if (!target) throw Error("Job no longer exists.");
     const now = new Date().toISOString();
     assertJobNumberAvailable(target, stored);
     const restored = restoreJob(target, freshActor(), now);
+    jobIntent(id, { kind: "restore" });
     persistJobs(stored.map((item) => item.id === id ? restored : item));
     recordActivity("Job restored from Trash", id, now);
     if (getShare(id)?.paused) void resumeShare(restored).catch(() => setNotice("Job restored, but its shared summary could not be republished. Open Workflow and choose Update shared summary to retry."));
@@ -1030,11 +1054,12 @@ export default function Home() {
     });
     const automaticStatus: JobStatus = nextStage === "Sampling Preparation" ? "Sampling In Progress" : nextStage === "Sampling Data" ? "Sampling In Progress" : nextStage === "Report Preview" ? "Report Draft" : nextStage === "Final Report" && stageUpdates["Final Report"] === "Completed" ? (labComplete(base) ? "Completed" : "Sampling Completed") : base.status;
     let updated: JobRecord = { ...base, ...(!currentJob || coordinator(currentEmployee.id) ? jobFields : {}), ...(samplingRequired !== null ? { samplingRequired } : {}), ...(samplingType ? { samplingSource: samplingType } : {}), holeType, ...(scopeAttachment ? { scopeOfWorkAttachment: scopeAttachment } : {}), samples, events, report, coordinationTasks, coordinationDetails, ...recordUpdates, clientName, dueDate: job.dueDate, currentStage: nextStage, nextAction, status: recordUpdates.status || automaticStatus, lastUpdatedById: currentEmployee.id, lastUpdatedAt: now, stages };
-    if(send){updated=applyOperation(updated,{type:'dispatch',engineer:job.assignedEngineerId,driver:job.assignedDriverId,team:job.samplingTeamIds},freshActor(),now);}
+    if(send){const dispatch:Command={type:'dispatch',engineer:job.assignedEngineerId,driver:job.assignedDriverId,team:job.samplingTeamIds};const base=updated;updated=applyOperation(updated,dispatch,freshActor(),now);jobIntent(updated.id,{kind:'save',base,commands:[dispatch]});}
     if(storedJobs.some(item=>item.id===updated.id&&isTrashed(item)))throw Error('This job is in Trash. Restore it before making changes.');
-    if(!currentJob){const stored:JobRecord[]=JSON.parse(localStorage.getItem(jobsStorageKey)||'[]');assertJobNumberAvailable(updated, stored);if(stored.some(item=>item.id===updated.id))throw Error(`Job ID ${updated.jobNumber} is already in use. Refresh and try again; nothing was saved.`);}
+    if(!currentJob){const stored:JobRecord[]=JSON.parse(store().getItem(jobsStorageKey)||'[]');assertJobNumberAvailable(updated, stored);if(stored.some(item=>item.id===updated.id))throw Error(`Job ID ${updated.jobNumber} is already in use. Refresh and try again; nothing was saved.`);}
     if(currentJob?.operations && currentJob.report?.reportStatus==="Completed")updated.report=currentJob.report;
     if(updated.operations && !operationComplete(updated) && updated.status==="Completed") updated.status="Sampling Completed";
+    if (!send) jobIntent(jobId, { kind: "save" });
     persistJobs(jobs.some((item) => item.id === jobId) ? jobs.map((item) => item.id === jobId ? updated : item) : [updated, ...jobs]);
     if (action) recordActivity(action, jobId, now);
     return true;
@@ -1057,6 +1082,7 @@ export default function Home() {
 
   function logout() {
     if(window.confirmSettingsLeave && !window.confirmSettingsLeave()) return;
+    if (session) { setUserMenuOpen(false); void session.signOut(); return; }
     window.sessionStorage.removeItem(sessionStorageKey);
     setCurrentEmployee(null);
     setUserMenuOpen(false);
@@ -1179,7 +1205,7 @@ export default function Home() {
     if (report.reportStatus !== "Draft") return;
     const nextReport = { ...report, reportStatus: "Draft" as const };
     setReport(nextReport);
-    if (updateCurrentJob("Report Preview", "Complete report review and approval", { "Report Preview": "In Progress" }, undefined, { samples, events, report: nextReport, status: "Report Draft" })) setNotice("Sampling report draft saved on this device.");
+    if (updateCurrentJob("Report Preview", "Complete report review and approval", { "Report Preview": "In Progress" }, undefined, { samples, events, report: nextReport, status: "Report Draft" })) setNotice(`Sampling report draft saved${onDevice}.`);
   }
 
   function submitReportForApproval() {
@@ -1412,7 +1438,7 @@ export default function Home() {
   function markSeen(keys: string[]) {
     if (!currentEmployee || !keys.length) return;
     const next = { ...seenSampling, [currentEmployee.id]: [...new Set([...(seenSampling[currentEmployee.id] || []), ...keys])].slice(-500) };
-    setSeenSampling(next); try { localStorage.setItem(samplingSeenKey, JSON.stringify(next)); } catch { /* not critical */ }
+    setSeenSampling(next); try { store().setItem(samplingSeenKey, JSON.stringify(next)); } catch { /* not critical */ }
   }
   /** Opens the exact task. Opening clears its "New" marker only; the task stays in My actions until it is actually done. */
   function openWorkItem(item: WorkItem) {
@@ -1442,7 +1468,7 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
   function saveSamplingDataDraft() {
-    if (updateCurrentJob("Sampling Data", "Complete sample records", { "Sampling Data": "In Progress" }, undefined, { samples, events })) setNotice("Sampling Data draft saved on this device.");
+    if (updateCurrentJob("Sampling Data", "Complete sample records", { "Sampling Data": "In Progress" }, undefined, { samples, events })) setNotice(`Sampling Data draft saved${onDevice}.`);
   }
 
   function completeSamplingData() {
@@ -1669,7 +1695,7 @@ export default function Home() {
 
   function savePreparationDraft() {
     // Confirm only a save that actually happened; a refusal leaves its own explanation.
-    if (updateCurrentJob("Sampling Preparation", "Complete pre-job coordination and preparation", { "Sampling Preparation": "In Progress" }, undefined, { coordinationTasks, coordinationDetails })) setNotice("Sampling Preparation draft saved on this device.");
+    if (updateCurrentJob("Sampling Preparation", "Complete pre-job coordination and preparation", { "Sampling Preparation": "In Progress" }, undefined, { coordinationTasks, coordinationDetails })) setNotice(`Sampling Preparation draft saved${onDevice}.`);
   }
 
   function completePreparation() {
@@ -1750,8 +1776,8 @@ export default function Home() {
       if (!updateCurrentJob("Job Setup", "Complete the draft and send it to Sampling", {}, `${currentJob ? "Saved" : "Created"} draft ${displayJobId}`, { ...(currentJob ? {} : { id: reservedId, jobNumber: displayJobId, globalSequence: nextSequence, events: draftEvents }), status: "Draft" })) return;
     } catch (error) { setJobErrors([(error as Error).message]); return; }
     if (!currentJob) setEvents(draftEvents);
-    if (!currentJob) { window.localStorage.setItem(globalCounterStorageKey, String(nextSequence)); setGlobalCounter(nextSequence); setCreatedJobId(reservedId); }
-    setNotice(`Draft ${displayJobId} saved on this device. It has not been sent to Sampling.`);
+    if (!currentJob) { store().setItem(globalCounterStorageKey, String(nextSequence)); setGlobalCounter(nextSequence); setCreatedJobId(reservedId); }
+    setNotice(`Draft ${displayJobId} saved${onDevice}. It has not been sent to Sampling.`);
   }
 
   function submitJob(event: React.FormEvent) {
@@ -1796,7 +1822,7 @@ export default function Home() {
     setSamples(plannedSamples);
     setEvents(sentEvents);
     setExpanded("1.01");
-    if (!currentJob) { window.localStorage.setItem(globalCounterStorageKey, String(reservedSequence)); setGlobalCounter(reservedSequence); }
+    if (!currentJob) { store().setItem(globalCounterStorageKey, String(reservedSequence)); setGlobalCounter(reservedSequence); }
     setDispatchReview(false);
     const team = [job.assignedEngineerId, ...job.samplingTeamIds.filter(id => id !== job.assignedEngineerId)];
     setNotice(`Job ${displayJobId} sent to Sampling. Received by ${team.map((id, index) => employeeName(id) + (index === 0 ? " (accountable)" : " (backup)")).join(", ")}; driver ${employeeName(job.assignedDriverId)}. New stage: Sampling · Next action: ${nextAction}. The laboratory has a heads-up. No email was sent.`);
@@ -1830,37 +1856,40 @@ export default function Home() {
     const now = new Date().toISOString();
     setJob((current) => ({ ...current, assignedEngineerId: employeeId }));
     const next = jobs.map((item) => item.id !== currentJob.id ? item : { ...item, responsibleId: employeeId, assignedEngineerId: employeeId, lastUpdatedById: currentEmployee.id, lastUpdatedAt: now, stages: item.stages.map((workflow) => workflow.status === "In Progress" ? { ...workflow, assignedTo: employeeId, lastUpdatedBy: currentEmployee.id, lastUpdatedAt: now } : workflow) });
+    jobIntent(currentJob.id, { kind: "save" });
     persistJobs(next);
     recordActivity(`Reassigned responsibility to ${employeeName(employeeId)}`, currentJob.id, now);
   }
 
   /** Switches between the labelled demo setup and the saved Settings. Neither is overwritten. */
   function toggleDemoSetup() {
+    if (serverMode) return;
     const current = readDemoSetup(); if (!current) return;
     const next = { ...current, enabled: !current.enabled }; saveDemoSetup(next); setDemoSetupState(next);
     setNotice(next.enabled ? "Demo setup on: demo teams and QC are used. Your saved Settings are unchanged." : "Demo setup off: your saved Settings are used.");
   }
   /** Fills an empty browser with fictional DEMO jobs so visitors can explore the workflow. */
   async function loadDemoData() {
-    if (jobs.length || window.localStorage.getItem(jobsStorageKey) && JSON.parse(window.localStorage.getItem(jobsStorageKey) || "[]").length) { setNotice("Demo data is only added to a browser with no saved jobs."); return; }
+    if (serverMode) { setNotice("Demo data is available only in the browser-only demo edition."); return; }
+    if (jobs.length || store().getItem(jobsStorageKey) && JSON.parse(store().getItem(jobsStorageKey) || "[]").length) { setNotice("Demo data is only added to a browser with no saved jobs."); return; }
     setDemoLoading(true);
     try {
       const demoJobs = await buildDemoJobs((name, content) => storeWorkbook(new File([content], name, { type: name.endsWith(".pdf") ? "application/pdf" : "text/csv" })));
-      if (!clients.some((item) => item.code === demoClient.code)) { const nextClients = [...clients, demoClient]; window.localStorage.setItem(clientStorageKey, JSON.stringify(nextClients)); setClients(nextClients); }
+      if (!clients.some((item) => item.code === demoClient.code)) { const nextClients = [...clients, demoClient]; store().setItem(clientStorageKey, JSON.stringify(nextClients)); setClients(nextClients); }
       persistJobs(demoJobs);
       // The demo's own teams and QC are stored separately (vaps-demo-setup-v1); saved Settings are not touched.
       const setup: DemoSetup = { enabled: true, ...demoConfiguration, loadedAt: new Date().toISOString() }; saveDemoSetup(setup); setDemoSetupState(setup);
       const sequence = Math.max(globalCounter, ...demoJobs.map((item) => item.globalSequence));
-      window.localStorage.setItem(globalCounterStorageKey, String(sequence)); setGlobalCounter(sequence);
+      store().setItem(globalCounterStorageKey, String(sequence)); setGlobalCounter(sequence);
       recordActivity("Loaded DEMO jobs", demoJobs[0].id);
-      setNotice("Demo jobs loaded with the labelled demo setup (demo teams and QC). Use “Demo: view as employee” at the top to see each person’s work.");
+      setNotice("Demo jobs loaded with the labelled demo setup (demo teams and QC). Sign out and sign in with another employee ID (password 1234) to see each person’s work.");
     } catch (error) { setNotice(error instanceof Error ? error.message : "Demo data could not be loaded."); }
     finally { setDemoLoading(false); }
   }
 
   function persistClients(next: Client[]) {
     if (!hasPermission("settings")) throw Error("You cannot manage clients.");
-    window.localStorage.setItem(clientStorageKey, JSON.stringify(next));
+    store().setItem(clientStorageKey, JSON.stringify(next));
     setClients(next);
   }
 
@@ -1894,7 +1923,7 @@ export default function Home() {
     try { persistClients(next); } catch(e) { setClientError(e instanceof Error?e.message:"Could not save client."); return; }
     if (clientModal?.mode === "add" || client === originalCode) setClient(code);
     setClientModal(null);
-    setNotice(clientModal?.mode === "edit" ? `${saved.shortName} updated in local demo data` : `${saved.shortName} added and selected`);
+    setNotice(clientModal?.mode === "edit" ? `${saved.shortName} updated` : `${saved.shortName} added and selected`);
   }
 
   function toggleClientActive(item: Client) {
@@ -1925,6 +1954,7 @@ export default function Home() {
 
   if (!authReady) return <div className="login-loading"><img src={assetUrl("/vaps-logo.png")} alt="VAPS" /><span>Loading local workspace…</span></div>;
 
+  if (!currentEmployee && session) return <div className="login-loading"><img src={assetUrl("/vaps-logo.png")} alt="VAPS" /><span>Your account is not linked to an active employee record. Contact your administrator.</span><button type="button" className="outline-button" onClick={() => void session.signOut()}>Sign out</button></div>;
   if (!currentEmployee) return (
     <main className="login-page">
       <section className="login-visual" aria-label="VAPS PVT Lab & Sampling introduction">
@@ -1944,7 +1974,7 @@ export default function Home() {
           </div>
           {loginError && <div className="login-error" role="alert"><span>!</span>{loginError}</div>}
           <button className="login-submit" type="submit">Sign In <span>→</span></button>
-          <small className="demo-hint">Demo access: {demoLogin.id} · Password {demoLogin.password}. After signing in, switch “Local demo profile” at the top to act as other team members.</small>
+          <small className="demo-hint">Browser-only demo: sign in with an employee ID such as {demoLogin.id} or SALIM · password {demoLogin.password}. To act as another team member, sign out and sign in with their ID. This edition has no real accounts.</small>
         </form>
       </section>
     </main>
@@ -1972,7 +2002,7 @@ export default function Home() {
         </nav>
         <div className="sidebar-card">
           <span className="status-dot" />
-          <div><strong>Demo environment</strong><small>Data stays on this device</small></div>
+          {serverMode ? <div><strong>Shared workspace</strong><small>Signed in as {session?.me.username}</small></div> : <div><strong>Demo environment</strong><small>Data stays on this device</small></div>}
         </div>
         <div className="user-area">
           {userMenuOpen && <div className="user-menu"><button type="button" onClick={() => { setWorkspaceView("profile"); setUserMenuOpen(false); }}>My Profile</button><button type="button" onClick={logout}>Logout</button></div>}
@@ -1984,18 +2014,18 @@ export default function Home() {
         </div>
       </aside>
 
-      {(() => { const position = directory.positions.find((p) => p.id === currentEmployee.positionId)?.name || currentEmployee.role; const department = directory.departments.find((d) => d.id === currentEmployee.departmentId)?.name; const teamsOf = (["PVT", "Chemical"] as const).filter((t) => labTeams[t]?.includes(currentEmployee.id)).map((t) => teamName(t) + " team"); const duties = (Object.keys(responsibilityLabels) as (keyof typeof responsibilityLabels)[]).filter((k) => !retiredResponsibilities.includes(k) && roleHolder(responsibilities, k, demoEmployees) === currentEmployee.id).map((k) => responsibilityLabels[k]); const positionOf = (p: Employee) => directory.positions.find((o) => o.id === p.positionId)?.name || p.role; return <div className="identity-bar" role="region" aria-label="Current employee">
-        <div className="identity-who"><span className="avatar" aria-hidden="true">{currentEmployee.initials}</span><div><small>Viewing as</small><strong>{currentEmployee.name}</strong><span>{[position, department && department !== position ? department : "", ...teamsOf].filter(Boolean).join(" · ")}</span></div></div>
+      {(() => { const position = directory.positions.find((p) => p.id === currentEmployee.positionId)?.name || currentEmployee.role; const department = directory.departments.find((d) => d.id === currentEmployee.departmentId)?.name; const teamsOf = (["PVT", "Chemical"] as const).filter((t) => labTeams[t]?.includes(currentEmployee.id)).map((t) => teamName(t) + " team"); const duties = (Object.keys(responsibilityLabels) as (keyof typeof responsibilityLabels)[]).filter((k) => !retiredResponsibilities.includes(k) && roleHolder(responsibilities, k, demoEmployees) === currentEmployee.id).map((k) => responsibilityLabels[k]); return <div className="identity-bar" role="region" aria-label="Current employee">
+        <div className="identity-who"><span className="avatar" aria-hidden="true">{currentEmployee.initials}</span><div><small>Signed in as</small><strong>{currentEmployee.name}</strong><span>{[position, department && department !== position ? department : "", ...teamsOf].filter(Boolean).join(" · ")}</span></div></div>
         <div className="identity-duties" aria-label="Configured duties">{duties.length ? duties.map((d) => <span key={d} className="duty-chip">{d}</span>) : <span className="duty-none">No configured duties · assigned work only</span>}</div>
-        <div className="identity-switch"><label>Demo: view as employee<select aria-label="Demo: view as employee" value={currentEmployee.id} onChange={e=>{if(window.confirmSettingsLeave&&!window.confirmSettingsLeave())return;const person=demoEmployees.find(p=>p.id===e.target.value&&p.active);if(person){setCurrentEmployee(person);sessionStorage.setItem(sessionStorageKey,person.id);setWorkspaceView('my-work');}}}>{demoEmployees.filter(p=>p.active).map(p=><option key={p.id} value={p.id}>{p.name} · {positionOf(p)}</option>)}</select></label><small>Only changes whose view you see. Work is assigned inside a job.</small></div>
-        {demoSetup && <div className={"demo-setup-pill" + (demoActive ? " is-on" : "")}><span>Demo setup {demoActive ? "on" : "off"}</span><button type="button" className="text-button" onClick={() => toggleDemoSetup()}>{demoActive ? "Use saved Settings" : "Use demo setup"}</button></div>}
+        
+        {demoSetup && !serverMode && <div className={"demo-setup-pill" + (demoActive ? " is-on" : "")}><span>Demo setup {demoActive ? "on" : "off"}</span><button type="button" className="text-button" onClick={() => toggleDemoSetup()}>{demoActive ? "Use saved Settings" : "Use demo setup"}</button></div>}
       </div>; })()}<main className={workspaceView === "my-work" ? "inbox-main" : ""}>
         <header className="topbar">
           <button className="menu-button" type="button" aria-label="Open menu">☰</button>
-          <div className="breadcrumb"><span>{workspaceView === "inventory" ? "Inventory" : workspaceView === "requests" ? "Laboratory" : workspaceView === "settings" ? "Settings" : workspaceView === "profile" ? "Employee" : "Workspace"}</span><b>/</b><strong>{workspaceView === "workflow" ? (workflowJob?.jobNumber || "Job workflow") : workspaceView === "inventory" ? "Cylinder inventory" : workspaceView === "requests" ? "Requests" : workspaceView === "settings" ? ({company:"Company",clients:"Clients",employees:"Employees",authorization:"Authorization",tests:"Tests",equipment:"Laboratory equipment","request-lists":"Request Book lists",departments:"Departments & Positions"}[settingsPage] || "Overview") : workspaceView === "profile" ? "My Profile" : workspaceView === "my-work" ? "My work" : workspaceView === "dashboard" ? "Dashboard" : workspaceView === "planning" ? "Weekly plan" : workspaceView === "overview" ? "Activity log" : workspaceView === "jobs" ? "Jobs" : workspaceView === "sampling" ? (samplingTab === "reports" ? "Sampling · Sampling Reports" : "Sampling") : workspaceView === "pvt-lab" ? "Laboratory" : client || currentJob ? displayJobId : "New job"}</strong></div>
+          <div className="breadcrumb"><span>{workspaceView === "inventory" ? "Inventory" : workspaceView === "requests" ? "Laboratory" : workspaceView === "settings" ? "Settings" : workspaceView === "profile" ? "Employee" : "Workspace"}</span><b>/</b><strong>{workspaceView === "workflow" ? (workflowJob?.jobNumber || "Job workflow") : workspaceView === "inventory" ? "Cylinder inventory" : workspaceView === "requests" ? "Requests" : workspaceView === "settings" ? ({company:"Company",clients:"Clients",employees:"Employees",authorization:"Authorization",accounts:"Sign-in accounts",tests:"Tests",equipment:"Laboratory equipment","request-lists":"Request Book lists",departments:"Departments & Positions"}[settingsPage] || "Overview") : workspaceView === "profile" ? "My Profile" : workspaceView === "my-work" ? "My work" : workspaceView === "dashboard" ? "Dashboard" : workspaceView === "planning" ? "Weekly plan" : workspaceView === "overview" ? "Activity log" : workspaceView === "jobs" ? "Jobs" : workspaceView === "sampling" ? (samplingTab === "reports" ? "Sampling · Sampling Reports" : "Sampling") : workspaceView === "pvt-lab" ? "Laboratory" : client || currentJob ? displayJobId : "New job"}</strong></div>
           <div className="top-actions">
             <button className="settings-shortcut" type="button" onClick={() => { setWorkspaceView("settings"); }}><Settings size={18} aria-hidden="true" />Settings</button>
-            {workspaceView === "my-work" || workspaceView === "dashboard" ? <span className="top-date">{dashboardDate}</span> : <span className="local-pill"><span className="status-dot" /> Local demo</span>}
+            {workspaceView === "my-work" || workspaceView === "dashboard" ? <span className="top-date">{dashboardDate}</span> : <span className="local-pill"><span className="status-dot" /> {serverMode ? "Shared workspace" : "Local demo"}</span>}
             <button className="icon-button" type="button" aria-label="Notifications">◌<span className="notification-dot" /></button>
             <button className="top-avatar" type="button" onClick={() => setWorkspaceView("profile")} aria-label="Open my profile">{currentEmployee.initials}</button>
           </div>
@@ -2010,11 +2040,11 @@ export default function Home() {
             {confirmDelete.error && <p className="confirm-error" role="alert">{confirmDelete.error}</p>}
             <footer><button type="button" className="outline-button" disabled={confirmDelete.busy} onClick={() => setConfirmDelete(null)}>Cancel</button><button type="button" className="danger-button" disabled={confirmDelete.busy} onClick={async () => { setConfirmDelete({ id: target.id, busy: true }); try { await moveJobToTrash(target.id); setConfirmDelete(null); setSelectedJobDetailsId(""); setNotice(`${target.jobNumber} moved to Trash. Restore it from Jobs → Trash.`); } catch (error) { setConfirmDelete({ id: target.id, error: error instanceof Error ? error.message : "Could not delete the job." }); } }}>{confirmDelete.busy ? "Moving…" : "Move to Trash"}</button></footer>
           </section></div> : null; })()}
-          {!canView(workspaceView) ? <section className="panel authorization-panel"><h1>Access restricted</h1><p>Ask Mohammed Al Awaisi to enable access in Settings → Authorization.</p><button className="primary-button" type="button" onClick={() => setWorkspaceView("my-work")}>Back to My work</button></section> : workspaceView === "workflow" ? (workflowJob ? (!canOpen(workflowJob) ? <section className="panel authorization-panel" role="alert"><h1>No access to this job</h1><p>{noJobAccessMessage}</p><p>Jobs you work on are listed in My work. The Dashboard shows every active job without opening it.</p><div className="panel-actions"><button className="primary-button" type="button" onClick={() => setWorkspaceView("my-work")}>Go to My work</button><button className="outline-button" type="button" onClick={() => setWorkspaceView("dashboard")}>Dashboard</button></div></section> : !legacyView ? <OperationsWorkspace key={workflowJob.id+operationTab} reportContext={reportContext} job={workflowJob} actor={opsActor!} tab={operationTab==='handover'?'overview':operationTab} onNavigate={tab=>openOperation(workflowJob,tab)} onCommand={c=>runOperation(workflowJob.id,c)} onSampling={(target,sample)=>{const fresh=(JSON.parse(localStorage.getItem(jobsStorageKey)||'[]') as JobRecord[]).find(j=>j.id===workflowJob.id)||workflowJob;resumeJob(fresh);setStage((target||samplingStageFor(fresh)) as Stage);if(sample)setExpanded(sample);}} onSetup={()=>{resumeJob(workflowJob);setStage('job');}} onLegacy={()=>setLegacyView(true)} mine={{ actions: nowItems.filter((i) => i.jobId === workflowJob.id), upcoming: dashboardWork.upcoming.filter((u) => u.jobId === workflowJob.id), waiting: dashboardWork.waiting.filter((w) => w.jobId === workflowJob.id) }} back={({ "my-work": { label: "My work", href: "#my-work" }, sampling: { label: "Sampling", href: "#sampling" }, "pvt-lab": { label: "Laboratory", href: "#pvt-lab" } } as Record<string, { label: string; href: string }>)[returnTo] || { label: "Jobs", href: "#jobs" }} onOpenItem={(item) => openWorkItem(item)} /> : <JobWorkflow key={workflowJob.id} job={workflowJob} today={today} employeeName={employeeName} onBack={() => setWorkspaceView("jobs")} onOpenStage={(stageId) => stageId === "closed" ? resumeJob(workflowJob) : openStage(workflowJob, stageId)} />) : (() => { const binned = storedJobs.find((item) => item.id === workflowJobId && isTrashed(item)); return binned && opsActor && canSeeDraft(binned, opsActor) ? <section className="panel authorization-panel"><h1>This job is in Trash</h1><p>{binned.id} · {binned.clientName} was deleted by {employeeName(binned.trash?.deletedBy)} on {formatDateTime(binned.trash?.deletedAt)}. Its records are kept unchanged.</p>{hasPermission("deleteJobs") ? <button type="button" className="primary-button" onClick={() => { try { restoreJobFromTrash(binned.id); setNotice(`${binned.jobNumber} restored.`); } catch (error) { setNotice(error instanceof Error ? error.message : "Could not restore the job."); } }}>Restore job</button> : <p>Ask an authorized person to restore it.</p>}</section> : <section className="panel"><h1>Job not found</h1><button type="button" onClick={() => setWorkspaceView("jobs")}>Back to jobs</button></section>; })()) : (workspaceView === "my-work" || workspaceView === "dashboard") && !hasPermission("jobDetails") ? (<section className="panel authorization-panel"><h1>Welcome, {currentEmployee.name.split(" ")[0]}</h1><p>Choose an authorized workspace from the menu. Contact Mohammed Al Awaisi to request additional access.</p></section>) : workspaceView === "dashboard" ? (
+          {!canView(workspaceView) ? <section className="panel authorization-panel"><h1>Access restricted</h1><p>Ask Mohammed Al Awaisi to enable access in Settings → Authorization.</p><button className="primary-button" type="button" onClick={() => setWorkspaceView("my-work")}>Back to My work</button></section> : workspaceView === "workflow" ? (workflowJob ? (!canOpen(workflowJob) ? <section className="panel authorization-panel" role="alert"><h1>No access to this job</h1><p>{noJobAccessMessage}</p><p>Jobs you work on are listed in My work. The Dashboard shows every active job without opening it.</p><div className="panel-actions"><button className="primary-button" type="button" onClick={() => setWorkspaceView("my-work")}>Go to My work</button><button className="outline-button" type="button" onClick={() => setWorkspaceView("dashboard")}>Dashboard</button></div></section> : !legacyView ? <OperationsWorkspace key={workflowJob.id+operationTab} reportContext={reportContext} job={workflowJob} actor={opsActor!} tab={operationTab==='handover'?'overview':operationTab} onNavigate={tab=>openOperation(workflowJob,tab)} onCommand={c=>runOperation(workflowJob.id,c)} onSampling={(target,sample)=>{const fresh=(JSON.parse(store().getItem(jobsStorageKey)||'[]') as JobRecord[]).find(j=>j.id===workflowJob.id)||workflowJob;resumeJob(fresh);setStage((target||samplingStageFor(fresh)) as Stage);if(sample)setExpanded(sample);}} onSetup={()=>{resumeJob(workflowJob);setStage('job');}} onLegacy={()=>setLegacyView(true)} mine={{ actions: nowItems.filter((i) => i.jobId === workflowJob.id), upcoming: dashboardWork.upcoming.filter((u) => u.jobId === workflowJob.id), waiting: dashboardWork.waiting.filter((w) => w.jobId === workflowJob.id) }} back={({ "my-work": { label: "My work", href: "#my-work" }, sampling: { label: "Sampling", href: "#sampling" }, "pvt-lab": { label: "Laboratory", href: "#pvt-lab" } } as Record<string, { label: string; href: string }>)[returnTo] || { label: "Jobs", href: "#jobs" }} onOpenItem={(item) => openWorkItem(item)} /> : <JobWorkflow key={workflowJob.id} job={workflowJob} today={today} employeeName={employeeName} onBack={() => setWorkspaceView("jobs")} onOpenStage={(stageId) => stageId === "closed" ? resumeJob(workflowJob) : openStage(workflowJob, stageId)} />) : (() => { const binned = storedJobs.find((item) => item.id === workflowJobId && isTrashed(item)); return binned && opsActor && canSeeDraft(binned, opsActor) ? <section className="panel authorization-panel"><h1>This job is in Trash</h1><p>{binned.id} · {binned.clientName} was deleted by {employeeName(binned.trash?.deletedBy)} on {formatDateTime(binned.trash?.deletedAt)}. Its records are kept unchanged.</p>{hasPermission("deleteJobs") ? <button type="button" className="primary-button" onClick={() => { try { restoreJobFromTrash(binned.id); setNotice(`${binned.jobNumber} restored.`); } catch (error) { setNotice(error instanceof Error ? error.message : "Could not restore the job."); } }}>Restore job</button> : <p>Ask an authorized person to restore it.</p>}</section> : <section className="panel"><h1>Job not found</h1><button type="button" onClick={() => setWorkspaceView("jobs")}>Back to jobs</button></section>; })()) : (workspaceView === "my-work" || workspaceView === "dashboard") && !hasPermission("jobDetails") ? (<section className="panel authorization-panel"><h1>Welcome, {currentEmployee.name.split(" ")[0]}</h1><p>Choose an authorized workspace from the menu. Contact Mohammed Al Awaisi to request additional access.</p></section>) : workspaceView === "dashboard" ? (
             <CompanyDashboard jobs={dashboardJobs} today={today} canActivity={canView("overview")} onActivity={() => setWorkspaceView("overview")} name={employeeName} clients={clients} />
           ) : workspaceView === "my-work" ? (
             <MyWork now={nowItems} upcoming={[...dashboardWork.upcoming].sort((a, b) => (a.due || a.jobNumber).localeCompare(b.due || b.jobNumber))} waiting={dashboardWork.waiting} blocked={dashboardWork.blocked} blockedActions={dashboardWork.actions.filter(blockedAssign)} alerts={unseenAlerts} rows={inbox} today={today} name={employeeName} isNew={isNewItem} filter={myWorkFilter} onFilter={setMyWorkFilter} isAdmin={hasPermission("authorization")} canCreate={hasPermission("createJob")} onCreate={startNewJob} canPlan={canView("planning")} onPlanning={() => setWorkspaceView("planning")} flowOf={(id) => flowById.get(id)} onOpen={(item) => { setReturnTo("my-work"); openWorkItem(item); }} onReadAlert={(alert) => markSeen(alert.keys)} onOpenTab={(jobId, tab, alert) => { const target = jobs.find((job) => job.id === jobId); if (alert) markSeen(alert.keys); setReturnTo("my-work"); if (target) openOperation(target, tab); }} onOpenJob={(row) => { const target = jobs.find((job) => job.id === row.jobId); setReturnTo("my-work"); if (target) openOperation(target); }}>
-            {storedJobs.length===0&&<section className="panel ops-panel demo-banner"><div><h2>Explore the workflow with demo jobs</h2><p>This browser has no jobs yet. Load six example jobs (sampling, review, PVT-only, Chemistry-only and mixed laboratory scope, and a completed job with Validation added later). All names and values are fictional and marked DEMO and stay in this browser. The demo switches on a labelled demo setup (teams, QC and receipt) that is stored separately and never written to Settings.</p></div><button type="button" className="primary-button" disabled={demoLoading} onClick={() => void loadDemoData()}>{demoLoading ? "Loading…" : "Load demo data"}</button></section>}</MyWork>
+            {storedJobs.length===0&&!serverMode&&<section className="panel ops-panel demo-banner"><div><h2>Explore the workflow with demo jobs</h2><p>This browser has no jobs yet. Load six example jobs (sampling, review, PVT-only, Chemistry-only and mixed laboratory scope, and a completed job with Validation added later). All names and values are fictional and marked DEMO and stay in this browser. The demo switches on a labelled demo setup (teams, QC and receipt) that is stored separately and never written to Settings.</p></div><button type="button" className="primary-button" disabled={demoLoading} onClick={() => void loadDemoData()}>{demoLoading ? "Loading…" : "Load demo data"}</button></section>}</MyWork>
           ) : workspaceView === "planning" ? (
             <div className="secondary-view"><button type="button" className="text-button" onClick={() => setWorkspaceView("my-work")}>← My work</button>
             <WeeklyWork jobs={visibleJobs} actor={opsActor!} onOpen={openOperation} hidePending />
@@ -2089,6 +2119,7 @@ export default function Home() {
               <div className="profile-grid">
                 <section className="panel"><div className="panel-heading"><span className="section-number">01</span><div><h2>My jobs</h2><p>Jobs where you hold a responsibility, and your part in each.</p></div></div><div className="profile-work-list">{inbox.map((row) => <article key={row.jobId}><div><strong>{row.jobNumber}</strong><span>{row.client}</span></div><div><span className="stage-chip">{row.stage}</span><small>{row.roles.join(" · ")}</small></div></article>)}{!inbox.length && <p>No jobs currently include a responsibility of yours.</p>}</div></section>
                 <section className="panel"><div className="panel-heading"><span className="section-number">02</span><div><h2>Activity history</h2><p>Your recent recorded actions.</p></div></div><div className="profile-history">{myActivities.slice(0, 8).map((item) => <article key={item.id}><span className="timeline-dot" /><div><strong>{item.action}</strong><p>{item.jobId}</p><small>{formatDateTime(item.timestamp)}</small></div></article>)}</div></section>
+                {session && <section className="panel profile-password"><div className="panel-heading"><span className="section-number">03</span><div><h2>Sign-in &amp; password</h2><p>Signed in as <strong>{session.me.username}</strong>. Changing your password signs you out on every other device.</p></div></div><PasswordChangeForm key={passwordFormKey} username={session.me.username} onChanged={() => { setPasswordFormKey((k) => k + 1); setNotice("Password changed. Your other sessions were signed out."); }} /></section>}
               </div>
             </>
           ) : workspaceView === "requests" ? (
@@ -2100,7 +2131,7 @@ export default function Home() {
                 const invalid = validateBottle(bottle, bottleInventory);
                 if (invalid || bottleLoadError) throw new Error(invalid || bottleLoadError);
                 const next = [...customBottles, bottle];
-                window.localStorage.setItem(bottleStorageKey, JSON.stringify(next));
+                store().setItem(bottleStorageKey, JSON.stringify(next));
                 setCustomBottles(next);
               }} />
             </>
@@ -2111,16 +2142,17 @@ export default function Home() {
               {notice && <p role="status">{notice}</p>}
               {settingsPage==='employees' && hasPermission('employees') && <EmployeeSettings directory={directory} onSave={saveDirectory} jobs={storedJobs} onReview={item=>{setWorkflowJobId(item.id);setWorkspaceView('workflow');}} />}
               {settingsPage==='departments' && hasPermission('employees') && <OptionSettings directory={directory} onSave={saveDirectory} />}
-              {settingsPage==='company' && hasPermission('company') && <CompanySettings company={company} onSave={next=>{if(!hasPermission('company')) throw Error('You cannot manage company details.'); localStorage.setItem('vaps-company-v1',JSON.stringify(next));setCompany(next);}} />}
+              {settingsPage==='accounts' && session && hasPermission('authorization') && <AccountSettings employees={demoEmployees} meAccountId={session.me.accountId} positionOf={(e) => directory.positions.find((p) => p.id === e.positionId)?.name || e.role} />}
+              {settingsPage==='company' && hasPermission('company') && <CompanySettings company={company} onSave={next=>{if(!hasPermission('company')) throw Error('You cannot manage company details.'); store().setItem('vaps-company-v1',JSON.stringify(next));setCompany(next);}} />}
               {settingsPage === "equipment" && hasPermission("tests") && <EquipmentSettings />}
-              {settingsPage === "request-lists" && hasPermission("requestsOverview") && <RequestListSettings lists={requestLists} error={requestListsError} onSave={(next) => { if (!hasPermission("requestsOverview") || requestListsError) return false; try { window.localStorage.setItem(requestListsKey, JSON.stringify(next)); setRequestLists(next); return true; } catch { return false; } }} />}
+              {settingsPage === "request-lists" && hasPermission("requestsOverview") && <RequestListSettings lists={requestLists} error={requestListsError} onSave={(next) => { if (!hasPermission("requestsOverview") || requestListsError) return false; try { store().setItem(requestListsKey, JSON.stringify(next)); setRequestLists(next); return true; } catch { return false; } }} />}
               {settingsPage === "tests" && hasPermission("tests") && <TestCatalogueSettings key={JSON.stringify([customTests, savedRoutingRaw])} custom={customTests} saved={savedRoutingRaw} error={testRoutingError} demoActive={demoActive} onSave={(custom, routing) => {
                 if (!hasPermission("tests") || testRoutingError) return false;
                 try {
                   const validCustom = readCustomTests(JSON.stringify({ tests: custom.map(({ id, name, group, section }) => ({ id, name, group, section })) }));
                   const validRouting = readSavedRouting(JSON.stringify(routing), catalogueIds(validCustom));
-                  window.localStorage.setItem(testCatalogueKey, JSON.stringify({ tests: validCustom.map(({ id, name, group, section }) => ({ id, name, group, section })) }));
-                  window.localStorage.setItem(testRoutingKey, JSON.stringify(validRouting));
+                  store().setItem(testCatalogueKey, JSON.stringify({ tests: validCustom.map(({ id, name, group, section }) => ({ id, name, group, section })) }));
+                  store().setItem(testRoutingKey, JSON.stringify(validRouting));
                   setCustomTests(validCustom); setSavedRoutingRaw(validRouting); setTestRouting(effectiveRouting(validRouting));
                   const added = validCustom.filter(t => !customTests.some(c => c.id === t.id)).map(t => t.name);
                   recordActivity("Updated test catalogue" + (added.length ? ": added " + added.join(", ") : ""), "Settings"); setNotice("Test catalogue saved."); return true;
@@ -2128,15 +2160,15 @@ export default function Home() {
               }} />}
               {settingsPage === "authorization" && hasPermission("authorization") && <AuthorizationSettings key={JSON.stringify([authorization,savedResponsibilities,savedLabTeams])} teams={savedLabTeams} teamsError={labTeamsError} onSaveTeams={next => {
                 if (!hasPermission("authorization") || labTeamsError) return false;
-                try { const validated = readLabTeams(JSON.stringify(next), demoEmployees.map(person => person.id)); window.localStorage.setItem(labTeamsKey, JSON.stringify(validated)); setLabTeams(validated); recordActivity("Updated laboratory teams", "Settings"); setNotice("Laboratory teams saved."); return true; }
+                try { const validated = readLabTeams(JSON.stringify(next), demoEmployees.map(person => person.id)); store().setItem(labTeamsKey, JSON.stringify(validated)); setLabTeams(validated); recordActivity("Updated laboratory teams", "Settings"); setNotice("Laboratory teams saved."); return true; }
                 catch { setNotice("Laboratory teams could not be saved. Please try again."); return false; }
               }} policy={authorization} roles={savedResponsibilities} rolesError={responsibilitiesError} employees={demoEmployees} departments={directory.departments} error={authorizationError} onSaveRoles={next => {
                 if (!hasPermission("authorization")) return false;
-                try { const validated = readResponsibilities(JSON.stringify(next)); window.localStorage.setItem(responsibilitiesKey, JSON.stringify(validated)); setResponsibilities(validated); setResponsibilitiesError(""); recordActivity("Updated responsibilities: " + (Object.keys(validated) as (keyof Responsibilities)[]).filter(key => validated[key] !== responsibilities[key]).map(key => responsibilityLabels[key] + " → " + (demoEmployees.find(e => e.id === validated[key])?.name || "Not assigned")).join("; "), "Settings"); setNotice("Responsibilities saved."); return true; }
+                try { const validated = readResponsibilities(JSON.stringify(next)); store().setItem(responsibilitiesKey, JSON.stringify(validated)); setResponsibilities(validated); setResponsibilitiesError(""); recordActivity("Updated responsibilities: " + (Object.keys(validated) as (keyof Responsibilities)[]).filter(key => validated[key] !== responsibilities[key]).map(key => responsibilityLabels[key] + " → " + (demoEmployees.find(e => e.id === validated[key])?.name || "Not assigned")).join("; "), "Settings"); setNotice("Responsibilities saved."); return true; }
                 catch { setNotice("Responsibilities could not be saved. Please try again."); return false; }
               }} onSave={next => {
                 if (!hasPermission("authorization")) return false;
-                try { const validated = readAuthorization(JSON.stringify(next), demoEmployees.map(person => person.id)); window.localStorage.setItem(authorizationKey, JSON.stringify(validated)); setAuthorization(validated); setNotice("Authorization saved."); return true; }
+                try { const validated = readAuthorization(JSON.stringify(next), demoEmployees.map(person => person.id)); store().setItem(authorizationKey, JSON.stringify(validated)); setAuthorization(validated); setNotice("Authorization saved."); return true; }
                 catch { setNotice("Authorization could not be saved. Please try again."); return false; }
               }} />}
               {settingsPage === "clients" && hasPermission("settings") && <section className="panel clients-settings-panel">
