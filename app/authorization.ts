@@ -63,9 +63,46 @@ export function readAuthorization(raw: string | null, ids: string[]): Authorizat
   }
   return Object.fromEntries(Object.keys(permissionLabels).map(key => [key, [...new Set(value[key])]])) as Authorization;
 }
-export function allowed(policy: Authorization, id: string | undefined, permission: Permission): boolean {
+/* ---------- Access roles ---------- */
+
+/**
+ * Three access levels. The Administrator is the fixed project administrator (MA001) until a transfer is requested.
+ * Super Users receive the permissions configured for them in Settings → Authorization. Normal Users keep only the
+ * baseline permissions below, so they open only jobs they are assigned to (including jobs covered by a workflow duty
+ * assigned to them) and none of the company-wide views. Roles never grant a permission or a duty by themselves.
+ */
+export type AccessRole = 'administrator' | 'super' | 'normal';
+export const accessRoleLabels: Record<AccessRole, string> = { administrator: 'Administrator', super: 'Super User', normal: 'Normal User' };
+export const accessRolesKey = 'vaps-access-roles-v1';
+/** Initial Super Users: Salim Al Maqbali, Ahmed Al Shereiqi, Wilfred Mendonca and Al Yaqdhan Al Bahri. */
+export const defaultSuperUsers = ['SALIM', 'SHEREIQI', 'WILFRED', 'BAHRI'];
+/** What a Normal User may hold. Everything else (company overview, job creation, settings, workbooks, Trash …) is for Super Users. */
+export const normalUserPermissions: Permission[] = ['jobDetails', 'sampling', 'analysis', 'inventory', 'requests'];
+export type AccessRoles = { superUsers: string[] };
+/** Saved roles; the initial Super Users when nothing is saved. Throws on unreadable data. */
+export function readAccessRoles(raw: string | null, ids?: string[]): AccessRoles {
+  if (raw === null) return { superUsers: ids ? defaultSuperUsers.filter(id => ids.includes(id)) : [...defaultSuperUsers] };
+  const value = JSON.parse(raw);
+  if (!value || typeof value !== 'object' || !Array.isArray(value.superUsers) || value.superUsers.some((id: unknown) => typeof id !== 'string' || id === administratorId || (ids && !ids.includes(id)))) throw Error('Invalid access roles');
+  return { superUsers: [...new Set(value.superUsers as string[])] };
+}
+/** Saved Super Users. Unreadable roles make everyone a Normal User (access is narrowed, never widened). */
+export function storedSuperUsers(): string[] {
+  const store = appStorage();
+  try { return readAccessRoles(store ? store.getItem(accessRolesKey) : null).superUsers; } catch { return []; }
+}
+export function accessRole(id: string | undefined, superUsers: string[] = storedSuperUsers()): AccessRole {
+  return id === administratorId ? 'administrator' : id && superUsers.includes(id) ? 'super' : 'normal';
+}
+/** True when the permission is out of reach for this employee's role, whatever Authorization says. */
+export const roleBlocks = (id: string | undefined, permission: Permission, superUsers?: string[]) => accessRole(id, superUsers) === 'normal' && !normalUserPermissions.includes(permission);
+
+export function allowed(policy: Authorization, id: string | undefined, permission: Permission, superUsers?: string[]): boolean {
   // The administrator retains access to the project; job creation and deletion are explicitly assigned.
-  return !!id && ((id === administratorId && !explicitPermissions.includes(permission)) || policy[permission].includes(id));
+  if (!id) return false;
+  if (id === administratorId) return !explicitPermissions.includes(permission) || policy[permission].includes(id);
+  // A Normal User holds only the baseline permissions; a Super User holds what Authorization grants.
+  return !roleBlocks(id, permission, superUsers) && policy[permission].includes(id);
 }
 
 /** While the labelled demo setup is on, its duties replace the saved ones for the duties it lists. Settings are not changed. */

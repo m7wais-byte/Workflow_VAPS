@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from
 import { assetUrl } from "./deployment";
 import { api, ApiError, clearWorkspace, loadWorkspace, onSync, settled, type Me } from "./workspace-sync";
 
-type State = { kind: "checking" } | { kind: "signed-out"; message?: string } | { kind: "must-change"; username: string } | { kind: "ready"; me: Me; generation: number; notice?: string } | { kind: "error"; message: string };
+type State = { kind: "invite"; token: string } | { kind: "checking" } | { kind: "signed-out"; message?: string } | { kind: "must-change"; username: string } | { kind: "ready"; me: Me; generation: number; notice?: string } | { kind: "error"; message: string };
 
 export type SessionProps = { me: Me; generation: number; signOut: () => Promise<void>; reload: (notice?: string) => void; notice?: string };
 
@@ -27,8 +27,13 @@ export function AuthGate({ children }: { children: (session: SessionProps) => Re
     }
   }, []);
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- the session is checked once on load
-  useEffect(() => { void start(); }, [start]);
+  // An invitation link (…/#invite=<token>) opens the "set your password" page instead of the sign-in form.
+  // Read after load (the server render has no URL fragment), so the first render matches on both sides.
+  useEffect(() => {
+    const invitation = /^#invite=([a-f0-9]{64})$/.exec(location.hash);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the fragment exists only in the browser
+    if (invitation) setState({ kind: "invite", token: invitation[1] }); else void start();
+  }, [start]);
   useEffect(() => {
     const ended = (event: Event) => { clearWorkspace(); setState({ kind: "signed-out", message: (event as CustomEvent<string>).detail || "Your session has ended. Sign in again." }); };
     window.addEventListener("vaps-signed-out", ended);
@@ -43,6 +48,7 @@ export function AuthGate({ children }: { children: (session: SessionProps) => Re
     clearWorkspace(); setState({ kind: "signed-out", message: "You have signed out." });
   }, []);
 
+  if (state.kind === "invite") return <InvitationScreen token={state.token} onDone={(message) => { history.replaceState(null, "", location.pathname + location.search); setState({ kind: "checking" }); void start(message); }} onCancel={() => { history.replaceState(null, "", location.pathname + location.search); setState({ kind: "checking" }); void start(); }} />;
   if (state.kind === "checking") return <div className="login-loading"><img src={assetUrl("/vaps-logo.png")} alt="VAPS" /><span>Checking your session…</span></div>;
   if (state.kind === "error") return <LoginLayout><div className="login-card"><span className="eyebrow">EMPLOYEE ACCESS</span><h2>Workspace unavailable</h2><div className="login-error" role="alert"><span>!</span>{state.message}</div><button className="login-submit" type="button" onClick={() => { setState({ kind: "checking" }); void start(); }}>Retry</button></div></LoginLayout>;
   if (state.kind === "signed-out") return <LoginScreen message={state.message} onSignedIn={() => { setState({ kind: "checking" }); void start(); }} />;
@@ -55,7 +61,7 @@ function LoginLayout({ children }: { children: ReactNode }) {
     <section className="login-visual" aria-label="VAPS PVT Lab & Sampling introduction">
       <div className="login-brand"><img src={assetUrl("/vaps-logo.png")} alt="VAPS" /><span>INTERNAL OPERATIONS</span></div>
       <div className="login-visual-copy"><span className="eyebrow">PETROLEUM LABORATORY SERVICES</span><h1>Technical workflows.<br />Clear responsibility.</h1><p>A focused workspace for managing PVT laboratory jobs, sampling records, and operational accountability.</p></div>
-      <div className="login-security"><span className="status-dot" /><div><strong>VAPS employees only</strong><small>Sign in with your username or work email and your password. Accounts are created by your administrator.</small></div></div>
+      <div className="login-security"><span className="status-dot" /><div><strong>VAPS employees only</strong><small>Sign in with your work email or employee ID and your password. Access is by invitation from your administrator.</small></div></div>
     </section>
     <section className="login-form-side">{children}</section>
   </main>;
@@ -79,7 +85,7 @@ function LoginScreen({ message, onSignedIn }: { message?: string; onSignedIn: ()
       <p>Internal Laboratory Workflow Management</p>
       {message && !error && <p className="login-info" role="status">{message}</p>}
       <div className="login-fields">
-        <label><span>Username or email</span><input name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} required value={form.username} onChange={(e) => { setForm({ ...form, username: e.target.value }); setError(""); }} /></label>
+        <label><span>Work email or employee ID</span><input name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} required value={form.username} onChange={(e) => { setForm({ ...form, username: e.target.value }); setError(""); }} /></label>
         <label><span>Password</span><div className="password-field"><input name="password" type={show ? "text" : "password"} autoComplete="current-password" required value={form.password} onChange={(e) => { setForm({ ...form, password: e.target.value }); setError(""); }} /><button type="button" onClick={() => setShow(!show)} aria-label={show ? "Hide password" : "Show password"}>{show ? "Hide" : "Show"}</button></div></label>
       </div>
       {error && <div className="login-error" role="alert"><span>!</span>{error}</div>}
@@ -111,4 +117,37 @@ export function PasswordChangeForm({ username, onChanged, submitLabel = "Change 
     {error && <div className="login-error" role="alert"><span>!</span>{error}</div>}
     <button className="login-submit" type="submit" disabled={busy}>{busy ? "Saving…" : submitLabel}</button>
   </form>;
+}
+
+/** The page an invitation link opens: shows who it is for, then the employee chooses their own password. */
+function InvitationScreen({ token, onDone, onCancel }: { token: string; onDone: (message: string) => void; onCancel: () => void }) {
+  const [info, setInfo] = useState<{ name: string; employeeId: string; email: string; expiresAt: string } | null>(null);
+  const [error, setError] = useState(""), [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({ password: "", confirm: "" });
+  useEffect(() => { api<{ name: string; employeeId: string; email: string; expiresAt: string }>("/api/auth/invitation", { method: "POST", json: { action: "check", token } }).then(setInfo).catch((e: Error) => setError(e.message)); }, [token]);
+  async function submit(event: FormEvent) {
+    event.preventDefault(); if (busy) return;
+    if (form.password !== form.confirm) { setError("The passwords do not match."); return; }
+    setBusy(true); setError("");
+    try { await api("/api/auth/invitation", { method: "POST", json: { action: "accept", token, password: form.password } }); onDone("Your account is active. Next time, sign in with your work email or employee ID and this password."); }
+    catch (e) { setError(e instanceof Error ? e.message : "The password could not be set."); setBusy(false); }
+  }
+  return <LoginLayout><div className="login-card">
+    <div className="login-mobile-logo"><img src={assetUrl("/vaps-logo.png")} alt="VAPS" /></div>
+    <span className="eyebrow">ACCOUNT INVITATION</span>
+    <h2>Set your password</h2>
+    {!info && !error && <p role="status">Checking your invitation…</p>}
+    {info && <><p>Welcome, <strong>{info.name}</strong>. Choose the password you will use to sign in.</p>
+      <dl className="invite-facts"><div><dt>Work email</dt><dd>{info.email}</dd></div><div><dt>Employee ID</dt><dd>{info.employeeId}</dd></div></dl>
+      <form onSubmit={submit}>
+        <input type="text" name="username" autoComplete="username" value={info.email} readOnly hidden />
+        <div className="login-fields">
+          <label><span>New password</span><input type="password" autoComplete="new-password" required minLength={12} maxLength={128} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /><small className="field-hint">At least 12 characters. A short sentence is easy to remember.</small></label>
+          <label><span>Confirm password</span><input type="password" autoComplete="new-password" required value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} /></label>
+        </div>
+        {error && <div className="login-error" role="alert"><span>!</span>{error}</div>}
+        <button className="login-submit" type="submit" disabled={busy}>{busy ? "Activating…" : "Set password and sign in"}</button>
+      </form></>}
+    {!info && error && <><div className="login-error" role="alert"><span>!</span>{error}</div><button className="login-submit" type="button" onClick={onCancel}>Go to sign-in</button></>}
+  </div></LoginLayout>;
 }

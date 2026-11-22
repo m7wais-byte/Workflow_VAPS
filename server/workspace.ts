@@ -6,7 +6,7 @@
  */
 import { runWithStorage, sharedKeys, isSharedKey, type SharedKey, type StorageLike } from "../app/app-storage";
 import { loadDirectory, validateDirectory, directoryKey, type Directory } from "../app/employee-directory";
-import { readAuthorization, authorizationKey, readResponsibilities, responsibilitiesKey, storedResponsibilities, unassignedResponsibilities, type Authorization, type Permission } from "../app/authorization";
+import { administratorId, readAccessRoles, storedSuperUsers, readAuthorization, authorizationKey, readResponsibilities, responsibilitiesKey, storedResponsibilities, unassignedResponsibilities, type Authorization, type Permission } from "../app/authorization";
 import { storedTestRouting, readSavedRouting, testRoutingKey } from "../app/test-routing";
 import { storedLabTeams, readLabTeams, labTeamsKey } from "../app/lab-teams";
 import { readCustomTests, testCatalogueKey, catalogueIds } from "../app/test-catalogue";
@@ -71,7 +71,7 @@ export function actorFor(ctx: Context, employeeId: string, jobs: JobRecord[] = [
   return withRecords(ctx.values, () => {
     let roles; try { roles = storedResponsibilities(); } catch { roles = { ...unassignedResponsibilities }; }
     const ids = directory.employees.map((e) => e.id);
-    return { id: employeeId, employees: directory.employees, policy, roles, routing: storedTestRouting(), teams: storedLabTeams(ids), jobs, departments: directory.departments };
+    return { id: employeeId, employees: directory.employees, policy, superUsers: storedSuperUsers(), roles, routing: storedTestRouting(), teams: storedLabTeams(ids), jobs, departments: directory.departments };
   });
 }
 export const can = (ctx: Context, actor: Actor, permission: Permission) => withRecords(ctx.values, () => hasAccess(actor, permission));
@@ -83,7 +83,9 @@ export function visibleJobs(ctx: Context, actor: Actor, jobs: Map<string, Stored
 
 /* ---------- shared settings ---------- */
 
-const permissionFor: Record<SharedKey, Permission[]> = {
+/** "administrator": only the project administrator may change it (access roles), whatever Authorization says. */
+const permissionFor: Record<SharedKey, Permission[] | "administrator"> = {
+  "vaps-access-roles-v1": "administrator",
   "vaps-directory-v1": ["employees"], "vaps-authorization-v1": ["authorization"], "vaps-responsibilities-v1": ["authorization"], "vaps-lab-teams-v1": ["authorization"],
   "vaps-test-catalogue-v1": ["tests"], "vaps-test-routing-v1": ["tests"], "vaps-lab-equipment-v1": ["tests"], "vaps-request-lists-v1": ["requestsOverview"],
   "vaps-company-v1": ["company"], "vaps-demo-clients-v1": ["settings"], "vaps-custom-bottles-v1": ["inventory"], "vaps-cylinder-status-v1": ["inventory", "sampling"],
@@ -127,6 +129,7 @@ export function validateRecord(ctx: Context, key: SharedKey, raw: string): strin
         for (const b of value as Bottle[]) { if (!isObject(b) || ![b.type, b.serial, b.capacity, b.specification].every((v) => typeof v === "string") || validateBottle(b, checked)) throw invalid(); checked.push(b); }
         return raw;
       }
+      case "vaps-access-roles-v1": return JSON.stringify(readAccessRoles(raw, ids));
       case "vaps-cylinder-status-v1": { if (!isObject(value)) throw invalid(); readCylinderStatus(raw); return raw; }
     }
   } catch (error) { if (error instanceof Error && "status" in error) throw error; throw invalid(); }
@@ -136,7 +139,8 @@ export function validateRecord(ctx: Context, key: SharedKey, raw: string): strin
 export async function saveRecord(db: D1Database, ctx: Context, actor: Actor, who: Who, key: string, raw: unknown, revision: unknown, at = new Date().toISOString()) {
   if (!isSharedKey(key)) throw fail(404, "Unknown settings record.");
   if (typeof raw !== "string" || !Number.isInteger(revision) || (revision as number) < 0) throw fail(400, "The settings could not be read.");
-  if (!permissionFor[key].every((p) => can(ctx, actor, p))) throw fail(403, "You do not have permission to change these settings.");
+  const needed = permissionFor[key];
+  if (needed === "administrator" ? actor.id !== administratorId : !needed.every((p) => can(ctx, actor, p))) throw fail(403, needed === "administrator" ? "Only the Administrator can change access roles." : "You do not have permission to change these settings.");
   const value = validateRecord(ctx, key, raw);
   const write = revision === 0
     ? db.prepare("INSERT INTO settings (key, value, revision, updated_by, updated_at) VALUES (?, ?, 1, ?, ?) ON CONFLICT(key) DO NOTHING").bind(key, value, who.employeeId, at)

@@ -1,7 +1,7 @@
 import { useUnsaved } from './settings-pages';
 import { useEffect, useState } from 'react';
 import type { LabTeams } from './lab-teams';
-import { administratorId, explicitPermissions, permissionLabels, responsibilityLabels, retiredResponsibilities, responsibilityPermission, invalidResponsibilities, driverOnlyIds, type Authorization, type Permission, type Responsibilities, type Responsibility } from './authorization';
+import { accessRole, accessRoleLabels, roleBlocks, storedSuperUsers, administratorId, explicitPermissions, permissionLabels, responsibilityLabels, retiredResponsibilities, responsibilityPermission, invalidResponsibilities, driverOnlyIds, type Authorization, type Permission, type Responsibilities, type Responsibility } from './authorization';
 import { teamName } from './team-name';
 
 const roleNotes: Partial<Record<Responsibility, string>> = {
@@ -67,6 +67,7 @@ export function AuthorizationSettings({ policy, employees, onSave, error, depart
 }) {
   const [draft, setDraft] = useState(policy);
   const [saved, setSaved] = useState(false);
+  const superUsers = storedSuperUsers();
   const changed = JSON.stringify(draft) !== JSON.stringify(policy);
   const [search,setSearch]=useState(''),[department,setDepartment]=useState('');
   useUnsaved(changed);
@@ -75,11 +76,13 @@ export function AuthorizationSettings({ policy, employees, onSave, error, depart
   useEffect(() => { const section = location.hash.split('/')[2]; if (section) document.getElementById(section)?.scrollIntoView({ block: 'start' }); }, []);
   return <><ResponsibilitySettings roles={roles} employees={employees} policy={policy} onSave={onSaveRoles} error={rolesError} /><LabTeamSettings teams={teams} employees={employees} policy={policy} error={teamsError} onSave={onSaveTeams} /><p className="authorization-note" id="test-routing"><strong>Test routing</strong> moved to <a href="#settings/tests">Settings → Tests</a>, with the full test catalogue.</p><section className="panel authorization-panel">
     <div className="panel-heading"><div><span className="eyebrow">ADMINISTRATOR</span><h2>Authorization</h2><p>Select who can create jobs and access each part of the project.</p></div></div>
-    <p>Managed by Mohammed Al Awaisi. Administrator access is retained for all pages. Creating jobs is assigned separately.</p>
+    <p>Managed by Mohammed Al Awaisi. Administrator access is retained for all pages. Creating jobs is assigned separately. Normal Users can hold only job details, sampling, PVT analysis, inventory and request book access; the other permissions are for Super Users.</p>
     <div className="settings-filters"><label>Search employees<input value={search} onChange={e=>setSearch(e.target.value)} /></label><label>Department<select value={department} onChange={e=>setDepartment(e.target.value)}><option value="">All departments</option>{departments.map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></label></div><p>Access permissions open the named workspace. Management permissions allow saving that category. Existing workflow ownership rules still apply. Inactive employees retain their assignments but cannot use their permissions.</p><div className="authorization-table-wrap"><table className="client-table"><thead><tr><th>Person</th>{Object.values(permissionLabels).map(label => <th key={label}>{label}</th>)}</tr></thead>
-      <tbody>{employees.filter(p=>p.name.toLowerCase().includes(search.toLowerCase()) && (!department||p.departmentId===department)).map(person => <tr key={person.id}><th scope="row">{person.name}{!person.active && " (Inactive)"}<small>{person.id === administratorId ? 'Project administrator' : person.role}</small></th>{(Object.keys(permissionLabels) as Permission[]).map(permission => {
+      <tbody>{employees.filter(p=>p.name.toLowerCase().includes(search.toLowerCase()) && (!department||p.departmentId===department)).map(person => <tr key={person.id}><th scope="row">{person.name}{!person.active && " (Inactive)"}<small>{person.id === administratorId ? 'Project administrator' : person.role}</small><small className={'access-tag access-' + accessRole(person.id, superUsers)}>{accessRoleLabels[accessRole(person.id, superUsers)]}</small></th>{(Object.keys(permissionLabels) as Permission[]).map(permission => {
         const fixed = person.id === administratorId && !explicitPermissions.includes(permission);
-        return <td key={permission}><input type="checkbox" aria-label={`${person.name}: ${permissionLabels[permission]}`} checked={fixed || draft[permission].includes(person.id)} disabled={fixed || !!error || !person.active} onChange={event => {
+        // Normal Users keep only the baseline permissions; the rest needs the Super User role (Settings → Sign-in accounts).
+        const blocked = roleBlocks(person.id, permission, superUsers);
+        return <td key={permission}><input type="checkbox" aria-label={`${person.name}: ${permissionLabels[permission]}`} title={blocked ? 'Super User permission: make this employee a Super User first' : undefined} checked={fixed || (!blocked && draft[permission].includes(person.id))} disabled={fixed || blocked || !!error || !person.active} onChange={event => {
           const checked = event.target.checked;
           setSaved(false);
           setDraft(old => ({ ...old, [permission]: checked ? [...old[permission], person.id] : old[permission].filter(id => id !== person.id) }));

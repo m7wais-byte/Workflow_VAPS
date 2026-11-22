@@ -28,7 +28,10 @@ export function loadDirectory(): Directory {
 export function validateDirectory(next: Directory) {
  if (!next.employees.some(e=>e.id==='MA001' && e.active)) throw Error('The project administrator must remain active.');
  const ids = new Set<string>(), codes = new Set<string>(), emails = new Set<string>();
+ const lowerIds = new Set<string>();
  for (const e of next.employees) {
+  // Employee IDs sign in (any capitalisation), so they must differ by more than case.
+  if (lowerIds.has(e.id.toLowerCase())) throw Error('Duplicate internal employee ID.'); lowerIds.add(e.id.toLowerCase());
   if (!e.name.trim() || !next.departments.some(o=>o.id===e.departmentId) || !next.positions.some(o=>o.id===e.positionId)) throw Error('Name, department and position are required.');
   if (ids.has(e.id)) throw Error('Duplicate internal employee ID.'); ids.add(e.id);
   const code=e.employeeCode.trim().toLowerCase(), email=e.email.trim().toLowerCase();
@@ -49,4 +52,13 @@ export function migrateDirectory(value: Directory): Directory {
  if (!value.departments.some(o => o.id === departmentId) || !value.positions.some(o => o.id === positionId)) return value;
  const humaid: Employee = { id: 'HUMAID', name: 'Humaid Al Habsi', role: ali?.role || 'transport', ...(serverMode ? {} : { password: '1234' }), initials: 'HA', departmentId, positionId, employeeCode: value.employees.some(e => e.employeeCode.trim().toLowerCase() === 'humaid') ? '' : 'HUMAID', email: '', phone: '', active: true };
  return { ...value, employees: [...value.employees, humaid] };
+}
+
+/**
+ * Fixed ID for a new employee: VAPS-001, VAPS-002 … (the next number not used by any record, active or not).
+ * It never changes afterwards and is also the employee's sign-in ID. Existing employees keep their IDs.
+ */
+export function nextEmployeeId(employees: { id: string }[]): string {
+ const used = new Set(employees.map(e => e.id.toLowerCase()));
+ for (let n = 1; ; n++) { const id = 'VAPS-' + String(n).padStart(3, '0'); if (!used.has(id.toLowerCase())) return id; }
 }

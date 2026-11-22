@@ -5,11 +5,11 @@
 import { burnPasswordCheck, hashPassword, needsRehash, passwordProblem, randomToken, sha256Hex, temporaryPassword, verifyPassword } from "./passwords";
 import { fail, readCookie, cookieName, type AuthConfig } from "./http";
 
-export type AccountRow = { id: string; username: string; email: string | null; employee_id: string; password_hash: string; must_change_password: number; active: number; password_changed_at: string | null; created_at: string; updated_at: string };
+export type AccountRow = { id: string; username: string; email: string | null; employee_id: string; password_hash: string; must_change_password: number; active: number; activated_at: string | null; password_changed_at: string | null; created_at: string; updated_at: string };
 export type Session = { idHash: string; accountId: string; username: string; employeeId: string; mustChangePassword: boolean; expiresAt: string };
 
 /** One message for every failed sign-in: it never reveals whether the username exists, is inactive or is locked. */
-export const SIGN_IN_FAILED = "Sign-in failed. Check your username or email and your password and try again. After several failed attempts, sign-in is paused for 15 minutes.";
+export const SIGN_IN_FAILED = "Sign-in failed. Check your work email or employee ID and your password and try again. After several failed attempts, sign-in is paused for 15 minutes.";
 
 const USER_LIMIT = 5, ADDRESS_LIMIT = 30, WINDOW_MINUTES = 15, LOCK_MINUTES = 15;
 const TOUCH_MINUTES = 5;
@@ -20,8 +20,15 @@ export const validUsername = (u: string) => /^[a-z0-9][a-z0-9._-]{2,39}$/.test(u
 /** Emails are compared and stored trimmed and lower-case, so capitalisation never creates a second address. */
 export const normalizeEmail = (value: unknown) => typeof value === "string" ? value.trim().toLowerCase() : "";
 export const validEmail = (e: string) => e.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
-/** Usernames cannot contain "@", so a sign-in name with "@" is always an email. */
-const findAccount = (db: D1Database, identifier: string) => db.prepare(`SELECT * FROM accounts WHERE ${identifier.includes("@") ? "email" : "username"} = ?`).bind(identifier).first<AccountRow>();
+/**
+ * The account for a sign-in name: a work email (contains "@"), an employee ID (any capitalisation), or the username
+ * of an account created before invitations. The employee ID is checked first, so it always means that employee.
+ */
+async function findAccount(db: D1Database, identifier: string) {
+  if (identifier.includes("@")) return db.prepare("SELECT * FROM accounts WHERE email = ?").bind(identifier).first<AccountRow>();
+  return (await db.prepare("SELECT * FROM accounts WHERE lower(employee_id) = ?").bind(identifier).first<AccountRow>())
+    ?? db.prepare("SELECT * FROM accounts WHERE username = ?").bind(identifier).first<AccountRow>();
+}
 
 export type AuditInput = { accountId?: string | null; employeeId?: string | null; action: string; target?: string | null; detail?: unknown };
 const auditSql = (afterChange: boolean) => "INSERT INTO audit_log (at, actor_id, action, record_type, record_id, detail, account_id) " + (afterChange ? "SELECT ?, ?, ?, ?, ?, ?, ? WHERE changes() = 1" : "VALUES (?, ?, ?, ?, ?, ?, ?)");
@@ -74,10 +81,19 @@ export async function signIn(db: D1Database, config: AuthConfig, input: { userna
   }
   await db.prepare("DELETE FROM auth_throttle WHERE key = ?").bind(userKey).run();
   if (needsRehash(account.password_hash)) await db.prepare("UPDATE accounts SET password_hash = ?, updated_at = ? WHERE id = ?").bind(await hashPassword(password), at, account.id).run();
-  const token = randomToken(), idHash = await sha256Hex(token);
-  const expiresAt = new Date(now + config.sessionMaxHours * 3_600_000).toISOString();
-  await db.prepare("INSERT INTO sessions (id_hash, account_id, created_at, last_seen_at, expires_at) VALUES (?, ?, ?, ?, ?)").bind(idHash, account.id, at, at, expiresAt).run();
-  await audit(db, { accountId: account.id, employeeId: account.employee_id, action: "auth.sign_in", detail: { with: username.includes("@") ? "email" : "username" } }, at);
+  const signedIn = await startSession(db, config, account, nowDate);
+  await audit(db, { accountId: account.id, employeeId: account.employee_id, action: "auth.sign_in", detail: { with: username.includes("@") ? "email" : account.employee_id.toLowerCase() === username ? "employee ID" : "username" } }, at);
+  return signedIn;
+}
+
+/** A new server session for an account (sign-in, or the end of an invitation). Records the last sign-in time. */
+async function startSession(db: D1Database, config: AuthConfig, account: AccountRow, nowDate: Date) {
+  const at = nowDate.toISOString(), token = randomToken(), idHash = await sha256Hex(token);
+  const expiresAt = new Date(nowDate.getTime() + config.sessionMaxHours * 3_600_000).toISOString();
+  await db.batch([
+    db.prepare("INSERT INTO sessions (id_hash, account_id, created_at, last_seen_at, expires_at) VALUES (?, ?, ?, ?, ?)").bind(idHash, account.id, at, at, expiresAt),
+    db.prepare("UPDATE accounts SET last_sign_in_at = ? WHERE id = ?").bind(at, account.id),
+  ]);
   return { token, maxAgeSeconds: config.sessionMaxHours * 3600, session: { idHash, accountId: account.id, username: account.username, employeeId: account.employee_id, mustChangePassword: !!account.must_change_password, expiresAt } satisfies Session };
 }
 
@@ -128,11 +144,14 @@ export async function changeOwnPassword(db: D1Database, session: Session, input:
 
 /* ---------- Administrator account management ---------- */
 
-export type AccountSummary = { id: string; username: string; email: string | null; employeeId: string; active: boolean; mustChangePassword: boolean; passwordChangedAt: string | null; createdAt: string; activeSessions: number };
+export type AccountSummary = { id: string; username: string; email: string | null; employeeId: string; active: boolean; mustChangePassword: boolean; passwordChangedAt: string | null; createdAt: string; activeSessions: number;
+  /** Null while the employee has not yet set a password from an invitation. */activatedAt: string | null; lastSignInAt: string | null; invitedAt: string | null; /** Expiry of the current unused invitation link, if any. */invitationExpiresAt: string | null };
 export async function listAccounts(db: D1Database, now = new Date().toISOString()): Promise<AccountSummary[]> {
-  const { results } = await db.prepare(`SELECT a.id, a.username, a.email, a.employee_id, a.active, a.must_change_password, a.password_changed_at, a.created_at,
-    (SELECT COUNT(*) FROM sessions s WHERE s.account_id = a.id AND s.revoked_at IS NULL AND s.expires_at > ?) AS active_sessions FROM accounts a ORDER BY a.username`).bind(now).all<{ id: string; username: string; email: string | null; employee_id: string; active: number; must_change_password: number; password_changed_at: string | null; created_at: string; active_sessions: number }>();
-  return results.map((r) => ({ id: r.id, username: r.username, email: r.email, employeeId: r.employee_id, active: !!r.active, mustChangePassword: !!r.must_change_password, passwordChangedAt: r.password_changed_at, createdAt: r.created_at, activeSessions: r.active_sessions }));
+  const { results } = await db.prepare(`SELECT a.id, a.username, a.email, a.employee_id, a.active, a.must_change_password, a.password_changed_at, a.created_at, a.activated_at, a.last_sign_in_at, a.invited_at,
+    (SELECT COUNT(*) FROM sessions s WHERE s.account_id = a.id AND s.revoked_at IS NULL AND s.expires_at > ?) AS active_sessions,
+    (SELECT MAX(i.expires_at) FROM invitations i WHERE i.account_id = a.id AND i.used_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > ?) AS invitation_expires_at
+    FROM accounts a ORDER BY a.username`).bind(now, now).all<{ id: string; username: string; email: string | null; employee_id: string; active: number; must_change_password: number; password_changed_at: string | null; created_at: string; activated_at: string | null; last_sign_in_at: string | null; invited_at: string | null; active_sessions: number; invitation_expires_at: string | null }>();
+  return results.map((r) => ({ id: r.id, username: r.username, email: r.email, employeeId: r.employee_id, active: !!r.active, mustChangePassword: !!r.must_change_password, passwordChangedAt: r.password_changed_at, createdAt: r.created_at, activeSessions: r.active_sessions, activatedAt: r.activated_at, lastSignInAt: r.last_sign_in_at, invitedAt: r.invited_at, invitationExpiresAt: r.invitation_expires_at }));
 }
 
 type Admin = { accountId: string; employeeId: string };
@@ -146,8 +165,8 @@ export async function createAccount(db: D1Database, admin: Admin, input: { usern
   if (await db.prepare("SELECT id FROM accounts WHERE employee_id = ?").bind(employeeId).first()) throw fail(409, "This employee already has an account. Reset its password instead.");
   const id = crypto.randomUUID(), temporary = temporaryPassword();
   try {
-    await db.prepare("INSERT INTO accounts (id, username, email, employee_id, password_hash, must_change_password, active, created_at, created_by, updated_at) VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?, ?)")
-      .bind(id, username, email, employeeId, await hashPassword(temporary), at, admin.accountId, at).run();
+    await db.prepare("INSERT INTO accounts (id, username, email, employee_id, password_hash, must_change_password, active, created_at, created_by, updated_at, activated_at) VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?)")
+      .bind(id, username, email, employeeId, await hashPassword(temporary), at, admin.accountId, at, at).run();
   } catch (error) { throw uniqueFailure(error); }
   await audit(db, { ...admin, action: "account.created", target: id, detail: { username, employeeId, email } }, at);
   return { id, username, email, employeeId, temporaryPassword: temporary };
@@ -182,8 +201,9 @@ export async function setAccountEmail(db: D1Database, admin: Admin, accountId: s
 
 /** Issues a new temporary password: the account must change it at next sign-in and every session is revoked. */
 export async function resetAccountPassword(db: D1Database, admin: Admin, accountId: string, at = new Date().toISOString()) {
-  const account = await db.prepare("SELECT id, username FROM accounts WHERE id = ?").bind(accountId).first<{ id: string; username: string }>();
+  const account = await db.prepare("SELECT id, username, activated_at FROM accounts WHERE id = ?").bind(accountId).first<{ id: string; username: string; activated_at: string | null }>();
   if (!account) throw fail(404, "Account not found.");
+  if (!account.activated_at) throw fail(409, "This employee has not activated the account yet. Send the invitation again instead.");
   const temporary = temporaryPassword();
   await db.prepare("UPDATE accounts SET password_hash = ?, must_change_password = 1, updated_at = ? WHERE id = ?").bind(await hashPassword(temporary), at, accountId).run();
   await db.prepare("DELETE FROM auth_throttle WHERE key IN (?, ?)").bind("account:" + account.id, "user:" + account.username).run();
@@ -194,13 +214,91 @@ export async function resetAccountPassword(db: D1Database, admin: Admin, account
 
 export async function setAccountActive(db: D1Database, admin: Admin, accountId: string, active: boolean, at = new Date().toISOString()) {
   if (accountId === admin.accountId && !active) throw fail(400, "You cannot deactivate your own account.");
-  const result = await db.prepare("UPDATE accounts SET active = ?, updated_at = ? WHERE id = ?").bind(active ? 1 : 0, at, accountId).run();
-  if (!result.meta.changes) throw fail(404, "Account not found.");
-  if (!active) await revokeAccountSessions(db, accountId, "deactivated", undefined, at);
+  // An invited account becomes active only when the employee sets a password; it cannot be switched on here.
+  const result = await db.prepare("UPDATE accounts SET active = ?, updated_at = ? WHERE id = ? AND (? = 0 OR activated_at IS NOT NULL)").bind(active ? 1 : 0, at, accountId, active ? 1 : 0).run();
+  if (!result.meta.changes) throw fail(active ? 409 : 404, active ? "This employee has not activated the account yet. Send the invitation again instead." : "Account not found.");
+  if (!active) { await revokeAccountSessions(db, accountId, "deactivated", undefined, at); await revokeInvitations(db, accountId, at); }
   await audit(db, { ...admin, action: active ? "account.reactivated" : "account.deactivated", target: accountId }, at);
 }
 
 export async function revokeSessionsByAdmin(db: D1Database, admin: Admin, accountId: string, at = new Date().toISOString()) {
   await revokeAccountSessions(db, accountId, "revoked_by_administrator", undefined, at);
   await audit(db, { ...admin, action: "account.sessions_revoked", target: accountId }, at);
+}
+
+/* ---------- Invitations ---------- */
+
+export const INVITATION_INVALID = "This invitation link is not valid any more: it was already used, it expired, or a newer invitation was sent. Ask your administrator to send a new invitation.";
+const revokeInvitations = (db: D1Database, accountId: string, at: string) => db.prepare("UPDATE invitations SET revoked_at = ? WHERE account_id = ? AND used_at IS NULL AND revoked_at IS NULL").bind(at, accountId).run();
+
+export type InvitationInput = { employeeId: string; employeeName: string; email: unknown };
+/**
+ * Prepares an invitation for an existing employee record: creates the account if needed (sign-in ID = the fixed
+ * employee ID, not yet active), saves the work email, replaces any earlier link and returns the new one-time token.
+ * The caller sends the email and calls `cancelInvitation` if sending fails.
+ */
+export async function createInvitation(db: D1Database, admin: Admin, input: InvitationInput, ttlHours: number, now = new Date()) {
+  const at = now.toISOString();
+  const email = normalizeEmail(input.email);
+  if (!validEmail(email)) throw fail(400, "Enter the employee's work email address.");
+  let account = await db.prepare("SELECT * FROM accounts WHERE employee_id = ?").bind(input.employeeId).first<AccountRow>();
+  if (account?.activated_at && account.active) throw fail(409, "This employee has already activated the account. Use Reset password if they cannot sign in.");
+  if (account?.activated_at && !account.active) throw fail(409, "This account is deactivated. Reactivate it instead of sending an invitation.");
+  try {
+    if (!account) {
+      const username = input.employeeId.toLowerCase();
+      if (!validUsername(username)) throw fail(400, "This employee ID cannot be used to sign in. Edit the employee record first.");
+      const id = crypto.randomUUID();
+      // "!invited" is not a valid password hash: nothing can sign in to this account until the invitation is completed.
+      await db.prepare("INSERT INTO accounts (id, username, email, employee_id, password_hash, must_change_password, active, created_at, created_by, updated_at) VALUES (?, ?, ?, ?, '!invited', 0, 0, ?, ?, ?)").bind(id, username, email, input.employeeId, at, admin.accountId, at).run();
+      account = await db.prepare("SELECT * FROM accounts WHERE id = ?").bind(id).first<AccountRow>();
+    } else if (account.email !== email) {
+      await db.prepare("UPDATE accounts SET email = ?, updated_at = ? WHERE id = ?").bind(email, at, account.id).run();
+    }
+  } catch (error) { throw uniqueFailure(error); }
+  const token = randomToken(), expiresAt = new Date(now.getTime() + ttlHours * 3_600_000).toISOString();
+  await db.batch([
+    db.prepare("UPDATE invitations SET revoked_at = ? WHERE account_id = ? AND used_at IS NULL AND revoked_at IS NULL").bind(at, account!.id),
+    db.prepare("INSERT INTO invitations (token_hash, account_id, email, created_at, created_by, expires_at) VALUES (?, ?, ?, ?, ?, ?)").bind(await sha256Hex(token), account!.id, email, at, admin.employeeId, expiresAt),
+    db.prepare("UPDATE accounts SET invited_at = ?, updated_at = ? WHERE id = ?").bind(at, at, account!.id),
+  ]);
+  return { accountId: account!.id, employeeId: input.employeeId, email, token, expiresAt };
+}
+/** Withdraws a link whose email could not be sent. */
+export async function cancelInvitation(db: D1Database, token: string, at = new Date().toISOString()) {
+  await db.prepare("UPDATE invitations SET revoked_at = ? WHERE token_hash = ? AND used_at IS NULL").bind(at, await sha256Hex(token)).run();
+}
+
+type OpenInvitation = { token_hash: string; account_id: string; email: string; expires_at: string; employee_id: string; username: string; active: number; activated_at: string | null };
+async function openInvitation(db: D1Database, token: unknown, now: string): Promise<OpenInvitation | null> {
+  if (typeof token !== "string" || !/^[a-f0-9]{64}$/.test(token)) return null;
+  return db.prepare(`SELECT i.token_hash, i.account_id, i.email, i.expires_at, a.employee_id, a.username, a.active, a.activated_at FROM invitations i JOIN accounts a ON a.id = i.account_id
+    WHERE i.token_hash = ? AND i.used_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > ?`).bind(await sha256Hex(token), now).first<OpenInvitation>();
+}
+
+/** What the "set your password" page shows. Any unusable link gets the same answer. */
+export async function checkInvitation(db: D1Database, token: unknown, employeeActive: EmployeeCheck, now = new Date().toISOString()) {
+  const invitation = await openInvitation(db, token, now);
+  if (!invitation || invitation.activated_at || !(await employeeActive(invitation.employee_id))) throw fail(410, INVITATION_INVALID);
+  return { employeeId: invitation.employee_id, email: invitation.email, expiresAt: invitation.expires_at };
+}
+
+/** The employee sets their password from the link: the link is used up, the account becomes active and is signed in. */
+export async function acceptInvitation(db: D1Database, config: AuthConfig, input: { token: unknown; password: unknown }, employeeActive: EmployeeCheck, nowDate = new Date()) {
+  const at = nowDate.toISOString();
+  const invitation = await openInvitation(db, input.token, at);
+  if (!invitation || invitation.activated_at || !(await employeeActive(invitation.employee_id))) throw fail(410, INVITATION_INVALID);
+  const problem = passwordProblem(input.password, invitation.employee_id);
+  if (problem) throw fail(400, problem);
+  const hash = await hashPassword(input.password as string);
+  // Marking the link used and activating the account happen together, and only once even if the form is sent twice.
+  const [used] = await db.batch([
+    db.prepare("UPDATE invitations SET used_at = ? WHERE token_hash = ? AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?").bind(at, invitation.token_hash, at),
+    db.prepare("UPDATE accounts SET password_hash = ?, must_change_password = 0, active = 1, activated_at = ?, password_changed_at = ?, email = ?, updated_at = ? WHERE id = ? AND activated_at IS NULL AND changes() = 1").bind(hash, at, at, invitation.email, at, invitation.account_id),
+  ]);
+  if (used.meta.changes !== 1) throw fail(410, INVITATION_INVALID);
+  await revokeInvitations(db, invitation.account_id, at);
+  await audit(db, { accountId: invitation.account_id, employeeId: invitation.employee_id, action: "account.activated", target: invitation.account_id }, at);
+  const account = await db.prepare("SELECT * FROM accounts WHERE id = ?").bind(invitation.account_id).first<AccountRow>();
+  return startSession(db, config, account!, nowDate);
 }

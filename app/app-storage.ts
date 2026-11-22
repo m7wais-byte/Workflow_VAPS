@@ -23,6 +23,7 @@ export const serverMode = viteBuild && !staticPages;
 export const sharedKeys = [
   "vaps-directory-v1", "vaps-authorization-v1", "vaps-responsibilities-v1", "vaps-lab-teams-v1", "vaps-test-catalogue-v1", "vaps-test-routing-v1",
   "vaps-lab-equipment-v1", "vaps-request-lists-v1", "vaps-company-v1", "vaps-demo-clients-v1", "vaps-custom-bottles-v1", "vaps-cylinder-status-v1",
+  "vaps-access-roles-v1",
 ] as const;
 export type SharedKey = typeof sharedKeys[number];
 export const jobsKey = "vaps-demo-jobs-v1";

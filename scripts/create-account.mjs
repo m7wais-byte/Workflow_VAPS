@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Creates the SQL for one sign-in account with a random temporary password (bootstrap of the first administrator, or
-// recovery when no administrator can sign in). Normal accounts are created in Settings → Sign-in accounts.
+// Creates the SQL for one sign-in account with a random temporary password (bootstrap of the Administrator, MA001, or
+// recovery when no administrator can sign in). Everyone else is invited from Settings → Sign-in accounts.
+// Use the employee ID in lower case as the username (e.g. ma001) so the employee ID signs in too.
 //
 //   node scripts/create-account.mjs <username> <employee-id>
 //
@@ -27,7 +28,7 @@ const temporary = temporaryPassword();
 const hash = await hashPassword(temporary);
 const at = new Date().toISOString(), id = crypto.randomUUID();
 const q = (v) => "'" + String(v).replaceAll("'", "''") + "'";
-const sql = `INSERT INTO accounts (id, username, employee_id, password_hash, must_change_password, active, created_at, created_by, updated_at) VALUES (${q(id)}, ${q(user)}, ${q(employeeId)}, ${q(hash)}, 1, 1, ${q(at)}, 'bootstrap-script', ${q(at)});
+const sql = `INSERT INTO accounts (id, username, employee_id, password_hash, must_change_password, active, created_at, created_by, updated_at, activated_at) VALUES (${q(id)}, ${q(user)}, ${q(employeeId)}, ${q(hash)}, 1, 1, ${q(at)}, 'bootstrap-script', ${q(at)}, ${q(at)});
 INSERT INTO audit_log (at, actor_id, action, record_type, record_id, detail, account_id) VALUES (${q(at)}, 'bootstrap-script', 'account.created', 'account', ${q(id)}, ${q(JSON.stringify({ username: user, employeeId, via: 'bootstrap-script' }))}, NULL);
 `;
 const file = join(mkdtempSync(join(tmpdir(), 'vaps-account-')), 'create-account.sql');

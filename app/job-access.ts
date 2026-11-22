@@ -5,11 +5,11 @@
  * Browser-only: this protects the workflow inside the app. It is not server-side security; see WORKFLOW-IMPLEMENTATION.md.
  */
 import type { JobRecord } from './page';
-import { administratorId } from './authorization';
+import { accessRole, administratorId } from './authorization';
 import { applyOperation, operationsFor, canSeeDraft, isDraft, hasAccess, actorRoles, samplingTeam, type Actor, type Command } from './operations-model';
 import { workItems } from './work-items';
 
-export type AccessReason = 'Administrator' | 'Company overview' | 'Job coordinator' | 'Sampling team' | 'Driver' | 'Laboratory assignment'
+export type AccessReason = 'Administrator' | 'Company overview' | 'Job coordinator' | 'Sampling team' | 'Driver' | 'Laboratory assignment' | 'Workflow action'
   | 'Sampling approval' | 'Scope selection' | 'PVT Supervisor' | 'PVT Team Lead' | 'Chemistry Team Lead' | 'Final report' | 'QC review' | 'Earlier workflow assignment' | 'Work item';
 
 /** Every legitimate reason this employee has to open the job; empty means no access. */
@@ -40,11 +40,21 @@ export function jobAccessReasons(job: JobRecord, actor: Actor, workJobIds?: Set<
     const legacy = [job.responsibleId, job.jobResponsibleId, job.ownerId, job.report?.preparedBy, ...(job.stages || []).map((s) => s.assignedTo), ...Object.values(job.teamWork || {}).map((t) => t?.owner), ...Object.values(job.labPlan?.assignees || {})];
     if (legacy.includes(me)) out.push('Earlier workflow assignment');
   }
+  // Normal Users: only jobs directly assigned to them, or jobs that now require a workflow action assigned to them
+  // (for example a workbook awaiting their QC review). A duty alone does not open every job the duty covers.
+  if (accessRole(me, actor.superUsers) === 'normal') {
+    const direct = out.filter((r) => directReasons.includes(r));
+    if (workItems([job], actor, new Date().toISOString().slice(0, 10)).actions.some((i) => i.jobId === job.id)) direct.push('Workflow action');
+    return [...new Set(direct)];
+  }
   // Anything My work lists for this employee on this job (actions, reviews, waiting items, coming-up duties, alerts).
   const listed = workJobIds ? workJobIds.has(job.id) : jobsInWork(workItems([job], actor, new Date().toISOString().slice(0, 10))).has(job.id);
   if (listed) out.push('Work item');
   return [...new Set(out)];
 }
+
+/** Reasons that mean the job itself names this employee (Normal Users keep these). */
+const directReasons: AccessReason[] = ['Job coordinator', 'Sampling team', 'Driver', 'Laboratory assignment', 'Earlier workflow assignment'];
 
 export const canOpenJob = (job: JobRecord, actor: Actor, workJobIds?: Set<string>) => jobAccessReasons(job, actor, workJobIds).length > 0;
 

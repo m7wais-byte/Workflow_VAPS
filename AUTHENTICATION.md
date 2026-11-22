@@ -48,28 +48,63 @@ This branch (`claude/integration-auth-data-layer`) combines the employee sign-in
 - **Files** (`/api/files/:id`): released only to employees who may open a job that references the file; laboratory workbooks also need *View / Download workbook* (decided by the server, not the request).
 - Every change is written to `audit_log` (`actor_id` = employee, `account_id` = signed-in account). Settings saves record the value before and after; job writes and their audit entry are one transaction.
 
+## Invitation-only onboarding (migration 0005)
+- **One dashboard URL** for everyone (the site root). There is no public registration: an account exists only because the Administrator invited that employee.
+- **Settings → Sign-in accounts** (Administrator, MA001): for each employee in the directory, enter the **work email** (pre-filled from the employee record when it has one), choose the **access level** and press **Send invitation**.
+- The email contains a **one-time link** (`<dashboard>/#invite=<token>`) that expires after 72 hours (`INVITE_TTL_HOURS`). Only a SHA-256 hash of the token is stored, the token is in the URL fragment (never sent to the server in a request line or Referer), and it is never logged or audited. Resending replaces the old link; deactivating the pending account cancels it.
+- The account stays **inactive until the employee sets their own password** from the link. Then they are signed in, and afterwards sign in with their **work email or employee ID** (any capitalisation) and that password.
+- **Employee IDs:** existing employees keep their fixed IDs (SALIM, MA001, …). A new employee added in Settings → Employees gets the next free fixed ID (`VAPS-001`, `VAPS-002`, …), shown read-only and never changed; IDs that differ only by capitalisation are refused. The free-text field formerly labelled "Employee ID" is now "Staff code".
+- The status column shows Not invited / Invitation sent (with expiry) / Invitation expired / Active (with **last sign-in**) / Deactivated. Every invitation, activation and role change is audited.
+- **Mohammed (MA001) remains the Administrator.** The transfer to Zaid is not part of this change.
+
+## Access roles
+| Role | Who | Access |
+|---|---|---|
+| Administrator | MA001 (fixed) | As before: all pages; invitations and access roles; job creation, deletion and workbooks only when granted |
+| Super User | Salim Al Maqbali, Ahmed Al Shereiqi, Wilfred Mendonca, Al Yaqdhan Al Bahri (initial list) | The extra permissions configured for them in Settings → Authorization (company overview, job creation, settings, workbooks …) |
+| Normal User | Everyone else | Job details, sampling, PVT analysis, inventory, request book only. A job opens only if it is **directly assigned** to them (sampling engineer or team, driver, laboratory test owner, coordinator who created or dispatched it) or it **now requires a workflow action assigned to them** (e.g. a workbook awaiting their QC review). Other permissions have no effect, even if ticked |
+
+- Only the Administrator changes access levels (the server refuses anyone else, including *Manage authorization* holders); Authorization shows each employee's level and disables Super-User-only permissions for Normal Users.
+- **Workflow duties and approval rules are unchanged**: scope selection, team-lead review, QC, final approval, client approval and the rest still follow Settings → Authorization → duties. A role never grants a duty or an approval. All current duty holders are Super Users.
+- A Normal User with a duty (e.g. QC reviewer) opens a job while it waits for their action, and not after: once the QC review is done and nothing else is assigned to them, the job closes for them again. The same rule applies to the job list, direct links, workflow actions and file downloads, all checked on the server.
+- With the default permission settings, nobody's access changes: the elevated permissions were already held only by the four Super Users and MA001.
+
+## Email for invitations (needed before launch)
+Invitations are the only email the app sends. Nothing is sent until this is configured, and invitations are refused with "Email is not configured" in the meantime.
+
+| Setting | Value | Notes |
+|---|---|---|
+| `MAIL_PROVIDER` | `resend` | Resend's HTTP API, callable from Cloudflare Workers. (`test` = no email, link shown on screen: local development only, never on a deployed site) |
+| `MAIL_FROM` | e.g. `VAPS Workspace <no-reply@<your-domain>>` | Must be on a domain verified with the provider |
+| `RESEND_API_KEY` | **secret** | Stored as a Worker secret, never in the repository |
+| `APP_ORIGIN` | the dashboard URL, e.g. `https://<dashboard host>` | **Required** for invitations: links are built from it, never from a request's Host header |
+| `MAIL_REPLY_TO` | optional, e.g. the administrator's mailbox | Replies to invitations |
+| `INVITE_TTL_HOURS` | optional, default `72` (1–336) | Link lifetime |
+
+DNS on the sending domain (from the provider's dashboard): SPF and DKIM records, plus a DMARC policy. Check with the VAPS IT/Microsoft 365 administrator before adding them, so they do not conflict with the existing mail setup; a subdomain (e.g. `mail.<domain>`) avoids touching the main domain's records. Send one invitation to a test mailbox first and check it is not marked as spam. Microsoft 365 / Graph sending remains deferred.
+
 ## Deployment configuration (no secret values are needed)
 
 | Item | Value | Notes |
 |---|---|---|
 | D1 binding | `DB` | Already declared in `.openai/hosting.json` |
 | R2 binding | `FILES` | **New**: `.openai/hosting.json` now declares `"r2": "FILES"`. Without it uploads and downloads return "File storage is not configured" |
-| Migrations | `drizzle/0001`–`0003` | 0003 is additive; verified on a fresh D1 and as an upgrade of a D1 already at 0002 with data (Wrangler local) |
+| Migrations | `drizzle/0001`–`0005` | 0003–0004 add only; 0005 adds invitations and marks accounts that already have a password as activated. Verified fresh and as upgrades |
 | `AUTH_SESSION_MAX_HOURS` | optional, default `12` (1–72) | Absolute session lifetime |
 | `AUTH_SESSION_IDLE_MINUTES` | optional, default `120` (5–1440) | Idle timeout |
-| `APP_ORIGIN` | optional | Comma-separated extra allowed origins if the site is served behind a different public hostname |
+| `APP_ORIGIN` | **required for invitations** | The dashboard URL (first value); further comma-separated values are extra allowed origins |
 
-HTTPS is required in production (the `__Host-` cookie is Secure). There are no API keys or passwords to configure.
+HTTPS is required in production (the `__Host-` cookie is Secure). The only secret is the mail provider's API key (see Email for invitations).
 
 ### Creating the first administrator
 ```bash
-node scripts/create-account.mjs <username> MA001
+node scripts/create-account.mjs ma001 MA001
 ```
 The script prints a temporary password once (never written to disk) and writes the SQL (hash only) to a private temp file. Run it against the production database, then delete the file:
 ```bash
 npx wrangler d1 execute <database-name> --remote --file <printed path>
 ```
-The administrator signs in, chooses a password, and creates the other accounts in Settings → Sign-in accounts.
+The Administrator signs in with `MA001` and the temporary password, chooses a password, then invites everyone else from Settings → Sign-in accounts.
 
 ## Existing browser records (reviewed import)
 Nothing is imported automatically. Production starts empty with the built-in defaults until the administrator imports:
@@ -106,8 +141,6 @@ Nothing is imported automatically. Production starts empty with the built-in def
 7. **Two job-write paths:** the HTTP routes use `server/workspace.ts`; the data layer's `server/job-store.ts` / `settings-store.ts` apply the same model functions and are used by the import and its tests. Consolidating them is a follow-up.
 8. **Account lifecycle:** there is no self-service password reset (by design: an administrator issues a temporary password). Microsoft 365 sign-in and email notifications are deferred.
 
-## Planned access model (confirmed, not implemented)
-Recorded for a later change; nothing below is in the code yet, and roles and deployment remain deferred.
-- **Administrator:** a designated employee other than Mohammed (MA001). Today the administrator is still the hard-coded `MA001`.
-- **Super Users:** configurable extra permissions on top of a normal user.
-- **Normal Users:** can open only the jobs assigned to them. Today job access also follows duties (scope selection, team lead, QC, final approval) and *Company overview*; narrowing this is part of the later change.
+## Access model status
+- **Super Users and Normal Users:** implemented (see Access roles).
+- **Administrator transfer** to a designated employee other than MA001 (Zaid): not implemented; MA001 stays the fixed Administrator until the transfer is explicitly requested.

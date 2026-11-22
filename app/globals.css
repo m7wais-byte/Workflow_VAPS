@@ -4018,3 +4018,13 @@ button.wb-cell { cursor:pointer; } button.wb-cell:hover { background:rgba(11,136
 .account-settings .email-edit input { max-width:240px; }
 .account-settings td .text-button { display:block; margin-top:2px; }
 .account-settings .muted-text { color:#6b818c; }
+.invite-facts { display:grid; gap:6px; margin:18px 0 0; padding:12px 14px; border:1px solid #c7dadf; border-radius:8px; background:#f3f9f9; }
+.invite-facts div { display:flex; justify-content:space-between; gap:12px; font-size:.875rem; }
+.invite-facts dt { color:#6b818c; } .invite-facts dd { margin:0; color:#18344b; font-weight:600; overflow-wrap:anywhere; }
+.account-settings .employee-id { font-family:var(--font-geist-mono),monospace; letter-spacing:.02em; }
+.account-settings .role-legend { margin-top:8px; font-size:.8125rem; color:#4f6772; }
+.account-settings select { max-width:160px; }
+.invite-link { display:block; padding:6px 8px; overflow-wrap:anywhere; user-select:all; }
+.access-tag { display:inline-block !important; margin-top:3px; padding:1px 7px; border-radius:999px; font-size:11px !important; font-weight:600; background:#eef3f5; color:#526d7b !important; }
+.access-tag.access-super { background:#e3f4f1; color:#0f6f66 !important; }
+.access-tag.access-administrator { background:#fdf1d8; color:#8a5a00 !important; }

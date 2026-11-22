@@ -36,6 +36,13 @@
       "when": 1795329362539,
       "tag": "0004_account_sign_in_email",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1795336993721,
+      "tag": "0005_invitations",
+      "breakpoints": true
     }
   ]
 }
