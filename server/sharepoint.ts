@@ -5,8 +5,9 @@
  *  - A job's first save creates  <Jobs library>/<Job ID>/Sampling  and  <Job ID>/Lab  (existing folders are reused).
  *  - Every save adds or updates exactly one row in the Job Register list, keyed by Job ID (the list's Title column,
  *    which IT sets to "Enforce unique values").
- *  - An upload made for a job goes to that job's Sampling or Lab folder. A name clash never replaces the existing
- *    file: SharePoint keeps both and the new copy gets a numbered name, which is recorded and returned.
+ *  - Job files go to Sampling or Lab by their purpose (app/file-routing.ts): uploads made in the workflow, and the
+ *    scope-of-work attachment kept in the job record. A name clash never replaces the existing file: SharePoint keeps
+ *    both and the new copy gets a numbered name, which is recorded and shown in the job.
  *  - A SharePoint failure never blocks or undoes the VAPS save. It is recorded in D1 (sharepoint_jobs /
  *    sharepoint_files) and retried on the job's next save, or by an administrator (POST /api/admin/sharepoint).
  *
@@ -16,9 +17,7 @@
 import type { JobRecord } from "../app/page";
 import { audit } from "./auth";
 
-export const SECTIONS = { sampling: "Sampling", lab: "Lab" } as const;
-export type Section = keyof typeof SECTIONS;
-export const isSection = (v: unknown): v is Section => v === "sampling" || v === "lab";
+import { filePurposes, sectionFolder, type FilePurpose, type FileSection } from "../app/file-routing";
 
 export type SharePointConfig = { tenantId: string; clientId: string; clientSecret: string; hostname: string; sitePath: string; library: string; register: string };
 export type SyncStatus = { status: "off" | "ok" | "error"; message?: string };
@@ -125,7 +124,7 @@ async function jobFolders(c: SharePointConfig, db: D1Database, jobId: string, at
   const row = await jobRow(db, jobId);
   if (row?.folder_id && row.sampling_id && row.lab_id) return { driveId, row };
   const root = await ensureFolder(c, driveId, null, folderName(jobId));
-  const sampling = await ensureFolder(c, driveId, root, SECTIONS.sampling), lab = await ensureFolder(c, driveId, root, SECTIONS.lab);
+  const sampling = await ensureFolder(c, driveId, root, sectionFolder.sampling), lab = await ensureFolder(c, driveId, root, sectionFolder.lab);
   const fields = { folder_id: root.id, sampling_id: sampling.id, lab_id: lab.id, folder_url: root.webUrl || null };
   await saveJobRow(db, jobId, { ...fields, status: "folders", last_error: null }, at);
   return { driveId, row: { job_id: jobId, register_item_id: row?.register_item_id ?? null, ...fields } };
@@ -162,70 +161,110 @@ async function upsertRegister(c: SharePointConfig, db: D1Database, job: JobRecor
 
 /* ---------- Public entry points ---------- */
 
+type Who = { accountId: string; employeeId: string };
+
 /**
- * After a job is saved in D1: ensure its folders, add/update its register row, then retry any of its uploads that
- * did not reach SharePoint earlier. Never throws; returns a status for the API reply.
+ * After a job is saved in D1: ensure its folders, add/update its register row, route its scope-of-work attachment,
+ * then copy any of its files that have not reached SharePoint yet. Never throws; returns a status for the API reply.
  */
-export async function syncJob(env: Record<string, unknown>, db: D1Database, bucket: R2Bucket | undefined, job: JobRecord, who: { accountId: string; employeeId: string }, at = new Date().toISOString()): Promise<SyncStatus> {
+export async function syncJob(env: Record<string, unknown>, db: D1Database, bucket: R2Bucket | undefined, job: JobRecord, who: Who, at = new Date().toISOString()): Promise<SyncStatus> {
+  await routeScopeAttachment(db, job, at).catch(() => {});
   const c = sharePointConfig(env);
   if (!c) return { status: "off" };
   try {
     const { row } = await jobFolders(c, db, job.id, at);
     const itemId = await upsertRegister(c, db, job, row, at);
     await saveJobRow(db, job.id, { register_item_id: itemId, status: "ok", last_error: null }, at);
-    if (bucket) {
-      const { results } = await db.prepare("SELECT file_id FROM sharepoint_files WHERE job_id = ? AND status <> 'ok' LIMIT 5").bind(job.id).all<{ file_id: string }>();
-      for (const f of results) await mirrorFile(env, db, bucket, f.file_id, who, at);
-    }
-    return { status: "ok" };
   } catch (e) {
     const message = safeMessage(e);
     await saveJobRow(db, job.id, { status: "error", last_error: message }, at).catch(() => {});
     await audit(db, { ...who, action: "sharepoint.failed", target: job.id, detail: { step: "job", message } }, at).catch(() => {});
-    return { status: "error", message: message + " The job was saved in VAPS; SharePoint will be retried on the next save." };
+    return { status: "error", message: message + " The job was saved in Workflow VAPS; SharePoint will be retried on the next save." };
   }
+  const { results } = await db.prepare("SELECT file_id FROM sharepoint_files WHERE job_id = ? AND status IN ('pending', 'error') ORDER BY updated_at LIMIT 20").bind(job.id).all<{ file_id: string }>();
+  let failed = 0;
+  for (const f of results) if ((await mirrorFile(env, db, bucket, f.file_id, who, at)).status === "error") failed++;
+  return failed ? { status: "error", message: `${failed} file${failed === 1 ? "" : "s"} could not be copied to SharePoint. The originals are saved in Workflow VAPS.` } : { status: "ok" };
 }
 
-/** Records that an uploaded file belongs to a job section, before it is copied (so a failed copy can be retried). */
-export async function routeFile(db: D1Database, fileId: string, jobId: string, section: Section, at: string) {
-  await db.prepare("INSERT INTO sharepoint_files (file_id, job_id, section, status, updated_at) VALUES (?, ?, ?, 'pending', ?) ON CONFLICT(file_id) DO NOTHING").bind(fileId, jobId, section, at).run();
+/** Records that an uploaded file belongs to a job, before it is copied (so a failed copy can be retried). */
+export async function routeFile(db: D1Database, fileId: string, jobId: string, purpose: FilePurpose, name: string, at: string) {
+  await db.prepare("INSERT INTO sharepoint_files (file_id, job_id, purpose, section, source, name, status, updated_at) VALUES (?, ?, ?, ?, 'upload', ?, 'pending', ?) ON CONFLICT(file_id) DO NOTHING")
+    .bind(fileId, jobId, purpose, filePurposes[purpose].section, name, at).run();
 }
 
-export type FileStatus = SyncStatus & { name?: string; renamed?: boolean };
+/** A file of this job with this purpose and name that is already routed (an approved report copied twice). */
+export const routedFile = (db: D1Database, jobId: string, purpose: FilePurpose, name: string) =>
+  db.prepare("SELECT file_id FROM sharepoint_files WHERE job_id = ? AND purpose = ? AND name = ?").bind(jobId, purpose, name).first<{ file_id: string }>();
+
+type ScopeAttachment = { name?: string; dataUrl?: string };
+const sha256 = async (s: string) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)))].map((b) => b.toString(16).padStart(2, "0")).join("");
+/** The scope-of-work attachment lives in the job record (data URL). Each distinct attachment is routed once to Sampling. */
+async function routeScopeAttachment(db: D1Database, job: JobRecord, at: string) {
+  const a = job.scopeOfWorkAttachment as ScopeAttachment | undefined;
+  if (!a?.dataUrl || !/^data:[^,]*;base64,/.test(a.dataUrl)) return;
+  const id = "scope-" + (await sha256(a.dataUrl)).slice(0, 40);
+  await db.prepare("INSERT INTO sharepoint_files (file_id, job_id, purpose, section, source, name, status, updated_at) VALUES (?, ?, 'scope-of-work', 'sampling', 'job', ?, 'pending', ?) ON CONFLICT(file_id) DO NOTHING")
+    .bind(id, job.id, String(a.name || "Scope of work").slice(0, 200), at).run();
+}
+async function scopeBytes(db: D1Database, jobId: string, fileId: string): Promise<ArrayBuffer | null> {
+  const row = await db.prepare("SELECT payload FROM jobs WHERE id = ?").bind(jobId).first<{ payload: string }>();
+  const a = row && (JSON.parse(row.payload) as JobRecord).scopeOfWorkAttachment as ScopeAttachment | undefined;
+  // Replaced since it was routed: that version no longer exists in VAPS, so it cannot be copied.
+  if (!a?.dataUrl || "scope-" + (await sha256(a.dataUrl)).slice(0, 40) !== fileId) return null;
+  const bin = atob(a.dataUrl.slice(a.dataUrl.indexOf(",") + 1));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes.buffer;
+}
+
+export type FileStatus = SyncStatus & { name?: string; renamed?: boolean; savedInVaps?: boolean };
+type Routed = { job_id: string; section: FileSection; source: string; status: string; name: string; sp_name: string | null };
 
 /**
- * Copies one routed file from R2 to <Job ID>/<Section>. Idempotent: a file already copied is not copied again.
+ * Copies one routed file to <Job ID>/<Sampling|Lab>. Idempotent: a file already copied is not copied again.
  * `conflictBehavior=rename` makes SharePoint keep any existing file with the same name and give this copy a numbered
  * name; the stored and returned name says so, so nothing is overwritten silently.
  */
-export async function mirrorFile(env: Record<string, unknown>, db: D1Database, bucket: R2Bucket, fileId: string, who: { accountId: string; employeeId: string }, at = new Date().toISOString()): Promise<FileStatus> {
+export async function mirrorFile(env: Record<string, unknown>, db: D1Database, bucket: R2Bucket | undefined, fileId: string, who: Who, at = new Date().toISOString()): Promise<FileStatus> {
   const c = sharePointConfig(env);
   if (!c) return { status: "off" };
-  const routed = await db.prepare("SELECT f.job_id, f.section, f.status, f.sp_name, m.name FROM sharepoint_files f JOIN files m ON m.id = f.file_id WHERE f.file_id = ?").bind(fileId).first<{ job_id: string; section: Section; status: string; sp_name: string | null; name: string }>();
+  const routed = await db.prepare("SELECT job_id, section, source, status, name, sp_name FROM sharepoint_files WHERE file_id = ?").bind(fileId).first<Routed>();
   if (!routed) return { status: "off" };
-  if (routed.status === "ok") return { status: "ok", name: routed.sp_name || routed.name, renamed: !!routed.sp_name && routed.sp_name !== routed.name };
+  if (routed.status === "ok") return { status: "ok", name: routed.sp_name || routed.name, renamed: !!routed.sp_name && routed.sp_name !== safeName(routed.name), savedInVaps: true };
   try {
     const { driveId, row } = await jobFolders(c, db, routed.job_id, at);
-    const object = await bucket.get(fileId);
-    if (!object) throw new GraphError(404, "file bytes");
-    const parent = routed.section === "lab" ? row.lab_id : row.sampling_id;
-    const name = routed.name.replace(/["*:<>?/\\|#%]/g, "_").replace(/^[.\s~$]+/, "_");
-    const item = await graph<Item>(c, "PUT", `/drives/${driveId}/items/${parent}:/${seg(name)}:/content?@microsoft.graph.conflictBehavior=rename`, await object.arrayBuffer());
+    const bytes = routed.source === "job" ? await scopeBytes(db, routed.job_id, fileId) : await (await bucket?.get(fileId))?.arrayBuffer();
+    if (!bytes) throw new GraphError(410, "file bytes");
+    const parent = routed.section === "lab" ? row.lab_id : row.sampling_id, name = safeName(routed.name);
+    const item = await graph<Item>(c, "PUT", `/drives/${driveId}/items/${parent}:/${seg(name)}:/content?@microsoft.graph.conflictBehavior=rename`, bytes);
     await db.prepare("UPDATE sharepoint_files SET status = 'ok', sp_item_id = ?, sp_name = ?, last_error = NULL, updated_at = ? WHERE file_id = ?").bind(item.id, item.name, at, fileId).run();
     const renamed = item.name !== name;
     await audit(db, { ...who, action: "sharepoint.file.copied", target: fileId, detail: { jobId: routed.job_id, section: routed.section, name: item.name, renamed } }, at);
-    return { status: "ok", name: item.name, renamed };
+    return { status: "ok", name: item.name, renamed, savedInVaps: true };
   } catch (e) {
-    const message = safeMessage(e);
-    await db.prepare("UPDATE sharepoint_files SET status = 'error', last_error = ?, updated_at = ? WHERE file_id = ?").bind(message, at, fileId).run().catch(() => {});
-    return { status: "error", message: message + " The file is stored in VAPS; SharePoint will be retried on the job's next save." };
+    const message = e instanceof GraphError && e.status === 410 ? "This version is no longer in Workflow VAPS (it was replaced), so it was not copied." : safeMessage(e);
+    await db.prepare("UPDATE sharepoint_files SET status = ?, last_error = ?, updated_at = ? WHERE file_id = ?").bind(e instanceof GraphError && e.status === 410 ? "replaced" : "error", message, at, fileId).run().catch(() => {});
+    return { status: "error", message, savedInVaps: true };
   }
+}
+const safeName = (n: string) => n.replace(/["*:<>?/\\|#%]/g, "_").replace(/^[.\s~$]+/, "_");
+
+/** What the job page shows: the job's folder/register state and every routed file with its SharePoint name. */
+export async function jobSyncStatus(env: Record<string, unknown>, db: D1Database, jobId: string) {
+  const job = await db.prepare("SELECT status, last_error, folder_url, updated_at FROM sharepoint_jobs WHERE job_id = ?").bind(jobId).first<{ status: string; last_error: string | null; folder_url: string | null; updated_at: string }>();
+  const { results } = await db.prepare("SELECT file_id, purpose, section, name, status, sp_name, last_error, updated_at FROM sharepoint_files WHERE job_id = ? ORDER BY updated_at, file_id").bind(jobId).all<{ file_id: string; purpose: FilePurpose; section: FileSection; name: string; status: string; sp_name: string | null; last_error: string | null; updated_at: string }>();
+  return {
+    configured: !!sharePointConfig(env),
+    job: job ? { status: job.status === "folders" ? "pending" : job.status, error: job.last_error, folderUrl: job.folder_url, updatedAt: job.updated_at } : null,
+    files: results.map((f) => ({ id: f.file_id, purpose: f.purpose, section: f.section, folder: sectionFolder[f.section], name: f.name, status: f.status, sharePointName: f.sp_name, renamed: !!f.sp_name && f.sp_name !== safeName(f.name), error: f.last_error, savedInVaps: f.status !== "replaced", updatedAt: f.updated_at })),
+  };
 }
 
 /** Administrator overview: jobs and files whose SharePoint copy failed or is still pending. */
 export async function syncProblems(db: D1Database) {
   const jobs = (await db.prepare("SELECT job_id, status, last_error, updated_at FROM sharepoint_jobs WHERE status <> 'ok' ORDER BY updated_at DESC LIMIT 100").all()).results;
-  const files = (await db.prepare("SELECT file_id, job_id, section, status, last_error, updated_at FROM sharepoint_files WHERE status <> 'ok' ORDER BY updated_at DESC LIMIT 100").all()).results;
+  const files = (await db.prepare("SELECT file_id, job_id, purpose, section, name, status, last_error, updated_at FROM sharepoint_files WHERE status NOT IN ('ok', 'replaced') ORDER BY updated_at DESC LIMIT 100").all()).results;
   return { jobs, files };
 }
 

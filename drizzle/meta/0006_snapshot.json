@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "cba4c90f-b8a1-4ed8-9d25-0b36eec8e2cf",
+  "id": "2fcad262-93c6-4064-9d3d-2b9278d26930",
   "prevId": "5e095be7-eddf-4e5d-9121-80a9bc03de3f",
   "tables": {
     "accounts": {
@@ -792,8 +792,29 @@
           "notNull": true,
           "autoincrement": false
         },
+        "purpose": {
+          "name": "purpose",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "section": {
           "name": "section",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
           "type": "text",
           "primaryKey": false,
           "notNull": true,

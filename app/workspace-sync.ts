@@ -6,6 +6,7 @@
  * or a conflict the workspace reloads from the server, so the screen never keeps a change that was not saved.
  */
 "use client";
+import type { FilePurpose } from "./file-routing";
 import { installBrowserStore, isSharedKey, jobsKey, activityKey, type StorageLike } from "./app-storage";
 import type { JobRecord } from "./page";
 import type { Command } from "./operations-model";
@@ -151,14 +152,17 @@ export function clearWorkspace() {
 }
 
 /* ---------- files (Sites edition) ---------- */
-/** Where an upload belongs in the workflow; the server copies it to that job's SharePoint folder (Microsoft 365 pilot). */
-export type UploadTarget = { jobId: string; section: "sampling" | "lab" };
+/** Which job a file belongs to and what it is; the server picks its SharePoint folder from that (Microsoft 365 pilot). */
+export type UploadTarget = { jobId: string; purpose: FilePurpose };
+export type SharePointResult = { status: "off" | "ok" | "error"; message?: string; name?: string; renamed?: boolean; savedInVaps?: boolean };
+/** Sent after each job upload so the job's SharePoint panel can say what happened (`vaps-sharepoint` window event). */
+export type SharePointUpload = { jobId: string; name: string; purpose: FilePurpose; sharepoint: SharePointResult };
 export async function uploadToServer(file: File, anyType: boolean, target?: UploadTarget) {
   const form = new FormData(); form.set("file", file); if (anyType) form.set("anyType", "1");
-  if (target) { form.set("jobId", target.jobId); form.set("section", target.section); }
-  const { id, name, size, type, sharepoint } = await api<{ id: string; name: string; size: number; type: string; sharepoint?: { status: string; message?: string; name?: string; renamed?: boolean } }>("/api/files", { method: "POST", body: form });
-  // The SharePoint copy is secondary: the VAPS upload succeeded. Report a failure or a renamed copy without blocking.
-  if (sharepoint?.status === "error" || sharepoint?.renamed) console.warn("SharePoint:", sharepoint.status === "error" ? sharepoint.message : `a file with this name already exists in the folder; this copy was saved as ${sharepoint.name}.`);
+  if (target) { form.set("jobId", target.jobId); form.set("purpose", target.purpose); }
+  const { id, name, size, type, sharepoint } = await api<{ id: string; name: string; size: number; type: string; sharepoint?: SharePointResult }>("/api/files", { method: "POST", body: form });
+  // The SharePoint copy is secondary: the Workflow VAPS upload already succeeded. The job panel reports the copy.
+  if (target && sharepoint && typeof window !== "undefined") window.dispatchEvent(new CustomEvent<SharePointUpload>("vaps-sharepoint", { detail: { jobId: target.jobId, name, purpose: target.purpose, sharepoint } }));
   return { id, name, size, type };
 }
 /** Fetches a file the server releases to this employee. The server decides which files are restricted workbooks. */

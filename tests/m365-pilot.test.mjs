@@ -67,7 +67,7 @@ globalThis.fetch = async (input, init = {}) => {
 /* ---------- VAPS API ---------- */
 const { mf, DB, api, call } = await startSitesApi({
   login: 'app/api/auth/login/route.ts', password: 'app/api/auth/password/route.ts', job: 'app/api/jobs/[id]/route.ts', operations: 'app/api/jobs/[id]/operations/route.ts',
-  files: 'app/api/files/route.ts', file: 'app/api/files/[id]/route.ts', sync: 'app/api/admin/sharepoint/route.ts',
+  files: 'app/api/files/route.ts', file: 'app/api/files/[id]/route.ts', sync: 'app/api/admin/sharepoint/route.ts', jobSync: 'app/api/jobs/[id]/sharepoint/route.ts',
 }, 'export * as auth from "./server/auth.ts"; export { resetSharePointCache } from "./server/sharepoint.ts";', M365);
 
 const cookieOf = (c) => c.split(';')[0];
@@ -85,13 +85,15 @@ const at = new Date().toISOString(), day = at.slice(0, 10), id = 'OM-P-26-901';
 const sampleJob = { id, globalSequence: 901, jobNumber: id, clientCode: 'P', clientName: 'Sample Client', countryCode: 'OM', dateReceived: day, description: 'Microsoft 365 pilot sample job (sample data).', samplingSource: 'Wellhead Sampling', fieldArea: 'Sample Field', well: 'SAMPLE-1', requiredTests: [], samples: [], stages: [], events: [], status: 'Job Created', currentStage: 'Job Setup', nextAction: 'Send to Sampling', ownerId: 'SALIM', responsibleId: 'SALIM', jobResponsibleId: 'SALIM', createdById: 'SALIM', createdAt: at, lastUpdatedById: 'SALIM', lastUpdatedAt: at, dueDate: day };
 let revision = 0;
 const save = async (job) => { const r = await call('job', 'PUT', '/', { cookie: salim, params: { id }, json: { job, revision } }); assert.equal(r.status, 200, 'save: ' + JSON.stringify(r.data)); revision = r.data.revision; return r; };
-const upload = async (name, section, content = name + ' sample content', jobId = id) => {
-  const f = new FormData(); f.set('file', new File([content], name, { type: 'text/csv' })); f.set('anyType', '1');
-  if (section !== undefined) { f.set('jobId', jobId); f.set('section', section); }
+const upload = async (name, purpose, content = name + ' sample content', jobId = id) => {
+  const f = new FormData(); f.set('file', new File([content], name, { type: name.endsWith('.pdf') ? 'application/pdf' : 'text/csv' })); f.set('anyType', '1');
+  if (purpose !== undefined) { f.set('jobId', jobId); f.set('purpose', purpose); }
   return call('files', 'POST', '/', { cookie: salim, body: f });
 };
 const folderCreates = () => graph.calls.filter((c) => /^POST \/drives\/drv1\/.*children$/.test(c)).length;
-const tree = () => [...graph.items.values()].filter((i) => i.id !== 'root').map(pathOf).sort();
+const tree = () => [...graph.items.values()].filter((i) => i.id !== 'root' && i.folder).map(pathOf).sort();
+const inFolder = (folder) => children(byPath(id + '/' + folder).id).map((i) => i.name).sort();
+const jobStatus = async (cookie = salim) => (await call('jobSync', 'GET', '/', { cookie, params: { id } })).data;
 
 test('first save creates <Job ID>/Sampling and <Job ID>/Lab and one register row', async () => {
   const r = await save(sampleJob);
@@ -112,49 +114,75 @@ test('a later save updates the same register row and creates no folders', async 
   assert.equal([...graph.rows.values()][0].fields.CurrentStage, 'Sampling Preparation');
 });
 
-test('uploads are routed by workflow section; a same-name upload never overwrites', async () => {
-  const gs = await upload('G-sheet.csv', 'sampling', 'first G-sheet');
-  assert.equal(gs.status, 201); assert.deepEqual(gs.data.sharepoint, { status: 'ok', name: 'G-sheet.csv', renamed: false });
-  const lab = await upload('DL.csv', 'lab');
-  assert.equal(lab.data.sharepoint.status, 'ok');
-  const again = await upload('G-sheet.csv', 'sampling', 'second G-sheet');
-  assert.deepEqual(again.data.sharepoint, { status: 'ok', name: 'G-sheet 1.csv', renamed: true });
+test('every supported job file reaches its folder: Sampling (scope, sampling sheet, sampling report) and Lab (workbook, external results, final report)', async () => {
+  const sheet = await upload('G-sheet.csv', 'sampling-sheet', 'first G-sheet');
+  assert.equal(sheet.status, 201); assert.deepEqual(sheet.data.sharepoint, { status: 'ok', name: 'G-sheet.csv', renamed: false, savedInVaps: true });
+  for (const [name, purpose] of [['OM-P-26-901-Sampling-and-Analysis-Report-v1.pdf', 'sampling-report'], ['DL.csv', 'lab-workbook'], ['External-results.pdf', 'external-results'], ['Final-report.pdf', 'final-report']])
+    assert.equal((await upload(name, purpose)).data.sharepoint.status, 'ok', purpose);
+  // The scope-of-work attachment is kept in the job record (data URL); the save routes it to Sampling.
+  const scope = { name: 'Scope of work.pdf', type: 'application/pdf', size: 16, dataUrl: 'data:application/pdf;base64,' + Buffer.from('sample scope v1').toString('base64') };
+  await save({ ...sampleJob, scopeOfWorkAttachment: scope });
+  assert.deepEqual(inFolder('Sampling'), ['G-sheet.csv', 'OM-P-26-901-Sampling-and-Analysis-Report-v1.pdf', 'Scope of work.pdf']);
+  assert.deepEqual(inFolder('Lab'), ['DL.csv', 'External-results.pdf', 'Final-report.pdf']);
+  assert.equal(byPath(id + '/Sampling/Scope of work.pdf').content, 'sample scope v1');
+  // Saving again does not copy the same attachment twice; a replaced attachment is copied as a new file, not over the old one.
+  await save({ ...sampleJob, scopeOfWorkAttachment: scope, description: 'Saved again.' });
+  await save({ ...sampleJob, scopeOfWorkAttachment: { ...scope, dataUrl: 'data:application/pdf;base64,' + Buffer.from('sample scope v2').toString('base64') } });
+  assert.equal(byPath(id + '/Sampling/Scope of work.pdf').content, 'sample scope v1');
+  assert.equal(byPath(id + '/Sampling/Scope of work 1.pdf').content, 'sample scope v2');
+  // The approved report PDF is copied once per version: a second copy returns the existing one.
+  const report = await upload('OM-P-26-901-Sampling-and-Analysis-Report-v1.pdf', 'sampling-report');
+  assert.equal(report.data.existing, true); assert.equal(inFolder('Sampling').filter((n) => n.includes('Report-v1')).length, 1);
+  // The browser cannot choose a folder: only a known purpose is accepted, and the scope attachment only comes from the job record.
+  for (const bad of ['sampling', 'lab', 'reports', 'scope-of-work']) assert.equal((await upload('x.csv', bad)).status, 400, bad);
+});
+
+test('a same-name upload never overwrites; the job status shows the name SharePoint used', async () => {
+  const again = await upload('G-sheet.csv', 'sampling-sheet', 'second G-sheet');
+  assert.deepEqual(again.data.sharepoint, { status: 'ok', name: 'G-sheet 1.csv', renamed: true, savedInVaps: true });
   assert.equal(byPath(id + '/Sampling/G-sheet.csv').content, 'first G-sheet', 'the existing file is unchanged');
   assert.equal(byPath(id + '/Sampling/G-sheet 1.csv').content, 'second G-sheet');
-  assert.ok(byPath(id + '/Lab/DL.csv'));
-  // The VAPS copy (R2 + D1) is unchanged in behaviour: the reference has the same four fields as before.
-  assert.deepEqual(Object.keys(gs.data).filter((k) => k !== 'sharepoint').sort(), ['id', 'name', 'size', 'type']);
-  assert.equal((await DB.prepare('SELECT sp_name FROM sharepoint_files WHERE file_id = ?').bind(again.data.id).first()).sp_name, 'G-sheet 1.csv');
+  assert.deepEqual(Object.keys(again.data).filter((k) => k !== 'sharepoint').sort(), ['id', 'name', 'size', 'type'], 'the job file reference is unchanged');
+  const st = await jobStatus();
+  assert.equal(st.configured, true); assert.equal(st.canRetry, false, 'only MA001 can retry'); assert.equal(st.job.status, 'ok');
+  const row = st.files.find((f) => f.id === again.data.id);
+  assert.deepEqual([row.folder, row.purpose, row.name, row.sharePointName, row.renamed, row.savedInVaps], ['Sampling', 'sampling-sheet', 'G-sheet.csv', 'G-sheet 1.csv', true, true]);
+  assert.match(st.job.folderUrl, /\/Jobs\/OM-P-26-901$/);
 });
 
-test('upload checks: section must be Sampling or Lab; the job must exist and be open to the employee', async () => {
-  assert.equal((await upload('x.csv', 'reports')).status, 400);
-  assert.equal((await upload('x.csv', 'lab', 'x', 'OM-P-26-999')).status, 404);
+test('upload and status checks: the job must exist and be open to the employee', async () => {
+  assert.equal((await upload('x.csv', 'lab-workbook', 'x', 'OM-P-26-999')).status, 404);
   const plain = await upload('no-job.csv', undefined);
-  assert.equal(plain.status, 201); assert.equal(plain.data.sharepoint, undefined, 'no job given: stored in VAPS only, as before');
+  assert.equal(plain.status, 201); assert.equal(plain.data.sharepoint, undefined, 'no job given: stored in Workflow VAPS only, as before');
   const other = await account('RANJITH', 'Unassigned engineer pilot passphrase');
-  const f = new FormData(); f.set('file', new File(['x'], 'x.csv')); f.set('anyType', '1'); f.set('jobId', id); f.set('section', 'lab');
-  const denied = await call('files', 'POST', '/', { cookie: other, body: f });
-  assert.equal(denied.status, 403, 'an employee without access to the job cannot route files into it');
-  assert.equal((await call('sync', 'GET', '/', { cookie: other })).status, 403, 'sync status is Administrator only');
+  const f = new FormData(); f.set('file', new File(['x'], 'x.csv')); f.set('anyType', '1'); f.set('jobId', id); f.set('purpose', 'lab-workbook');
+  assert.equal((await call('files', 'POST', '/', { cookie: other, body: f })).status, 403, 'no access to the job: nothing is routed into it');
+  assert.equal((await call('jobSync', 'GET', '/', { cookie: other, params: { id } })).status, 403, 'nor is its SharePoint status shown');
+  assert.equal((await call('sync', 'GET', '/', { cookie: other })).status, 403);
+  assert.equal((await call('sync', 'POST', '/', { cookie: salim, json: { jobId: id } })).status, 403, 'retry is MA001 only');
 });
 
-test('SharePoint outage: VAPS saves and uploads still succeed; the next save retries and reuses folders', async () => {
+test('SharePoint outage: the original is saved in Workflow VAPS, the job shows the failure, MA001 retries', async () => {
   graph.down = true;
-  const up = await upload('PVT-workbook.csv', 'lab');
-  assert.equal(up.status, 201, 'the file is stored in VAPS');
-  assert.equal(up.data.sharepoint.status, 'error'); assert.match(up.data.sharepoint.message, /stored in VAPS/);
+  const up = await upload('PVT-workbook.csv', 'lab-workbook');
+  assert.equal(up.status, 201, 'the file is stored in Workflow VAPS');
+  assert.equal(up.data.sharepoint.status, 'error'); assert.equal(up.data.sharepoint.savedInVaps, true);
   const r = await save({ ...sampleJob, description: 'Saved during outage.' });
-  assert.equal(r.data.sharepoint.status, 'error');
-  assert.equal((await call('sync', 'GET', '/', { cookie: ma })).data.files.length, 1);
+  assert.equal(r.data.sharepoint.status, 'error'); assert.match(r.data.sharepoint.message, /saved in Workflow VAPS/);
+  let st = await jobStatus(ma);
+  assert.equal(st.canRetry, true);
+  const failed = st.files.find((f) => f.id === up.data.id);
+  assert.deepEqual([failed.status, failed.savedInVaps, failed.folder], ['error', true, 'Lab']); assert.match(failed.error, /SharePoint/);
   graph.down = false;
   const before = folderCreates();
-  assert.equal((await save({ ...sampleJob, description: 'Saved after outage.' })).data.sharepoint.status, 'ok');
-  assert.ok(byPath(id + '/Lab/PVT-workbook.csv'), 'the failed copy was retried');
-  assert.equal(folderCreates(), before);
+  const retry = await call('sync', 'POST', '/', { cookie: ma, json: { jobId: id } });
+  assert.equal(retry.status, 200); assert.equal(retry.data.sharepoint.status, 'ok');
+  assert.equal(retry.data.files.find((f) => f.id === up.data.id).status, 'ok', 'the retry reply carries the refreshed job status');
+  assert.ok(byPath(id + '/Lab/PVT-workbook.csv'));
+  assert.equal(folderCreates(), before, 'existing folders are reused');
   assert.equal(graph.rows.size, 1);
-  const status = (await call('sync', 'GET', '/', { cookie: ma })).data;
-  assert.deepEqual([status.configured, status.jobs.length, status.files.length], [true, 0, 0]);
+  st = (await call('sync', 'GET', '/', { cookie: ma })).data;
+  assert.deepEqual([st.configured, st.jobs.length, st.files.length], [true, 0, 0]);
 });
 
 test('lost bookkeeping: existing folders and the register row are found and reused, not duplicated', async () => {
@@ -162,16 +190,27 @@ test('lost bookkeeping: existing folders and the register row are found and reus
   api.resetSharePointCache();
   const r = await call('sync', 'POST', '/', { cookie: ma, json: { jobId: id } });
   assert.equal(r.status, 200); assert.equal(r.data.sharepoint.status, 'ok');
-  assert.deepEqual(tree().filter((p) => !p.includes('.csv')), [id, id + '/Lab', id + '/Sampling']);
+  assert.deepEqual(tree(), [id, id + '/Lab', id + '/Sampling']);
   assert.equal(graph.rows.size, 1);
-  // Someone deleted the register row in SharePoint: it is added back once.
-  graph.rows.clear();
+  graph.rows.clear(); // Someone deleted the register row in SharePoint: it is added back once.
   await save({ ...sampleJob, description: 'Row re-added.' });
   assert.equal(graph.rows.size, 1);
 });
 
+test('every upload point in the app names its job and the right purpose', async () => {
+  const fs = await import('node:fs');
+  const src = ['app/operations-workspace.tsx', 'app/lab-planning.tsx'].map((p) => fs.readFileSync(p, 'utf8')).join('\n');
+  const calls = [...src.matchAll(/storeWorkbook\(([^;]*?)\)(?=;|\))/g)].map((m) => m[1]);
+  assert.equal(calls.length, 4, calls.join('\n'));
+  for (const c of calls) assert.match(c, /jobId: ?job\.id/, c);
+  for (const p of ['lab-workbook', 'external-results', 'sampling-report']) assert.ok(calls.some((c) => c.includes(`'${p}'`)), p);
+  assert.ok(calls.some((c) => c.includes("kind==='sampling'?'sampling-sheet':'final-report'")));
+  const { filePurposes } = await import('data:text/javascript;base64,' + Buffer.from(fs.readFileSync('app/file-routing.ts', 'utf8').replace(/ as const/g, '').replace(/export type[^\n]*\n/g, '').replace(/\(v: unknown\): v is FilePurpose/, '(v)').replace(/: Record<FileSection, string>/, '')).toString('base64'));
+  assert.deepEqual(Object.fromEntries(Object.entries(filePurposes).map(([k, v]) => [k, v.section])), { 'scope-of-work': 'sampling', 'sampling-sheet': 'sampling', 'sampling-report': 'sampling', 'lab-workbook': 'lab', 'external-results': 'lab', 'final-report': 'lab' });
+});
+
 test('credentials stay on the server; replies and the audit trail never contain them', async () => {
-  const replies = JSON.stringify([await save({ ...sampleJob }), await upload('check.csv', 'lab'), await call('sync', 'GET', '/', { cookie: ma })]);
+  const replies = JSON.stringify([await save({ ...sampleJob }), await upload('check.csv', 'lab-workbook'), await call('sync', 'GET', '/', { cookie: ma }), await jobStatus()]);
   assert.doesNotMatch(replies, new RegExp(SECRET + '|token-\\d|' + M365.MS_CLIENT_ID));
   assert.equal((await DB.prepare('SELECT COUNT(*) AS n FROM audit_log WHERE instr(detail, ?) > 0 OR instr(detail, ?) > 0').bind(SECRET, 'token-').first()).n, 0);
 });
@@ -180,7 +219,8 @@ test('not configured: VAPS works as before and SharePoint is not contacted', asy
   for (const k of Object.keys(M365)) delete globalThis.__vapsTestEnv[k];
   const calls = graph.calls.length;
   assert.deepEqual((await save({ ...sampleJob, description: 'Pilot off.' })).data.sharepoint, { status: 'off' });
-  assert.equal((await upload('off.csv', 'lab')).data.sharepoint.status, 'off');
+  assert.equal((await upload('off.csv', 'lab-workbook')).data.sharepoint.status, 'off');
+  assert.equal((await jobStatus()).configured, false, 'the job panel stays hidden');
   assert.equal(graph.calls.length, calls);
 });
 

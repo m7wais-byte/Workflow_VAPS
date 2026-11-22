@@ -1,7 +1,10 @@
 CREATE TABLE `sharepoint_files` (
 	`file_id` text PRIMARY KEY NOT NULL,
 	`job_id` text NOT NULL,
+	`purpose` text NOT NULL,
 	`section` text NOT NULL,
+	`source` text NOT NULL,
+	`name` text NOT NULL,
 	`status` text NOT NULL,
 	`sp_item_id` text,
 	`sp_name` text,

@@ -156,11 +156,18 @@ export const sharepointJobs = sqliteTable("sharepoint_jobs", {
   updatedAt: text("updated_at").notNull(),
 });
 
-/** Uploaded files routed to a job section (sampling | lab). `sp_name` is the name SharePoint kept (numbered on a clash). */
+/**
+ * Job files routed to a job folder (app/file-routing.ts). `source` is "upload" (bytes in R2 under file_id) or "job"
+ * (the scope-of-work attachment kept in the job record; file_id is "scope-" + its SHA-256). `sp_name` is the name
+ * SharePoint kept, numbered when a file with the same name was already there.
+ */
 export const sharepointFiles = sqliteTable("sharepoint_files", {
   fileId: text("file_id").primaryKey(),
   jobId: text("job_id").notNull(),
+  purpose: text("purpose").notNull(),
   section: text("section").notNull(),
+  source: text("source").notNull(),
+  name: text("name").notNull(),
   /** pending | ok | error */status: text("status").notNull(),
   spItemId: text("sp_item_id"),
   spName: text("sp_name"),
