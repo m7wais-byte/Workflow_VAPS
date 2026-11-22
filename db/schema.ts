@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, index, primaryKey } from "drizzle-orm/sqlite-core";
 
 /** Client share links (existing; sharing is switched off in app/deployment.ts). */
 export const jobSummaries = sqliteTable("job_summaries", { id: text("id").primaryKey(), editHash: text("edit_hash").notNull(), audience: text("audience").notNull(), payload: text("payload").notNull(), revision: integer("revision").notNull().default(1), updatedAt: text("updated_at").notNull() });
@@ -40,3 +40,26 @@ export const auditLog = sqliteTable("audit_log", {
   recordId: text("record_id").notNull(),
   /** JSON: before/after revisions, command types, a summary of what changed. */detail: text("detail").notNull(),
 }, (t) => [index("audit_record").on(t.recordType, t.recordId), index("audit_actor").on(t.actorId, t.at)]);
+
+/** PVT request book, one row per request number (`no`), the record exactly as the app stores it. */
+export const requests = sqliteTable("requests", {
+  no: text("no").primaryKey(),
+  payload: text("payload").notNull(),
+  updatedBy: text("updated_by").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/**
+ * Browser records imported verbatim that the server does not read yet (clients, company, cylinders, equipment,
+ * request lists, job counter, activity log, …). Kept unchanged, per export, until the step that serves each one
+ * validates and moves it. Never edited.
+ */
+export const browserArchive = sqliteTable("browser_archive", {
+  exportId: text("export_id").notNull(),
+  key: text("key").notNull(),
+  value: text("value").notNull(),
+  sha256: text("sha256").notNull(),
+  exportedAt: text("exported_at").notNull(),
+  importedBy: text("imported_by").notNull(),
+  importedAt: text("imported_at").notNull(),
+}, (t) => [primaryKey({ columns: [t.exportId, t.key] })]);

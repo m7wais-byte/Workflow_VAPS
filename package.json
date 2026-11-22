@@ -14,7 +14,8 @@
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "test:pages": "node --test $(ls tests/*.test.mjs | grep -v rendered-html)",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern dist-pages --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "import:check": "node scripts/vaps-import.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

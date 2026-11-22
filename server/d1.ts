@@ -1,6 +1,6 @@
 /**
  * The part of the Cloudflare D1 API the data layer uses. The real `env.DB` binding satisfies it; tests use a
- * node:sqlite adapter (tests/helpers/d1-sqlite.mjs). `batch` runs its statements in one transaction.
+ * node:sqlite adapter (scripts/d1-sqlite.mjs). `batch` runs its statements in one transaction.
  */
 export interface D1Statement {
   bind(...values: unknown[]): D1Statement;

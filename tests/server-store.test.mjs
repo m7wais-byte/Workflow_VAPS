@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
-import { d1 } from './helpers/d1-sqlite.mjs';
+import { d1 } from '../scripts/d1-sqlite.mjs';
 
 const bundle = async (entry) => { const out = await build({ entryPoints: [entry], bundle: true, write: false, format: 'esm', platform: 'node', logLevel: 'silent' }); return import('data:text/javascript;base64,' + Buffer.from(out.outputFiles[0].text).toString('base64')); };
 const { putSetting, buildActor, loadSettings } = await bundle('server/settings-store.ts');
@@ -30,9 +30,9 @@ function insertJob(db, record = job(), revision = 1) { db.sqlite.prepare('INSERT
 const dispatch = { type: 'dispatch', engineer: 'MOHSIN', driver: 'ALI', team: [] };
 const rejects = (promise, status, pattern) => assert.rejects(promise, (e) => e.name === 'StoreError' && e.status === status && (!pattern || pattern.test(e.message)));
 
-test('migrations create the settings, jobs and audit tables next to the existing share table', () => {
-  const tables = d1().sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all().map((r) => r.name);
-  assert.deepEqual(tables, ['audit_log', 'job_summaries', 'jobs', 'settings']);
+test('migrations create the server tables next to the existing share table', () => {
+  const tables = d1().sqlite.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_vaps_%' ORDER BY name").all().map((r) => r.name);
+  assert.deepEqual(tables, ['audit_log', 'browser_archive', 'job_summaries', 'jobs', 'requests', 'settings']);
 });
 
 test('a workflow command runs as the server-side actor with server time and one audit entry', async () => {

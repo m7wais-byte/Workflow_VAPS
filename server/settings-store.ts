@@ -15,7 +15,7 @@ import { auditAfterChange, StoreError, type D1Like } from './d1';
 
 export const serverSettingKeys = [directoryKey, authorizationKey, responsibilitiesKey, labTeamsKey, testCatalogueKey, testRoutingKey] as const;
 export type SettingKey = typeof serverSettingKeys[number];
-type Stored = Partial<Record<SettingKey, { value: string; revision: number }>>;
+export type Stored = Partial<Record<SettingKey, { value: string; revision: number }>>;
 
 /** Who may change each setting: the same permission the Settings screens check today. */
 export const settingPermission: Record<SettingKey, Permission> = {
@@ -29,7 +29,7 @@ export async function loadSettings(db: D1Like): Promise<Stored> {
 }
 
 /** Parses and checks a stored directory. Passwords are never part of the server copy. */
-function readDirectory(raw: string): Directory {
+export function readDirectory(raw: string): Directory {
   const value = JSON.parse(raw) as Directory;
   if (!value || !Array.isArray(value.employees) || !Array.isArray(value.departments) || !Array.isArray(value.positions)) throw Error('Invalid employee directory');
   validateDirectory(value);
@@ -37,7 +37,7 @@ function readDirectory(raw: string): Directory {
 }
 
 /** The validated, normalised JSON to store for `key`, or a 400 refusal with the validator's reason. */
-function normalise(key: SettingKey, value: unknown, stored: Stored): string {
+export function normalise(key: SettingKey, value: unknown, stored: Stored): string {
   const raw = JSON.stringify(value);
   const directory = key === directoryKey ? null : stored[directoryKey] ? readDirectory(stored[directoryKey]!.value) : null;
   const ids = () => { if (!directory) throw Error('Set up the employee directory first.'); return directory.employees.map(e => e.id); };

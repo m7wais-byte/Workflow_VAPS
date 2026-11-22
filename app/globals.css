@@ -3994,3 +3994,6 @@ button.wb-cell { cursor:pointer; } button.wb-cell:hover { background:rgba(11,136
 .generic-sample-list .generic-sample-toggle{position:relative;padding-right:28px}
 .generic-sample-list .generic-sample-toggle::after{content:"";position:absolute;right:6px;top:50%;width:8px;height:8px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:translateY(-70%) rotate(45deg);transition:transform .2s}
 .generic-sample-list article.is-open .generic-sample-toggle::after{transform:translateY(-30%) rotate(225deg)}
+
+/* Inline checkbox inside a Settings panel (e.g. Export all records): box beside its text, not stacked. */
+.settings-panel label.ops-check{flex-direction:row;align-items:center;gap:10px}

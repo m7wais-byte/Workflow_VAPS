@@ -44,3 +44,13 @@ async function readFile(id:string,kind:WorkbookAccess,restricted:boolean):Promis
 export async function downloadWorkbook(id:string,name:string,restricted=true){const file=await readFile(id,'download',restricted);const url=URL.createObjectURL(file);const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);}
 /** Opens the file in a new tab (PDF and CSV preview in the browser; other formats download). */
 export async function openWorkbook(id:string,restricted=true){if(restricted&&!canAccessWorkbook('view'))throw Error(workbookDenied('view'));const tab=window.open('','_blank');try{const file=await readFile(id,'view',restricted);const url=URL.createObjectURL(file);if(tab)tab.location.href=url;else window.location.assign(url);setTimeout(()=>URL.revokeObjectURL(url),60000);}catch(e){tab?.close();throw e;}}
+
+/**
+ * Administrator data export only (app/data-export.ts checks the administrator first): every stored file with its ID,
+ * so the server import can keep the job references valid. Like the gate above, this is a browser-side check.
+ */
+export async function allStoredFiles():Promise<{id:string;file:Blob}[]>{
+ const db=await openStore();
+ try{return await new Promise((resolve,reject)=>{const tx=db.transaction('files');const store=tx.objectStore('files');const keys=store.getAllKeys();const values=store.getAll();tx.oncomplete=()=>resolve((keys.result as IDBValidKey[]).map((k,i)=>({id:String(k),file:values.result[i] as Blob})));tx.onerror=()=>reject(Error('Stored files could not be read.'));});}
+ finally{db.close();}
+}

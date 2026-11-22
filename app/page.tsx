@@ -34,6 +34,7 @@ import { applyClientUnits, clientUnitFor, presetOf, unitPresets, unitQuantities,
 import { containerComplete, containerId, containerLabel, containerNoun, containerTypeName, containerTypes, containerVolumes, isAtmospheric, type ContainerType } from "./sample-container";
 import { buildDemoJobs, demoClient, demoLogin, demoConfiguration } from "./demo-data";
 import { assertActiveAssignments, prepareJobForSave } from "./job-save";
+import { DataExportPanel } from "./data-export-panel";
 import { storeWorkbook } from "./workbook-storage";
 import { cylinderStatusKey, cylinderStatuses, readCylinderStatus, selectable, cylinderStateLabel, type CylinderStatusMap, type EffectiveStatus } from "./cylinder-status";
 import { CylinderRegister } from "./cylinder-register";
@@ -42,7 +43,7 @@ import { planRecords, planRecordCount, planErrors, legacyPlan, newPlanRow, rowSu
 import { coordinator, canWork, type TeamWork } from "./team-workflow";
 import { JobWorkflow } from "./job-workflow";
 import { jobProgress, type JobProgress, type StageId, type TrackEvent } from "./job-workflow-model";
-import { authorizationKey, defaultAuthorization, readAuthorization, allowed, driverMigrationKey, migrateDriverAccess, responsibilitiesKey, defaultResponsibilities, readResponsibilities, roleHolder, retiredResponsibilities, responsibilityLabels, storedResponsibilities, unassignedResponsibilities, type Authorization, type Permission, type Responsibilities } from "./authorization";
+import { administratorId, authorizationKey, defaultAuthorization, readAuthorization, allowed, driverMigrationKey, migrateDriverAccess, responsibilitiesKey, defaultResponsibilities, readResponsibilities, roleHolder, retiredResponsibilities, responsibilityLabels, storedResponsibilities, unassignedResponsibilities, type Authorization, type Permission, type Responsibilities } from "./authorization";
 import { AuthorizationSettings } from "./authorization-settings";
 import { initialDirectory, loadDirectory, validateDirectory, directoryKey, type Employee, type Directory } from "./employee-directory";
 import { SettingsShell, EmployeeSettings, OptionSettings, CompanySettings, defaultCompany, type Company } from "./settings-pages";
@@ -2097,7 +2098,7 @@ export default function Home() {
             </>
           ) : workspaceView === "settings" ? (
             <>
-              <SettingsShell page={settingsPage} can={hasPermission}>
+              <SettingsShell page={settingsPage} can={hasPermission} overviewExtra={currentEmployee.id === administratorId ? <DataExportPanel actorId={currentEmployee.id} /> : null}>
               {directoryError && <p role="alert">{directoryError}</p>}
               {notice && <p role="status">{notice}</p>}
               {settingsPage==='employees' && hasPermission('employees') && <EmployeeSettings directory={directory} onSave={saveDirectory} jobs={storedJobs} onReview={item=>{setWorkflowJobId(item.id);setWorkspaceView('workflow');}} />}

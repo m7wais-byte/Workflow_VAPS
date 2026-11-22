@@ -15,6 +15,13 @@
       "when": 1795320471438,
       "tag": "0001_chubby_ben_urich",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1795321275925,
+      "tag": "0002_flawless_vanisher",
+      "breakpoints": true
     }
   ]
 }
