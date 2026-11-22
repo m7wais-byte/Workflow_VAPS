@@ -105,6 +105,12 @@ Sites gives no direct database access, so the Administrator account is created i
 4. Remove `ADMIN_SETUP_TOKEN` from the Sites panel afterwards. Without it (or with a value shorter than 32 characters) setup is switched off entirely.
 The secret and the password are never logged or written to the audit trail; the audit records `account.setup` and any refused attempts.
 
+**If /#setup says "not available":** the message now says which case applies, without revealing the value:
+- *"does not receive ADMIN_SETUP_TOKEN"*: the running deployment has no such secret. Check the exact name (case, no spaces) on **this** site's project (the pilot and the official site are separate projects with separate secrets), then **redeploy the saved version**: Sites applies secrets only to a new deployment.
+- *"shorter than 32 characters"*: the secret arrives but is too short (surrounding spaces and newlines are ignored). Save a longer value and redeploy.
+
+`GET <site>/api/deployment` shows the running build (commit and build time), whether `DB` and `FILES` are bound, `APP_ORIGIN`, and `adminSetupSecret: missing | too_short | ok`. It never shows a secret, its length, or the OneDrive folder link.
+
 ### Creating the first administrator (VAPS-owned Cloudflare / direct database access)
 ```bash
 node scripts/create-account.mjs ma001 MA001
