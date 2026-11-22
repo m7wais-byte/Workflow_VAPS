@@ -9,16 +9,18 @@ const apply = (db, list) => { for (const f of list) { db.exec('BEGIN'); for (con
 const tables = (db) => db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all().map((r) => r.name);
 const columns = (db, t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
 
-test('the journal lists every migration file in order, and 0003–0004 only add', () => {
+test('the journal lists every migration file in order, and 0003–0005 only add', () => {
   const journal = JSON.parse(fs.readFileSync('drizzle/meta/_journal.json', 'utf8')).entries.map((e) => e.tag + '.sql');
   assert.deepEqual(journal, files);
-  assert.deepEqual(files, ['0000_magenta_phalanx.sql', '0001_chubby_ben_urich.sql', '0002_flawless_vanisher.sql', '0003_employee_sign_in.sql', '0004_account_sign_in_email.sql']);
+  assert.deepEqual(files, ['0000_magenta_phalanx.sql', '0001_chubby_ben_urich.sql', '0002_flawless_vanisher.sql', '0003_employee_sign_in.sql', '0004_account_sign_in_email.sql', '0005_invitations.sql']);
   for (const f of ['0003_employee_sign_in.sql', '0004_account_sign_in_email.sql']) assert.doesNotMatch(fs.readFileSync('drizzle/' + f, 'utf8'), /DROP|DELETE|UPDATE |RENAME/i, f + ': no destructive statements');
+  // 0005 adds and back-fills activated_at for accounts that already had passwords; it removes nothing.
+  assert.doesNotMatch(fs.readFileSync('drizzle/0005_invitations.sql', 'utf8'), /DROP|DELETE|RENAME/i);
 });
 
 test('fresh database: all migrations apply', () => {
   const db = new DatabaseSync(':memory:'); apply(db, files);
-  assert.deepEqual(tables(db), ['accounts', 'activity_log', 'audit_log', 'auth_throttle', 'browser_archive', 'files', 'job_summaries', 'jobs', 'requests', 'sessions', 'settings']);
+  assert.deepEqual(tables(db), ['accounts', 'activity_log', 'audit_log', 'auth_throttle', 'browser_archive', 'files', 'invitations', 'job_summaries', 'jobs', 'requests', 'sessions', 'settings']);
   assert.ok(columns(db, 'audit_log').includes('account_id'));
   assert.ok(columns(db, 'accounts').includes('email'));
 });
@@ -47,8 +49,17 @@ test('upgrade: accounts created before 0004 keep working and get no email; email
   const db = new DatabaseSync(':memory:'); apply(db, files.slice(0, 4));
   const add = (id, user, emp) => db.prepare("INSERT INTO accounts (id, username, employee_id, password_hash, created_at, updated_at) VALUES (?, ?, ?, 'h', 't', 't')").run(id, user, emp);
   add('a1', 'salim.vaps', 'SALIM'); add('a2', 'wilfred.vaps', 'WILFRED');
-  apply(db, files.slice(4));
+  apply(db, files.slice(4, 5));
   assert.deepEqual(db.prepare('SELECT id, username, email FROM accounts ORDER BY id').all().map((r) => ({ ...r })), [{ id: 'a1', username: 'salim.vaps', email: null }, { id: 'a2', username: 'wilfred.vaps', email: null }]);
   db.prepare("UPDATE accounts SET email = 'salim@vaps.example' WHERE id = 'a1'").run();
   assert.throws(() => db.prepare("UPDATE accounts SET email = 'salim@vaps.example' WHERE id = 'a2'").run(), /UNIQUE/);
+});
+
+test('upgrade to 0005: existing accounts count as activated, nothing else changes', () => {
+  const db = new DatabaseSync(':memory:'); apply(db, files.slice(0, 5));
+  db.prepare("INSERT INTO accounts (id, username, employee_id, password_hash, created_at, updated_at, password_changed_at) VALUES ('a1', 'ma001', 'MA001', 'h', '2026-11-01', '2026-11-01', '2026-11-02')").run();
+  db.prepare("INSERT INTO accounts (id, username, employee_id, password_hash, created_at, updated_at) VALUES ('a2', 'salim.vaps', 'SALIM', 'h', '2026-11-03', '2026-11-03')").run();
+  apply(db, files.slice(5));
+  assert.deepEqual(db.prepare('SELECT id, active, activated_at, invited_at, last_sign_in_at FROM accounts ORDER BY id').all().map((r) => ({ ...r })),
+    [{ id: 'a1', active: 1, activated_at: '2026-11-02', invited_at: null, last_sign_in_at: null }, { id: 'a2', active: 1, activated_at: '2026-11-03', invited_at: null, last_sign_in_at: null }]);
 });

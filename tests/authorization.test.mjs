@@ -14,8 +14,18 @@ test('only Salim can create jobs by default, including no administrator bypass',
 test('administrator can grant and revoke creation independently of coordinator role',()=>{
  const policy=defaultAuthorization(ids);policy.createJob=['ALI'];
  const restored=readAuthorization(JSON.stringify(policy),ids);
- assert.equal(allowed(restored,'ALI','createJob'),true);
+ // Job creation is a Super User permission: granting it to a Normal User has no effect until they are a Super User.
+ assert.equal(allowed(restored,'ALI','createJob'),false);
+ assert.equal(allowed(restored,'ALI','createJob',['ALI']),true);
  assert.equal(allowed(restored,'SALIM','createJob'),false);
+});
+test('access roles: Normal Users keep only baseline permissions; Super Users get what Authorization grants',()=>{
+ const policy=defaultAuthorization(ids);policy.companyOverview=[...policy.companyOverview,'ALI'];
+ assert.equal(allowed(policy,'ALI','companyOverview'),false,'Normal User');
+ assert.equal(allowed(policy,'ALI','jobDetails'),true,'baseline permission kept');
+ assert.equal(allowed(policy,'ALI','companyOverview',['ALI']),true,'as a Super User');
+ assert.equal(allowed(policy,'SALIM','companyOverview'),true,'Salim is an initial Super User');
+ assert.equal(allowed(policy,'MA001','settings'),true,'Administrator unchanged');
 });
 test('page permissions are independent and administrator cannot be locked out',()=>{
  const policy=defaultAuthorization(ids);policy.jobDetails=[];policy.analysis=['ALI'];policy.settings=[];

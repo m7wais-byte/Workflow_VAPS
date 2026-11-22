@@ -5,7 +5,7 @@
  * values stay interchangeable with today's records. The labelled demo setup (`vaps-demo-setup-v1`) is never read
  * here: on the server, duties, teams and routing always come from the saved Settings.
  */
-import { authorizationKey, readAuthorization, readResponsibilities, responsibilitiesKey, unassignedResponsibilities, type Permission } from '../app/authorization';
+import { accessRolesKey, readAccessRoles, authorizationKey, readAuthorization, readResponsibilities, responsibilitiesKey, unassignedResponsibilities, type Permission } from '../app/authorization';
 import { directoryKey, validateDirectory, type Directory } from '../app/employee-directory';
 import { labTeamsKey, readLabTeams } from '../app/lab-teams';
 import { catalogueIds, readCustomTests, testCatalogueKey } from '../app/test-catalogue';
@@ -85,7 +85,10 @@ export async function buildActor(db: D1Like, employeeId: string, stored?: Stored
     catalogue = catalogueIds(custom);
     routing = effectiveRouting(readSavedRouting(s[testRoutingKey]?.value ?? null, catalogue));
   } catch { routing = null; }
-  return { id: employeeId, employees, policy, roles, teams, routing, catalogue };
+  // Access roles (Super Users) are a shared Sites setting; read straight from the table, Normal Users if unreadable.
+  const rolesRow = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(accessRolesKey).first<{ value: string }>();
+  let superUsers: string[]; try { superUsers = readAccessRoles(rolesRow?.value ?? null, ids).superUsers; } catch { superUsers = []; }
+  return { id: employeeId, employees, policy, superUsers, roles, teams, routing, catalogue };
 }
 
 /**

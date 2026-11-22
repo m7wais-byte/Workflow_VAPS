@@ -83,7 +83,25 @@ export const accounts = sqliteTable("accounts", {
   createdAt: text("created_at").notNull(),
   createdBy: text("created_by"),
   updatedAt: text("updated_at").notNull(),
+  /** Migration 0005: when the employee set their own password from an invitation (or the account existed before invitations). Null = invited, not yet active. */activatedAt: text("activated_at"),
+  /** Migration 0005: last invitation sent. */invitedAt: text("invited_at"),
+  /** Migration 0005: last successful sign-in. */lastSignInAt: text("last_sign_in_at"),
 });
+
+/**
+ * Invitation links (migration 0005). Only a SHA-256 hash of the one-time token is stored; the token itself exists
+ * only in the email. A link works once, until it expires, and stops working when a newer invitation is sent.
+ */
+export const invitations = sqliteTable("invitations", {
+  tokenHash: text("token_hash").primaryKey(),
+  accountId: text("account_id").notNull(),
+  email: text("email").notNull(),
+  createdAt: text("created_at").notNull(),
+  createdBy: text("created_by").notNull(),
+  expiresAt: text("expires_at").notNull(),
+  usedAt: text("used_at"),
+  revokedAt: text("revoked_at"),
+}, (t) => [index("invitations_account_idx").on(t.accountId)]);
 
 /** Server sessions. Only a SHA-256 hash of the cookie token is stored. */
 export const sessions = sqliteTable("sessions", {

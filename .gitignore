@@ -51,3 +51,6 @@ yarn-error.log*
 # Browser exports and local staging databases contain operational records: never commit them
 vaps-export-*.json
 *.sqlite
+
+# Local Worker variables (development only, never committed)
+.dev.vars

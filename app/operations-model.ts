@@ -1,6 +1,6 @@
 import type { ReportLetterhead } from './sampling-report-model';
 import type { JobRecord } from './page';
-import { defaultResponsibilities, explicitPermissions, roleHolder, storedResponsibilities, responsibilityLabels, type Authorization, type Permission, type Responsibilities, type Responsibility } from './authorization';
+import { administratorId, allowed, defaultResponsibilities, roleHolder, storedResponsibilities, responsibilityLabels, type Authorization, type Permission, type Responsibilities, type Responsibility } from './authorization';
 import type { Employee } from './employee-directory';
 import { containerComplete, containerLabel, isAtmospheric, type ContainerType } from './sample-container';
 import { isValidationTest, validationStepNames, validationStream } from './lab-work';
@@ -187,13 +187,14 @@ export function externalStage(a:ActivityRecord):string{
 }
 export const externalLabel=(a:Pick<ActivityRecord,'external'>)=>a.external?'External · '+(a.external.provider||'provider not recorded'):'';
 const externalFrom=(e?:ExecutionChoice):ExternalWork|undefined=>e?.by==='Third-party'?{provider:(e.provider||'').trim(),notes:(e.notes||'').trim(),expectedReturn:e.expectedReturn||''}:undefined;
-export type Actor = { id:string; employees:Employee[]; policy:Authorization; /** Catalogue test IDs, including tests added in Settings → Tests. The server passes them; the browser omits them and reads its own storage. */catalogue?:string[]; roles?:Responsibilities; /** Current test routing; null when the saved settings cannot be read. */routing?:TestRouting|null; /** Laboratory team lists; null when the saved settings cannot be read. */teams?:LabTeams|null; /** Every job, for advisory schedule-overlap checks in pickers. */jobs?:JobRecord[]; /** Department names for grouping pickers. */departments?:{id:string;name:string}[] };
+export type Actor = { id:string; employees:Employee[]; policy:Authorization; /** Super Users (access roles). Omitted: read from the saved roles. */superUsers?:string[]; /** Catalogue test IDs, including tests added in Settings → Tests. The server passes them; the browser omits them and reads its own storage. */catalogue?:string[]; roles?:Responsibilities; /** Current test routing; null when the saved settings cannot be read. */routing?:TestRouting|null; /** Laboratory team lists; null when the saved settings cannot be read. */teams?:LabTeams|null; /** Every job, for advisory schedule-overlap checks in pickers. */jobs?:JobRecord[]; /** Department names for grouping pickers. */departments?:{id:string;name:string}[] };
 /** The valid holder of a duty for this actor's settings ('' when unassigned or invalid). */
 export const holder=(actor:Actor,key:Responsibility)=>roleHolder(actor.roles||defaultResponsibilities,key,actor.employees);
-export function hasAccess(actor:Actor,permission:Permission) {return actor.employees.some(e=>e.id===actor.id&&e.active)&&((actor.id==='MA001'&&!explicitPermissions.includes(permission))||actor.policy[permission].includes(actor.id));}
+/** Permission check for workflow actions: active employee, access role (Administrator / Super User / Normal User) and Authorization. */
+export function hasAccess(actor:Actor,permission:Permission) {return actor.employees.some(e=>e.id===actor.id&&e.active)&&allowed(actor.policy,actor.id,permission,actor.superUsers);}
 function requireAccess(actor:Actor,permission:Permission,id?:string){if(!hasAccess(actor,permission)||(id&&actor.id!==id))throw Error('This action is not assigned to your active profile or permission.');}
 /** Draft jobs are visible to job creators, their author and the project administrator only. */
-export const canSeeDraft=(job:JobRecord,actor:Actor)=>!isDraft(job)||actor.id===job.createdById||actor.id==='MA001'||hasAccess(actor,'createJob');
+export const canSeeDraft=(job:JobRecord,actor:Actor)=>!isDraft(job)||actor.id===job.createdById||actor.id===administratorId||hasAccess(actor,'createJob');
 export const isTrashed=(job:JobRecord)=>!!job.trash;
 /** Recoverable deletion: marks the job only. Samples, operations, files, reports and history stay in the record. */
 export function trashJob(job:JobRecord,actor:Actor,now=new Date().toISOString()):JobRecord{
