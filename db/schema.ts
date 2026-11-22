@@ -75,6 +75,7 @@ export const accounts = sqliteTable("accounts", {
   id: text("id").primaryKey(),
   /** Lower-case, trimmed. */username: text("username").notNull().unique(),
   employeeId: text("employee_id").notNull().unique(),
+  /** Optional sign-in email (migration 0004). Stored trimmed and lower-case; the unique index makes duplicates impossible whatever the capitalisation. */email: text("email").unique(),
   /** `pbkdf2-sha256$<iterations>$<salt b64>$<hash b64>`; never the password itself. */passwordHash: text("password_hash").notNull(),
   mustChangePassword: integer("must_change_password").notNull().default(1),
   active: integer("active").notNull().default(1),

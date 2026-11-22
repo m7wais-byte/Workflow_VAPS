@@ -5,11 +5,11 @@
 import { burnPasswordCheck, hashPassword, needsRehash, passwordProblem, randomToken, sha256Hex, temporaryPassword, verifyPassword } from "./passwords";
 import { fail, readCookie, cookieName, type AuthConfig } from "./http";
 
-export type AccountRow = { id: string; username: string; employee_id: string; password_hash: string; must_change_password: number; active: number; password_changed_at: string | null; created_at: string; updated_at: string };
+export type AccountRow = { id: string; username: string; email: string | null; employee_id: string; password_hash: string; must_change_password: number; active: number; password_changed_at: string | null; created_at: string; updated_at: string };
 export type Session = { idHash: string; accountId: string; username: string; employeeId: string; mustChangePassword: boolean; expiresAt: string };
 
 /** One message for every failed sign-in: it never reveals whether the username exists, is inactive or is locked. */
-export const SIGN_IN_FAILED = "Sign-in failed. Check your username and password and try again. After several failed attempts, sign-in is paused for 15 minutes.";
+export const SIGN_IN_FAILED = "Sign-in failed. Check your username or email and your password and try again. After several failed attempts, sign-in is paused for 15 minutes.";
 
 const USER_LIMIT = 5, ADDRESS_LIMIT = 30, WINDOW_MINUTES = 15, LOCK_MINUTES = 15;
 const TOUCH_MINUTES = 5;
@@ -17,6 +17,11 @@ const minutes = (n: number) => n * 60_000;
 
 export const normalizeUsername = (value: unknown) => typeof value === "string" ? value.trim().toLowerCase() : "";
 export const validUsername = (u: string) => /^[a-z0-9][a-z0-9._-]{2,39}$/.test(u);
+/** Emails are compared and stored trimmed and lower-case, so capitalisation never creates a second address. */
+export const normalizeEmail = (value: unknown) => typeof value === "string" ? value.trim().toLowerCase() : "";
+export const validEmail = (e: string) => e.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+/** Usernames cannot contain "@", so a sign-in name with "@" is always an email. */
+const findAccount = (db: D1Database, identifier: string) => db.prepare(`SELECT * FROM accounts WHERE ${identifier.includes("@") ? "email" : "username"} = ?`).bind(identifier).first<AccountRow>();
 
 export type AuditInput = { accountId?: string | null; employeeId?: string | null; action: string; target?: string | null; detail?: unknown };
 const auditSql = (afterChange: boolean) => "INSERT INTO audit_log (at, actor_id, action, record_type, record_id, detail, account_id) " + (afterChange ? "SELECT ?, ?, ?, ?, ?, ?, ? WHERE changes() = 1" : "VALUES (?, ?, ?, ?, ?, ?, ?)");
@@ -52,13 +57,15 @@ export type EmployeeCheck = (employeeId: string) => Promise<boolean>;
 /** Verifies a username and password. Unknown, inactive and locked accounts all fail with the same message and timing. */
 export async function signIn(db: D1Database, config: AuthConfig, input: { username: unknown; password: unknown; address: string }, employeeActive: EmployeeCheck, nowDate = new Date()) {
   const now = nowDate.getTime(), at = nowDate.toISOString();
+  // The sign-in name is a username or the account's email (either form, any capitalisation).
   const username = normalizeUsername(input.username);
   const password = typeof input.password === "string" ? input.password : "";
-  const userKey = "user:" + username, addressKey = "addr:" + input.address;
-  if (!username || !password || password.length > 256) { await burnPasswordCheck(password || "x"); throw fail(401, SIGN_IN_FAILED); }
+  if (!username || username.length > 254 || !password || password.length > 256) { await burnPasswordCheck(password || "x"); throw fail(401, SIGN_IN_FAILED); }
+  const account = await findAccount(db, username);
+  // Failed attempts count per account, so the username and the email share one limit; unknown names count by name.
+  const userKey = account ? "account:" + account.id : "user:" + username, addressKey = "addr:" + input.address;
   const [user, address] = await Promise.all([throttleState(db, userKey, now), throttleState(db, addressKey, now)]);
-  if (user.locked || address.locked) { await burnPasswordCheck(password); await audit(db, { action: "auth.sign_in_blocked", target: username }, at); throw fail(429, SIGN_IN_FAILED); }
-  const account = await db.prepare("SELECT * FROM accounts WHERE username = ?").bind(username).first<AccountRow>();
+  if (user.locked || address.locked) { await burnPasswordCheck(password); await audit(db, { accountId: account?.id, employeeId: account?.employee_id, action: "auth.sign_in_blocked", target: username }, at); throw fail(429, SIGN_IN_FAILED); }
   const ok = account ? await verifyPassword(password, account.password_hash) : (await burnPasswordCheck(password), false);
   if (!account || !ok || !account.active || !(await employeeActive(account.employee_id))) {
     await recordFailure(db, userKey, USER_LIMIT, now); await recordFailure(db, addressKey, ADDRESS_LIMIT, now);
@@ -70,7 +77,7 @@ export async function signIn(db: D1Database, config: AuthConfig, input: { userna
   const token = randomToken(), idHash = await sha256Hex(token);
   const expiresAt = new Date(now + config.sessionMaxHours * 3_600_000).toISOString();
   await db.prepare("INSERT INTO sessions (id_hash, account_id, created_at, last_seen_at, expires_at) VALUES (?, ?, ?, ?, ?)").bind(idHash, account.id, at, at, expiresAt).run();
-  await audit(db, { accountId: account.id, employeeId: account.employee_id, action: "auth.sign_in" }, at);
+  await audit(db, { accountId: account.id, employeeId: account.employee_id, action: "auth.sign_in", detail: { with: username.includes("@") ? "email" : "username" } }, at);
   return { token, maxAgeSeconds: config.sessionMaxHours * 3600, session: { idHash, accountId: account.id, username: account.username, employeeId: account.employee_id, mustChangePassword: !!account.must_change_password, expiresAt } satisfies Session };
 }
 
@@ -121,26 +128,56 @@ export async function changeOwnPassword(db: D1Database, session: Session, input:
 
 /* ---------- Administrator account management ---------- */
 
-export type AccountSummary = { id: string; username: string; employeeId: string; active: boolean; mustChangePassword: boolean; passwordChangedAt: string | null; createdAt: string; activeSessions: number };
+export type AccountSummary = { id: string; username: string; email: string | null; employeeId: string; active: boolean; mustChangePassword: boolean; passwordChangedAt: string | null; createdAt: string; activeSessions: number };
 export async function listAccounts(db: D1Database, now = new Date().toISOString()): Promise<AccountSummary[]> {
-  const { results } = await db.prepare(`SELECT a.id, a.username, a.employee_id, a.active, a.must_change_password, a.password_changed_at, a.created_at,
-    (SELECT COUNT(*) FROM sessions s WHERE s.account_id = a.id AND s.revoked_at IS NULL AND s.expires_at > ?) AS active_sessions FROM accounts a ORDER BY a.username`).bind(now).all<{ id: string; username: string; employee_id: string; active: number; must_change_password: number; password_changed_at: string | null; created_at: string; active_sessions: number }>();
-  return results.map((r) => ({ id: r.id, username: r.username, employeeId: r.employee_id, active: !!r.active, mustChangePassword: !!r.must_change_password, passwordChangedAt: r.password_changed_at, createdAt: r.created_at, activeSessions: r.active_sessions }));
+  const { results } = await db.prepare(`SELECT a.id, a.username, a.email, a.employee_id, a.active, a.must_change_password, a.password_changed_at, a.created_at,
+    (SELECT COUNT(*) FROM sessions s WHERE s.account_id = a.id AND s.revoked_at IS NULL AND s.expires_at > ?) AS active_sessions FROM accounts a ORDER BY a.username`).bind(now).all<{ id: string; username: string; email: string | null; employee_id: string; active: number; must_change_password: number; password_changed_at: string | null; created_at: string; active_sessions: number }>();
+  return results.map((r) => ({ id: r.id, username: r.username, email: r.email, employeeId: r.employee_id, active: !!r.active, mustChangePassword: !!r.must_change_password, passwordChangedAt: r.password_changed_at, createdAt: r.created_at, activeSessions: r.active_sessions }));
 }
 
 type Admin = { accountId: string; employeeId: string };
 /** Creates an account for an existing employee record and returns a one-time temporary password. */
-export async function createAccount(db: D1Database, admin: Admin, input: { username?: unknown; employeeId?: unknown }, employeeExists: (id: string) => boolean, at = new Date().toISOString()) {
+export async function createAccount(db: D1Database, admin: Admin, input: { username?: unknown; employeeId?: unknown; email?: unknown }, employeeExists: (id: string) => boolean, at = new Date().toISOString()) {
   const username = normalizeUsername(input.username), employeeId = typeof input.employeeId === "string" ? input.employeeId : "";
+  const email = emailInput(input.email);
   if (!validUsername(username)) throw fail(400, "Usernames are 3–40 characters: letters, digits, dot, hyphen or underscore.");
   if (!employeeExists(employeeId)) throw fail(400, "Choose an active employee from the directory.");
   if (await db.prepare("SELECT id FROM accounts WHERE username = ?").bind(username).first()) throw fail(409, "That username is already in use.");
   if (await db.prepare("SELECT id FROM accounts WHERE employee_id = ?").bind(employeeId).first()) throw fail(409, "This employee already has an account. Reset its password instead.");
   const id = crypto.randomUUID(), temporary = temporaryPassword();
-  await db.prepare("INSERT INTO accounts (id, username, employee_id, password_hash, must_change_password, active, created_at, created_by, updated_at) VALUES (?, ?, ?, ?, 1, 1, ?, ?, ?)")
-    .bind(id, username, employeeId, await hashPassword(temporary), at, admin.accountId, at).run();
-  await audit(db, { ...admin, action: "account.created", target: id, detail: { username, employeeId } }, at);
-  return { id, username, employeeId, temporaryPassword: temporary };
+  try {
+    await db.prepare("INSERT INTO accounts (id, username, email, employee_id, password_hash, must_change_password, active, created_at, created_by, updated_at) VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?, ?)")
+      .bind(id, username, email, employeeId, await hashPassword(temporary), at, admin.accountId, at).run();
+  } catch (error) { throw uniqueFailure(error); }
+  await audit(db, { ...admin, action: "account.created", target: id, detail: { username, employeeId, email } }, at);
+  return { id, username, email, employeeId, temporaryPassword: temporary };
+}
+
+/** An email from the request: "" or missing clears it; anything else must be a valid address. */
+function emailInput(value: unknown): string | null {
+  if (value === undefined || value === null || (typeof value === "string" && !value.trim())) return null;
+  const email = normalizeEmail(value);
+  if (!validEmail(email)) throw fail(400, "Enter a valid email address, or leave it empty.");
+  return email;
+}
+/** The database refuses a second account with the same username, employee or email (unique indexes): report which. */
+function uniqueFailure(error: unknown) {
+  const text = error instanceof Error ? error.message : "";
+  if (/UNIQUE/i.test(text) && /email/i.test(text)) return fail(409, "That email address is already used by another account.");
+  if (/UNIQUE/i.test(text)) return fail(409, "That username or employee already has an account.");
+  return error;
+}
+
+/** Adds, changes or removes an account's sign-in email. The username keeps working either way. */
+export async function setAccountEmail(db: D1Database, admin: Admin, accountId: string, value: unknown, at = new Date().toISOString()) {
+  const email = emailInput(value);
+  const before = await db.prepare("SELECT email FROM accounts WHERE id = ?").bind(accountId).first<{ email: string | null }>();
+  if (!before) throw fail(404, "Account not found.");
+  if (before.email === email) return { id: accountId, email };
+  try { await db.prepare("UPDATE accounts SET email = ?, updated_at = ? WHERE id = ?").bind(email, at, accountId).run(); }
+  catch (error) { throw uniqueFailure(error); }
+  await audit(db, { ...admin, action: "account.email_changed", target: accountId, detail: { before: before.email, after: email } }, at);
+  return { id: accountId, email };
 }
 
 /** Issues a new temporary password: the account must change it at next sign-in and every session is revoked. */
@@ -149,7 +186,7 @@ export async function resetAccountPassword(db: D1Database, admin: Admin, account
   if (!account) throw fail(404, "Account not found.");
   const temporary = temporaryPassword();
   await db.prepare("UPDATE accounts SET password_hash = ?, must_change_password = 1, updated_at = ? WHERE id = ?").bind(await hashPassword(temporary), at, accountId).run();
-  await db.prepare("DELETE FROM auth_throttle WHERE key = ?").bind("user:" + account.username).run();
+  await db.prepare("DELETE FROM auth_throttle WHERE key IN (?, ?)").bind("account:" + account.id, "user:" + account.username).run();
   await revokeAccountSessions(db, accountId, "password_reset", undefined, at);
   await audit(db, { ...admin, action: "account.password_reset", target: accountId }, at);
   return { id: accountId, username: account.username, temporaryPassword: temporary };
