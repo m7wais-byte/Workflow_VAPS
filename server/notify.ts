@@ -27,6 +27,7 @@ import { jobProgressView, clientProgress, progressStatusLabel } from "../app/job
 import { operationsFor, latest, interimReport, operationComplete } from "../app/operations-model";
 import { canOpenJob } from "../app/job-access";
 import { actorFor, withRecords, type Context, type Who } from "./workspace";
+import { fail } from "./http";
 import { escape, mailerFrom, recipientAllowed, RECIPIENT_BLOCKED, type Mail } from "./mail";
 
 export type StaffEvent = "assignment" | "review" | "returned";
@@ -144,14 +145,18 @@ async function attempt(env: Record<string, unknown>, db: D1Database, row: Outbox
   return (await db.prepare("SELECT * FROM mail_outbox WHERE id = ?").bind(row.id).first<OutboxRow>())!;
 }
 
-/** MA001: retry one failed, still queued or stale "sending" notification. Invitations are re-sent from Sign-in accounts instead. */
-export async function retry(env: Record<string, unknown>, db: D1Database, id: string, at = new Date().toISOString()) {
+const mailerSender = (env: Record<string, unknown>) => String(env.MAIL_SENDER || "").trim().toLowerCase();
+
+/** MA001: retry one failed, still queued or stale "sending" notification (the last only with sentItemsChecked). Invitations are re-sent from Sign-in accounts instead. */
+export async function retry(env: Record<string, unknown>, db: D1Database, id: string, at = new Date().toISOString(), sentItemsChecked = false) {
   const row = await db.prepare("SELECT * FROM mail_outbox WHERE id = ?").bind(id).first<OutboxRow>();
   if (!row) return null;
   if (row.audience === "invite" || !row.html_body || !row.text_body) return { ...row, last_error: "Invitations are not stored; send a new invitation from Settings → Sign-in accounts." };
-  // "sending" is retried only when stale: the earlier attempt never recorded its outcome. Microsoft may still have
-  // delivered it, so MA001 checks bsg@visionaps.com's Sent Items before retrying such a row.
-  if (row.status !== "failed" && row.status !== "queued" && !(row.status === "sending" && row.updated_at < staleBefore(at))) return row;
+  // "sending" is retried only when stale: the earlier attempt never recorded its outcome. Microsoft may already have
+  // accepted it, so MA001 must first check the sender's Sent Items and confirm it is not there (sentItemsChecked).
+  const staleSending = row.status === "sending" && row.updated_at < staleBefore(at);
+  if (row.status !== "failed" && row.status !== "queued" && !staleSending) return row;
+  if (staleSending && !sentItemsChecked) throw fail(409, `This email was interrupted while sending, and Microsoft may already have accepted it. Check the Sent Items of ${mailerSender(env) || "the sender mailbox"} for "${row.subject}" to ${row.recipient}. Retry only if it is not there, and confirm that you checked.`);
   return attempt(env, db, row, { to: row.recipient, subject: row.subject, text: row.text_body, html: row.html_body }, at);
 }
 

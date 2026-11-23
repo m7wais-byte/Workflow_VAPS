@@ -8,7 +8,8 @@ import { administratorId } from "../../../authorization";
 export const dynamic = "force-dynamic";
 /**
  * Email send log, Administrator (MA001) only. GET: configuration summary (no secrets) and the latest messages with
- * their outcome. POST { action: "retry", id }: re-send one failed notification (never one already sent).
+ * their outcome. POST { action: "retry", id, sentItemsChecked? }: re-send one failed notification (never one already sent). A message
+ * interrupted while sending also needs sentItemsChecked: true, after MA001 has checked the sender's Sent Items.
  */
 export function GET(request: Request) {
   return signedIn(apiEnv(), request, async ({ db, env, actor }) => {
@@ -24,11 +25,11 @@ export function GET(request: Request) {
 export function POST(request: Request) {
   return signedIn(apiEnv(), request, async ({ db, env, actor, who }) => {
     if (actor.id !== administratorId) throw fail(403, "Only the Administrator can retry emails.");
-    const body = await readJson<{ action?: unknown; id?: unknown }>(request, 1000);
+    const body = await readJson<{ action?: unknown; id?: unknown; sentItemsChecked?: unknown }>(request, 1000);
     if (body.action !== "retry" || typeof body.id !== "string") throw fail(400, "Unknown action.");
-    const row = await retry(env, db, body.id);
+    const row = await retry(env, db, body.id, undefined, body.sentItemsChecked === true);
     if (!row) throw fail(404, "This message is not in the email log.");
-    await audit(db, { ...who, action: "mail.retried", target: row.id, detail: { status: row.status } });
+    await audit(db, { ...who, action: "mail.retried", target: row.id, detail: { status: row.status, ...(body.sentItemsChecked === true ? { sentItemsChecked: true } : {}) } });
     const { text_body: _t, html_body: _h, ...safe } = row; void _t; void _h;
     return reply(safe);
   });

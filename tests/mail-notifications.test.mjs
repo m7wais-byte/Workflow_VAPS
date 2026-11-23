@@ -217,7 +217,7 @@ test('Graph down: the save still succeeds, the failure is logged, MA001 retries 
   assert.equal(again.data.status, 'sent'); assert.equal(graph.sent.length, sent + 1, 'already sent: not sent again');
 });
 
-test('a send interrupted mid-way ("sending") is retryable by MA001 only once it is stale, and is sent once', async () => {
+test('a send interrupted mid-way ("sending") is retryable by MA001 only once stale and after confirming Sent Items were checked; sent once', async () => {
   const ma = await as('MA001');
   const failed = (await rows()).find((x) => x.status === 'sent' && x.audience === 'staff');
   const at = new Date().toISOString();
@@ -228,9 +228,12 @@ test('a send interrupted mid-way ("sending") is retryable by MA001 only once it 
   assert.equal(fresh.data.status, 'sending'); assert.equal(graph.sent.length, sent, 'a send still in progress is not repeated');
   const old = new Date(Date.now() - api.notify.STALE_SENDING_MS - 60_000).toISOString();
   await DB.prepare('UPDATE mail_outbox SET updated_at = ? WHERE id = ?').bind(old, failed.id).run();
-  const r = await call('mail', 'POST', '/', { cookie: ma, json: { action: 'retry', id: failed.id } });
-  assert.equal(r.data.status, 'sent'); assert.equal(graph.sent.length, sent + 1);
-  const again = await call('mail', 'POST', '/', { cookie: ma, json: { action: 'retry', id: failed.id } });
+  // Stale: refused until MA001 confirms the sender's Sent Items were checked.
+  const unchecked = await call('mail', 'POST', '/', { cookie: ma, json: { action: 'retry', id: failed.id } });
+  assert.equal(unchecked.status, 409); assert.match(unchecked.data.error, new RegExp('Sent Items of ' + SENDER)); assert.equal(graph.sent.length, sent);
+  const r = await call('mail', 'POST', '/', { cookie: ma, json: { action: 'retry', id: failed.id, sentItemsChecked: true } });
+  assert.equal(r.status, 200); assert.equal(r.data.status, 'sent'); assert.equal(graph.sent.length, sent + 1);
+  const again = await call('mail', 'POST', '/', { cookie: ma, json: { action: 'retry', id: failed.id, sentItemsChecked: true } });
   assert.equal(again.data.status, 'sent'); assert.equal(graph.sent.length, sent + 1, 'sent once');
 });
 
