@@ -51,6 +51,7 @@ globalThis.fetch = async (input, init = {}) => {
   }
   if (method === 'GET' && (m = /^\/drives\/drv1\/items\/([^/:]+):\/(.+)$/.exec(path))) { const item = children(m[1]).find((c) => c.name === m[2]); return item ? json(view(item)) : json({}, 404); }
   if (method === 'PUT' && (m = /^\/drives\/drv1\/items\/([^/:]+):\/(.+):\/content$/.exec(path))) {
+    if (!ms.items.has(m[1])) return json({ error: { code: 'itemNotFound' } }, 404);
     assert.equal(url.searchParams.get('@microsoft.graph.conflictBehavior'), 'rename', 'uploads never replace an existing file');
     let name = m[2]; const dot = name.lastIndexOf('.'), stem = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : '';
     for (let n = 1; children(m[1]).some((c) => c.name.toLowerCase() === name.toLowerCase()); n++) name = `${stem} ${n}${ext}`;
@@ -135,6 +136,24 @@ test('a sample G-sheet and lab workbook uploaded through the app reach Sampling 
   assert.deepEqual(Object.keys(gs.data).filter((k) => k !== 'copy').sort(), ['id', 'name', 'size', 'type'], 'the job file reference is unchanged');
 });
 
+test('Connect pressed again while connected: a new sign-in code is issued and the connection stays in place', async () => {
+  const again = await admin({ action: 'connect' });
+  assert.equal(again.status, 200, JSON.stringify(again.data));
+  assert.equal(again.data.signIn.code, 'SMPL-CODE');
+  assert.equal((await call('admin', 'GET', '/', { cookie: ma })).data.status, 'connected');
+  await DB.prepare("UPDATE onedrive_auth SET pending = NULL, pending_expires = NULL WHERE id = 'default'").run();
+});
+
+test('access token expired: the stored refresh token is used and the rotated one is stored again, encrypted', async () => {
+  const before = (await DB.prepare("SELECT sealed FROM onedrive_auth WHERE id = 'default'").first()).sealed;
+  api.resetOneDriveCache();
+  const up = await upload('After-refresh.csv', 'lab-workbook');
+  assert.deepEqual(up.data.copy, { status: 'ok', name: 'After-refresh.csv', renamed: false, savedInVaps: true });
+  const row = await DB.prepare("SELECT status, sealed FROM onedrive_auth WHERE id = 'default'").first();
+  assert.equal(row.status, 'connected'); assert.notEqual(row.sealed, before, 'rotated refresh token stored');
+  for (const t of ms.issued) assert.ok(!row.sealed.includes(t));
+});
+
 test('saving the job again reuses both folders', async () => {
   const before = folderCreates();
   await save({ ...sampleJob, description: 'Second save.' });
@@ -164,13 +183,24 @@ test('OneDrive unavailable: the original stays saved in Workflow VAPS, the job s
   const retry = await admin({ action: 'retry', jobId: id });
   assert.equal(retry.data.copy.status, 'ok');
   assert.equal(retry.data.files.find((f) => f.id === up.data.id).status, 'ok');
-  assert.deepEqual(inFolder(id + '/Lab'), ['Lab-results.csv', 'PVT-workbook.csv']);
+  assert.deepEqual(inFolder(id + '/Lab'), ['After-refresh.csv', 'Lab-results.csv', 'PVT-workbook.csv']);
 });
 
 test('lost bookkeeping: existing folders are found and reused, not duplicated', async () => {
   await DB.prepare('DELETE FROM onedrive_jobs').run(); api.resetOneDriveCache();
   await save({ ...sampleJob, description: 'After bookkeeping loss.' });
   assert.deepEqual(folders(), [id, id + '/Lab', id + '/Sampling']);
+});
+
+test('job folder deleted in OneDrive: the next copy re-creates <Job ID>/Sampling and Lab instead of failing forever', async () => {
+  const gone = [...ms.items.values()].filter((i) => i.parent !== null && (pathOf(i) === id || pathOf(i).startsWith(id + '/')));
+  for (const i of gone) ms.items.delete(i.id);
+  assert.deepEqual(folders(), []);
+  const up = await upload('After-delete.csv', 'sampling-sheet');
+  assert.equal(up.status, 201); assert.deepEqual(up.data.copy, { status: 'ok', name: 'After-delete.csv', renamed: false, savedInVaps: true });
+  assert.deepEqual(folders(), [id, id + '/Lab', id + '/Sampling']);
+  assert.deepEqual(inFolder(id + '/Sampling'), ['After-delete.csv']);
+  assert.equal((await jobCopy()).job.status, 'ok');
 });
 
 test('sign-in revoked: copies fail with "not connected", originals stay in Workflow VAPS; reconnecting resumes', async () => {
