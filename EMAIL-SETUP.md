@@ -81,6 +81,7 @@ Run this only after the OneDrive pilot has passed, the mailbox grant in 1d is ve
 2. **Invitation:** invite a test employee record with the staff test inbox. Check that the email comes from bsg@visionaps.com, that the link opens the official dashboard, that a password can be set once, and that a second use is refused.
 3. **Employee notification:** dispatch a sample job with that test employee as the accountable engineer. The email should show the Job ID, the assigned action and a dashboard link to the job.
 4. **Client notification:** give the sample job the client test inbox as client focal point email. Approve its sampling report, then check that the email has only the job number and reference, the milestone and the stage statuses.
-5. In **Settings → Sign-in accounts → Email log**, all three should show *Sent*, exactly once each, and nothing should be *Blocked*, *Failed* or *Outcome unknown*. Each should appear once in bsg@visionaps.com's Sent Items and once in the test inbox.
+5. In **Settings → Sign-in accounts → Email log**, the three test messages should show *Sent*, exactly once each, with nothing *Failed* or *Outcome unknown*. Rows for other staff on the test job show *Blocked*: that is expected and proves the allow-list works. Each test message should appear once in bsg@visionaps.com's Sent Items and once in its test inbox.
+6. Clean-up: cancel or deactivate the test account, and clear the test inbox from the sample job.
 
 Rollout after approval: set `MAIL_ALLOWED_RECIPIENTS=*`. Invite the four Super Users first, then Normal Users. Enable `NOTIFY_CLIENT` last.
