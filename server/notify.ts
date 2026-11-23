@@ -18,7 +18,9 @@
  * Duplicates: every message has a dedupe key (event, recipient, job, the job revision that produced it). The key is
  * unique in mail_outbox, so a retried request, a repeated save or a second worker cannot queue it twice, and a message
  * already sent is never sent again. A retried workflow action is refused by the revision check before anything is
- * queued. Failed sends stay in the outbox with the reason; MA001 retries them (POST /api/admin/mail).
+ * queued. Failed sends stay in the outbox with the reason; MA001 retries them (POST /api/admin/mail or Settings →
+ * Sign-in accounts → Email log). A send whose outcome is unknown ("uncertain", or "sending" left stale) is never retried
+ * automatically; MA001 retries it only after confirming the sender's Sent Items were checked, and that is audited.
  * A failure to send never fails or undoes the workflow save.
  */
 import type { JobRecord } from "../app/page";
@@ -28,7 +30,7 @@ import { operationsFor, latest, interimReport, operationComplete } from "../app/
 import { canOpenJob } from "../app/job-access";
 import { actorFor, withRecords, type Context, type Who } from "./workspace";
 import { fail } from "./http";
-import { escape, mailerFrom, recipientAllowed, RECIPIENT_BLOCKED, type Mail } from "./mail";
+import { escape, isUncertain, mailerFrom, recipientAllowed, RECIPIENT_BLOCKED, VAPS_SENDER, type Mail } from "./mail";
 
 export type StaffEvent = "assignment" | "review" | "returned";
 export type ClientEvent = "sampling-report" | "interim" | "final-report";
@@ -132,36 +134,54 @@ export async function deliver(env: Record<string, unknown>, db: D1Database, q: Q
 export const STALE_SENDING_MS = 10 * 60_000;
 const staleBefore = (at: string) => new Date(new Date(at).getTime() - STALE_SENDING_MS).toISOString();
 
-/** One send attempt for a queued or failed row (or a stale "sending" row). A row is claimed first, so two retries cannot both send it. */
+/** One send attempt for a row the caller has checked (deliver: new "queued"; retry: nextStep). A row is claimed first, so two retries cannot both send it. */
 async function attempt(env: Record<string, unknown>, db: D1Database, row: OutboxRow, mail: Mail, at: string): Promise<OutboxRow> {
-  const claim = await db.prepare("UPDATE mail_outbox SET status = 'sending', attempts = attempts + 1, updated_at = ? WHERE id = ? AND (status IN ('queued', 'failed') OR (status = 'sending' AND updated_at < ?))").bind(at, row.id, staleBefore(at)).run();
+  // Claimed only from the exact state the caller checked (status and updated_at), so a row that changed meanwhile, for
+  // example to "uncertain" by a parallel attempt, is never sent without its own check.
+  const claim = await db.prepare("UPDATE mail_outbox SET status = 'sending', attempts = attempts + 1, updated_at = ? WHERE id = ? AND status = ? AND updated_at = ? AND status IN ('queued', 'failed', 'uncertain', 'sending')").bind(at, row.id, row.status, row.updated_at).run();
   if (claim.meta.changes !== 1) return (await db.prepare("SELECT * FROM mail_outbox WHERE id = ?").bind(row.id).first<OutboxRow>())!;
   const mailer = mailerFrom(env);
   let status = "sent", error: string | null = null;
   if (!mailer) { status = "failed"; error = "Email is not configured on this server."; }
   else if (!recipientAllowed(env, mail.to)) { status = "blocked"; error = RECIPIENT_BLOCKED; }
-  else { try { await mailer.send(mail); } catch (e) { status = "failed"; error = e instanceof Error ? e.message : "The email could not be sent."; } }
+  else { try { await mailer.send(mail); } catch (e) { status = isUncertain(e) ? "uncertain" : "failed"; error = e instanceof Error ? e.message : "The email could not be sent."; } }
   await db.prepare("UPDATE mail_outbox SET status = ?, last_error = ?, sent_at = ?, updated_at = ? WHERE id = ?").bind(status, error, status === "sent" ? at : null, at, row.id).run();
   return (await db.prepare("SELECT * FROM mail_outbox WHERE id = ?").bind(row.id).first<OutboxRow>())!;
 }
 
-const mailerSender = (env: Record<string, unknown>) => String(env.MAIL_SENDER || "").trim().toLowerCase();
+const mailerSender = (env: Record<string, unknown>) => String(env.MAIL_SENDER || "").trim().toLowerCase() || VAPS_SENDER;
 
-/** MA001: retry one failed, still queued or stale "sending" notification (the last only with sentItemsChecked). Invitations are re-sent from Sign-in accounts instead. */
-export async function retry(env: Record<string, unknown>, db: D1Database, id: string, at = new Date().toISOString(), sentItemsChecked = false) {
+/** What MA001 may do with a row: "retry", "check-sent-items" (outcome unknown: confirm Sent Items first) or nothing. */
+export function nextStep(row: Pick<OutboxRow, "audience" | "status" | "updated_at">, at = new Date().toISOString()): "retry" | "check-sent-items" | null {
+  if (row.audience === "invite") return null;
+  if (row.status === "failed" || row.status === "queued") return "retry";
+  if (row.status === "uncertain" || (row.status === "sending" && row.updated_at < staleBefore(at))) return "check-sent-items";
+  return null;
+}
+
+/**
+ * MA001: retry one failed or still queued notification. One whose outcome is unknown ("uncertain", or "sending" left
+ * stale) needs sentItemsChecked; onConfirmed runs (to audit the confirmation) before that send is attempted.
+ * Invitations are re-sent from Sign-in accounts instead.
+ */
+export async function retry(env: Record<string, unknown>, db: D1Database, id: string, at = new Date().toISOString(), sentItemsChecked = false, onConfirmed?: (row: OutboxRow) => Promise<void>) {
   const row = await db.prepare("SELECT * FROM mail_outbox WHERE id = ?").bind(id).first<OutboxRow>();
   if (!row) return null;
   if (row.audience === "invite" || !row.html_body || !row.text_body) return { ...row, last_error: "Invitations are not stored; send a new invitation from Settings → Sign-in accounts." };
-  // "sending" is retried only when stale: the earlier attempt never recorded its outcome. Microsoft may already have
-  // accepted it, so MA001 must first check the sender's Sent Items and confirm it is not there (sentItemsChecked).
-  const staleSending = row.status === "sending" && row.updated_at < staleBefore(at);
-  if (row.status !== "failed" && row.status !== "queued" && !staleSending) return row;
-  if (staleSending && !sentItemsChecked) throw fail(409, `This email was interrupted while sending, and Microsoft may already have accepted it. Check the Sent Items of ${mailerSender(env) || "the sender mailbox"} for "${row.subject}" to ${row.recipient}. Retry only if it is not there, and confirm that you checked.`);
+  // Outcome unknown: Microsoft may already have accepted it, so MA001 must first check the sender's Sent Items and
+  // confirm it is not there (sentItemsChecked). A fresh "sending" row is still in progress and is left alone.
+  const step = nextStep(row, at);
+  if (!step) return row;
+  if (step === "check-sent-items") {
+    if (!sentItemsChecked) throw fail(409, `It is not known whether this email was sent: Microsoft may already have accepted it. Check the Sent Items of ${mailerSender(env)} for "${row.subject}" to ${row.recipient}. Retry only if it is not there, and confirm that you checked.`);
+    await onConfirmed?.(row);
+  }
   return attempt(env, db, row, { to: row.recipient, subject: row.subject, text: row.text_body, html: row.html_body }, at);
 }
 
-export async function outbox(db: D1Database, limit = 100) {
-  return (await db.prepare("SELECT id, audience, event, job_id, employee_id, recipient, subject, status, attempts, last_error, created_at, sent_at FROM mail_outbox ORDER BY created_at DESC LIMIT ?").bind(limit).all()).results;
+export async function outbox(db: D1Database, limit = 100, at = new Date().toISOString()) {
+  const rows = (await db.prepare("SELECT id, audience, event, job_id, employee_id, recipient, subject, status, attempts, last_error, created_at, sent_at, updated_at FROM mail_outbox ORDER BY created_at DESC LIMIT ?").bind(limit).all<Omit<OutboxRow, "dedupe_key" | "text_body" | "html_body">>()).results;
+  return rows.map((r) => ({ ...r, next: nextStep(r, at) }));
 }
 
 /* ---------- After a job change ---------- */

@@ -32,7 +32,12 @@ export function POST(request: Request) {
     } else {
       // Recorded in the send log without its body: the one-time link is never stored.
       const sent = await deliver(env, db, { dedupeKey: `invite:${invitation.accountId}:${crypto.randomUUID()}`, audience: "invite", event: "invitation", employeeId: employee.id, mail, keepBody: false });
-      if (sent.status !== "sent") { await cancelInvitation(db, invitation.token); throw fail(sent.status === "blocked" ? 403 : 502, (sent.last_error || "The invitation email could not be sent.") + " No invitation was issued; please retry."); }
+      if (sent.status !== "sent") {
+        await cancelInvitation(db, invitation.token);
+        // Outcome unknown: the email may still arrive, but its link no longer works. Never re-sent automatically.
+        if (sent.status === "uncertain") throw fail(502, "Microsoft 365 did not confirm the invitation email. The invitation was cancelled, so if that email arrives its link will not work. Send a new invitation when ready.");
+        throw fail(sent.status === "blocked" ? 403 : 502, (sent.last_error || "The invitation email could not be sent.") + " No invitation was issued; please retry.");
+      }
     }
     await audit(db, { ...who, action: "account.invited", target: invitation.accountId, detail: { employeeId: employee.id, email: invitation.email, expiresAt: invitation.expiresAt, mail: mailer.mode } });
     return reply({ accountId: invitation.accountId, employeeId: employee.id, email: invitation.email, expiresAt: invitation.expiresAt, mail: mailer.mode, ...(mailer.mode === "test" ? { testLink: link } : {}) });

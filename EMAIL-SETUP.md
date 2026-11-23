@@ -1,6 +1,6 @@
 # Email from bsg@visionaps.com (Microsoft Graph, send only)
 
-Workflow VAPS sends three kinds of email from **bsg@visionaps.com**. Everything is off until the server settings below are set:
+Workflow VAPS sends three kinds of email from **bsg@visionaps.com**. The sender is fixed in the code: any other `MAIL_SENDER` turns email off. Everything is off until the server settings below are set:
 
 | Email | Sent when | To |
 |---|---|---|
@@ -12,7 +12,21 @@ Employee notifications come from the same calculation as each employee's *My wor
 
 Client emails contain only the client progress view: job number, the client's own reference, the milestone and its date, stage statuses and the confirmed expected completion date. They contain no staff names, comments, internal statuses, links into the workspace or files. The final report itself is still issued by VAPS through the agreed channel.
 
-**Duplicates.** Every message has a unique key in the `mail_outbox` table: event, recipient, job, and the job revision or report version that produced it. A retried or repeated request cannot queue the same message twice, and a message that was sent is never sent again. A failed send never undoes the workflow step. It stays in the log with the reason, and MA001 can retry it (`POST /api/admin/mail { action: "retry", id }`). A message left in *sending* for more than 10 minutes (the server stopped mid-send) can also be retried, but only after MA001 has checked bsg@visionaps.com's Sent Items, because Microsoft may already have accepted it. The server refuses that retry until it is confirmed (`{ action: "retry", id, sentItemsChecked: true }`). Retry only if the message is not in Sent Items. `GET /api/admin/mail` (MA001 only) shows the configuration and the latest messages with their outcome.
+**Duplicates.** Every message has a unique key in the `mail_outbox` table: event, recipient, job, and the job revision or report version that produced it. A retried or repeated request cannot queue the same message twice, and a message that was sent is never sent again. A failed send never undoes the workflow step.
+
+**Nothing is retried automatically.** Each message ends in one of these states, shown in **Settings → Sign-in accounts → Email log** (MA001 only; also `GET /api/admin/mail`):
+
+| Status | Meaning | What MA001 can do |
+|---|---|---|
+| Sent | Microsoft 365 accepted it (202) | Nothing |
+| Blocked | Recipient not on `MAIL_ALLOWED_RECIPIENTS`; nothing left the server | Nothing |
+| Failed | Refused before sending (sign-in failed, 403, 404, 429, 503). Nothing was sent | **Retry** |
+| Outcome unknown | No answer, a timeout, or 500/502/504 from Microsoft. It may already have been delivered | **Check Sent Items…** |
+| Sending | In progress. After 10 minutes with no result, it is treated like *Outcome unknown* | **Check Sent Items…** once stale |
+
+*Check Sent Items…* shows the subject, recipient and time to look for in bsg@visionaps.com's **Sent Items**. Retry is enabled only after MA001 ticks *"I checked the Sent Items … and this email is not there"*. The server refuses that retry without the confirmation (409). It records `mail.sent_items_confirmed` in the audit log before sending, then `mail.retried` with the result. API: `POST /api/admin/mail { action: "retry", id, sentItemsChecked: true }`.
+
+Invitations are never retried from the log. If an invitation fails or its outcome is unknown, the invitation is cancelled at once, so a link that arrives late does not work. MA001 sends a new invitation instead. The email body and one-time link are never stored.
 
 ## 1. What the VAPS Microsoft 365 administrator configures
 
@@ -24,7 +38,7 @@ a. **Confirm the mailbox.** In Exchange admin center → Recipients → Mailboxe
 
 b. **Register the app** (Entra admin center → App registrations → New registration). Use a name such as *Workflow VAPS mail sender*, single tenant, no redirect URI. Note the **Application (client) ID**, the **Directory (tenant) ID**, and the **Object ID of its Enterprise Application (service principal)**.
 
-c. **Create a client secret** (Certificates & secrets). Give it a description and an expiry, for example 12 months, and put a renewal reminder in the calendar. Hand the value over only through the Sites panel (step 2), never by email or chat.
+c. **Create a client secret** (Certificates & secrets). Give it a description and an expiry, for example 12 months, and put a renewal reminder in the calendar. The secret value is shown once. The person who creates it enters it directly as the secret `GRAPH_CLIENT_SECRET` in the Sites panel (step 2), or types it in there during a call with the site owner. Never send it by email, chat, Teams, a ticket or GitHub, and never paste it into a document.
 
 d. **Grant send-only permission for this one mailbox, with Exchange Online RBAC for Applications.** Do **not** add or consent to *Mail.Send* in the app's Entra API permissions. An Entra grant applies to every mailbox in the tenant.
 ```powershell
@@ -47,7 +61,7 @@ e. **Mail flow.** Messages are sent by Exchange Online itself, so the existing S
 | Setting | Type | Value |
 |---|---|---|
 | `MAIL_PROVIDER` | variable | `graph` |
-| `MAIL_SENDER` | variable | `bsg@visionaps.com` |
+| `MAIL_SENDER` | variable, optional | `bsg@visionaps.com` (the default). Any other value turns email off |
 | `GRAPH_TENANT_ID` | variable | Directory (tenant) ID from 1b |
 | `GRAPH_CLIENT_ID` | variable | Application (client) ID from 1b |
 | `GRAPH_CLIENT_SECRET` | **secret** | The client secret value from 1c |
@@ -59,12 +73,14 @@ e. **Mail flow.** Messages are sent by Exchange Online itself, so the existing S
 
 A recipient not on `MAIL_ALLOWED_RECIPIENTS` is never contacted. An invitation to that address is refused, and a notification is logged as *blocked*.
 
-## 3. Official email test (before any real recipient)
+## 3. Pilot email test (before any real recipient)
 
-1. Set `MAIL_ALLOWED_RECIPIENTS` to the test mailboxes you control (one staff test mailbox, one client test mailbox). Set `NOTIFY_STAFF=assignment,review` and `NOTIFY_CLIENT=sampling-report`.
-2. **Invitation:** invite a test employee record with the staff test mailbox. Check that the email comes from bsg@visionaps.com, that the link opens the official dashboard, that a password can be set once, and that a second use is refused.
+Run this only after the OneDrive pilot has passed, the mailbox grant in 1d is verified, and the site owner has approved the test inboxes. The full checklist is in the PR description.
+
+1. Set `MAIL_ALLOWED_RECIPIENTS` to the approved test inboxes only (one staff test inbox, one client test inbox). Set `NOTIFY_STAFF=assignment` and `NOTIFY_CLIENT=sampling-report`. Redeploy.
+2. **Invitation:** invite a test employee record with the staff test inbox. Check that the email comes from bsg@visionaps.com, that the link opens the official dashboard, that a password can be set once, and that a second use is refused.
 3. **Employee notification:** dispatch a sample job with that test employee as the accountable engineer. The email should show the Job ID, the assigned action and a dashboard link to the job.
-4. **Client notification:** give the sample job the client test mailbox as client focal point email. Approve its sampling report, then check that the email has only the job number and reference, the milestone and the stage statuses.
-5. Check `GET /api/admin/mail`: all three should show *sent*, and nothing should be *blocked* unexpectedly.
+4. **Client notification:** give the sample job the client test inbox as client focal point email. Approve its sampling report, then check that the email has only the job number and reference, the milestone and the stage statuses.
+5. In **Settings → Sign-in accounts → Email log**, all three should show *Sent*, exactly once each, and nothing should be *Blocked*, *Failed* or *Outcome unknown*. Each should appear once in bsg@visionaps.com's Sent Items and once in the test inbox.
 
 Rollout after approval: set `MAIL_ALLOWED_RECIPIENTS=*`. Invite the four Super Users first, then Normal Users. Enable `NOTIFY_CLIENT` last.

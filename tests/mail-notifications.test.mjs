@@ -1,11 +1,12 @@
 // Email through Microsoft Graph (as bsg@visionaps.com would send it): invitations, employee workflow notifications and
 // client notifications, through the real Sites API route handlers against a local D1 + R2 (Miniflare).
-// Microsoft identity and Graph sendMail are replaced by an in-memory stand-in: nothing is sent. Example addresses only.
+// Microsoft identity and Graph sendMail are replaced by an in-memory stand-in: nothing is sent. The sender is the real,
+// fixed mailbox (the app refuses any other); every recipient is an example address.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { startSitesApi } from './fixtures/sites-api.mjs';
 
-const SENDER = 'bsg@visionaps.example.test';
+const SENDER = 'bsg@visionaps.com';
 const ENV = {
   MAIL_PROVIDER: 'graph', GRAPH_TENANT_ID: '00000000-0000-0000-0000-0000000000cc', GRAPH_CLIENT_ID: '00000000-0000-0000-0000-0000000000dd', GRAPH_CLIENT_SECRET: 'sample-client-secret-for-tests',
   MAIL_SENDER: SENDER, APP_ORIGIN: 'https://vaps.example', INVITE_TTL_HOURS: '72',
@@ -18,7 +19,8 @@ const STAFF = ['SALIM', 'SHEREIQI', 'BAHRI', 'WILFRED', 'MOHSIN', 'HUSSEINI', 'A
 ENV.MAIL_ALLOWED_RECIPIENTS = [...STAFF.map(emailOf), 'client.contact@client.example.test'].join(', ');
 
 /* ---------- In-memory Microsoft identity + Graph sendMail ---------- */
-const graph = { sent: [], tokens: 0, down: false, calls: [] };
+// down: 503 (refused before processing). unsure: 'timeout' (no answer) or a status such as 504: Microsoft may have sent it.
+const graph = { sent: [], tokens: 0, down: false, unsure: null, calls: [] };
 const realFetch = globalThis.fetch;
 globalThis.fetch = async (input, init = {}) => {
   const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
@@ -36,6 +38,12 @@ globalThis.fetch = async (input, init = {}) => {
   assert.match(init.headers.Authorization, /^Bearer app-token-\d+$/);
   if (graph.down) return json({ error: { code: 'ServiceUnavailable' } }, 503);
   const body = JSON.parse(init.body);
+  if (graph.unsure) {
+    // The worst case: Microsoft accepted and delivered the message, but the app never learned it.
+    graph.sent.push({ to: body.message.toRecipients[0].emailAddress.address, subject: body.message.subject, html: body.message.body.content, unsure: true });
+    if (graph.unsure === 'timeout') throw new TypeError('network connection lost');
+    return json({ error: { code: 'GatewayTimeout' } }, graph.unsure);
+  }
   assert.equal(body.message.toRecipients.length, 1, 'one recipient per message');
   graph.sent.push({ to: body.message.toRecipients[0].emailAddress.address, subject: body.message.subject, html: body.message.body.content });
   return new Response(null, { status: 202 });
@@ -46,7 +54,7 @@ const { mf, DB, api, call } = await startSitesApi({
   workspace: 'app/api/workspace/route.ts', record: 'app/api/workspace/records/[key]/route.ts', job: 'app/api/jobs/[id]/route.ts', operations: 'app/api/jobs/[id]/operations/route.ts', files: 'app/api/files/route.ts',
   mail: 'app/api/admin/mail/route.ts',
 }, [
-  'export * as auth from "./server/auth.ts";', 'export * as notify from "./server/notify.ts";', 'export { defaultResponsibilities } from "./app/authorization.ts";', 'export { demoConfiguration } from "./app/demo-data.ts";',
+  'export * as auth from "./server/auth.ts";', 'export * as notify from "./server/notify.ts";', 'export * as mailer from "./server/mail.ts";', 'export { defaultResponsibilities } from "./app/authorization.ts";', 'export { demoConfiguration } from "./app/demo-data.ts";',
   'export { defaultFieldData } from "./app/sample-defaults.ts";', 'export { cylinderCatalog } from "./app/cylinder-catalog.ts";',
 ].join('\n'), ENV);
 const env = globalThis.__vapsTestEnv;
@@ -235,6 +243,72 @@ test('a send interrupted mid-way ("sending") is retryable by MA001 only once sta
   assert.equal(r.status, 200); assert.equal(r.data.status, 'sent'); assert.equal(graph.sent.length, sent + 1);
   const again = await call('mail', 'POST', '/', { cookie: ma, json: { action: 'retry', id: failed.id, sentItemsChecked: true } });
   assert.equal(again.data.status, 'sent'); assert.equal(graph.sent.length, sent + 1, 'sent once');
+});
+
+test('outcome unknown (timeout or 504): recorded "uncertain", never re-sent by a repeat; retry needs the Sent Items check, which is audited', async () => {
+  const ma = await as('MA001');
+  for (const mode of ['timeout', 504]) {
+    const key = 'staff:review:SALIM:unsure-' + mode + ':' + globalThis.__flow.id + ':r1';
+    const q = { dedupeKey: key, audience: 'staff', event: 'review', jobId: globalThis.__flow.id, employeeId: 'SALIM', mail: { to: emailOf('SALIM'), subject: 'Unsure ' + mode, text: 'Unsure', html: '<p>Unsure</p>' } };
+    graph.unsure = mode;
+    const first = await api.notify.deliver(env, DB, q);
+    graph.unsure = null;
+    assert.equal(first.status, 'uncertain', String(mode)); assert.match(first.last_error, /not known whether the email was sent/);
+    const count = () => graph.sent.filter((m) => m.subject === 'Unsure ' + mode).length;
+    assert.equal(count(), 1);
+    // A repeated save producing the same message: not queued or sent again.
+    const repeat = await api.notify.deliver(env, DB, q);
+    assert.equal(repeat.id, first.id); assert.equal(repeat.status, 'uncertain'); assert.equal(count(), 1);
+    // The log tells MA001 to check Sent Items; a plain retry is refused and sends nothing.
+    const listed = (await call('mail', 'GET', '/', { cookie: ma })).data.messages.find((m) => m.id === first.id);
+    assert.equal(listed.next, 'check-sent-items'); assert.equal(listed.status, 'uncertain');
+    const plain = await call('mail', 'POST', '/', { cookie: ma, json: { action: 'retry', id: first.id } });
+    assert.equal(plain.status, 409); assert.match(plain.data.error, /Sent Items of bsg@visionaps\.com/); assert.equal(count(), 1);
+    assert.equal((await call('mail', 'POST', '/', { cookie: await as('SALIM'), json: { action: 'retry', id: first.id, sentItemsChecked: true } })).status, 403, 'MA001 only');
+    // After the confirmed check: sent once more, never again.
+    const ok = await call('mail', 'POST', '/', { cookie: ma, json: { action: 'retry', id: first.id, sentItemsChecked: true } });
+    assert.equal(ok.status, 200); assert.equal(ok.data.status, 'sent'); assert.equal(count(), 2);
+    assert.equal((await call('mail', 'POST', '/', { cookie: ma, json: { action: 'retry', id: first.id, sentItemsChecked: true } })).data.status, 'sent'); assert.equal(count(), 2);
+    const audits = (await DB.prepare("SELECT action, actor_id, detail FROM audit_log WHERE record_id = ? ORDER BY id").bind(first.id).all()).results;
+    const confirmed = audits.filter((a) => a.action === 'mail.sent_items_confirmed');
+    assert.equal(confirmed.length, 1, 'the confirmation is audited once, before the send'); assert.equal(confirmed[0].actor_id, 'MA001');
+    assert.deepEqual(JSON.parse(confirmed[0].detail).previousStatus, 'uncertain');
+    assert.ok(audits.findIndex((a) => a.action === 'mail.sent_items_confirmed') < audits.findIndex((a) => a.action === 'mail.retried'));
+  }
+});
+
+test('an invitation whose send outcome is unknown is cancelled: its link never works and nothing is re-sent', async () => {
+  const ma = await as('MA001');
+  // Not on the allowed list: refused before anything is sent.
+  const sentBefore = graph.sent.length;
+  assert.equal((await invite(ma, 'RANJITH')).status, 403); assert.equal(graph.sent.length, sentBefore);
+  env.MAIL_ALLOWED_RECIPIENTS += ', ranjith@vaps.example.test';
+  try {
+    const before = graph.sent.length;
+    graph.unsure = 504;
+    const u = await invite(ma, 'RANJITH');
+    graph.unsure = null;
+    assert.equal(u.status, 502); assert.match(u.data.error, /did not confirm the invitation email\. The invitation was cancelled/);
+    assert.equal(graph.sent.length, before + 1);
+    const token = /#invite=([a-f0-9]{64})/.exec(graph.sent.at(-1).html)[1];
+    assert.notEqual((await call('invitation', 'POST', '/', { json: { action: 'accept', token, password: 'A passphrase for the cancelled link' } })).status, 200, 'the cancelled link does not work');
+    const row = (await rows()).filter((x) => x.audience === 'invite' && x.recipient === 'ranjith@vaps.example.test').at(-1);
+    assert.equal(row.status, 'uncertain'); assert.equal(row.html_body, null);
+    const log = (await call('mail', 'GET', '/', { cookie: ma })).data.messages.find((m) => m.id === row.id);
+    assert.equal(log.next, null, 'invitations are re-sent only as a new invitation');
+    assert.equal(graph.sent.length, before + 1);
+  } finally { env.MAIL_ALLOWED_RECIPIENTS = ENV.MAIL_ALLOWED_RECIPIENTS; }
+});
+
+test('the sender is fixed to bsg@visionaps.com; email is off until every Graph setting is present', async () => {
+  const { mailerFrom, graphConfig } = api.mailer;
+  const base = { MAIL_PROVIDER: 'graph', GRAPH_TENANT_ID: ENV.GRAPH_TENANT_ID, GRAPH_CLIENT_ID: ENV.GRAPH_CLIENT_ID, GRAPH_CLIENT_SECRET: 'x' };
+  assert.equal(mailerFrom({ ...base, MAIL_SENDER: 'BSG@visionaps.com' }).mode, 'graph');
+  assert.equal(graphConfig(base).sender, 'bsg@visionaps.com');
+  assert.equal(mailerFrom({ ...base, MAIL_SENDER: 'someone.else@visionaps.com' }), null);
+  assert.equal(mailerFrom({}), null);
+  for (const missing of ['GRAPH_TENANT_ID', 'GRAPH_CLIENT_ID', 'GRAPH_CLIENT_SECRET']) assert.equal(mailerFrom({ ...base, [missing]: '' }), null, missing);
+  assert.equal(mailerFrom({ ...base, GRAPH_TENANT_ID: 'common' }), null);
 });
 
 test('notifications are off unless configured; staff and client switches are independent', async () => {

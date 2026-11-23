@@ -17,6 +17,17 @@
  */
 import { fail } from "./http";
 
+/** The only mailbox this app may send as. MAIL_SENDER may be left unset; any other value turns Graph sending off. */
+export const VAPS_SENDER = "bsg@visionaps.com";
+
+/**
+ * A send whose outcome is unknown: the request may have reached Microsoft (no answer, timeout, 500/502/504), so the
+ * message may already be delivered. Recorded as "uncertain"; never retried automatically. MA001 may retry it only after
+ * checking the sender's Sent Items (server/notify.ts retry).
+ */
+export const uncertain = (message: string) => Object.assign(fail(502, message), { uncertain: true as const });
+export const isUncertain = (e: unknown) => !!(e && typeof e === "object" && (e as { uncertain?: unknown }).uncertain === true);
+
 export type Mail = { to: string; subject: string; text: string; html: string };
 export type Mailer = { mode: "graph" | "resend" | "test"; send(mail: Mail): Promise<void> };
 
@@ -43,7 +54,8 @@ export function mailerFrom(env: Record<string, unknown>): Mailer | null {
             headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
             body: JSON.stringify({ from, to: [mail.to], subject: mail.subject, text: mail.text, html: mail.html, ...(typeof env.MAIL_REPLY_TO === "string" && env.MAIL_REPLY_TO ? { reply_to: env.MAIL_REPLY_TO } : {}) }),
           });
-        } catch { throw fail(502, "The invitation email could not be sent (the mail service did not answer). No invitation was issued; please retry."); }
+        } catch { throw uncertain("The mail service did not answer, so it is not known whether the email was sent."); }
+        if (response.status >= 500 && response.status !== 503) throw uncertain(`The mail service answered ${response.status}, so it is not known whether the email was sent.`);
         if (!response.ok) { console.error("Mail provider refused a message", response.status); throw fail(502, "The invitation email could not be sent. No invitation was issued; please retry or check the mail settings."); }
       },
     };
@@ -66,9 +78,10 @@ export const RECIPIENT_BLOCKED = "This address is not on the server's list of al
 type GraphConfig = { tenant: string; clientId: string; secret: string; sender: string; replyTo: string };
 const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 export function graphConfig(env: Record<string, unknown>): GraphConfig | null {
-  const tenant = text(env.GRAPH_TENANT_ID), clientId = text(env.GRAPH_CLIENT_ID), secret = text(env.GRAPH_CLIENT_SECRET), sender = text(env.MAIL_SENDER).toLowerCase();
+  const tenant = text(env.GRAPH_TENANT_ID), clientId = text(env.GRAPH_CLIENT_ID), secret = text(env.GRAPH_CLIENT_SECRET), sender = text(env.MAIL_SENDER).toLowerCase() || VAPS_SENDER;
   // A tenant GUID or verified domain only: "common"/"organizations" cannot issue application tokens.
-  if (!tenant || ["common", "organizations", "consumers"].includes(tenant.toLowerCase()) || !clientId || !secret || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(sender)) return null;
+  // The sender is fixed: a different MAIL_SENDER turns sending off rather than sending as another mailbox.
+  if (!tenant || ["common", "organizations", "consumers"].includes(tenant.toLowerCase()) || !clientId || !secret || sender !== VAPS_SENDER) return null;
   return { tenant, clientId, secret, sender, replyTo: text(env.MAIL_REPLY_TO) };
 }
 let cachedToken: { key: string; value: string; expires: number } | null = null;
@@ -104,8 +117,13 @@ async function graphSend(c: GraphConfig, mail: Mail) {
       headers: { Authorization: `Bearer ${await graphToken(c)}`, "Content-Type": "application/json" },
       body: JSON.stringify({ message, saveToSentItems: true }),
     });
-  } catch (e) { if (e instanceof Error && "status" in e) throw e; throw fail(502, "Microsoft 365 did not answer, so the email was not sent. Please retry."); }
+  } catch (e) {
+    if (e instanceof Error && "status" in e) throw e; // token step failed: nothing reached sendMail
+    throw uncertain(`Microsoft 365 did not answer, so it is not known whether the email was sent. Check the Sent Items of ${c.sender} before retrying.`);
+  }
   if (r.status === 202) return;
+  // 500/502/504: Microsoft may have accepted the message before the error. 503 and 429 are refusals before processing.
+  if (r.status >= 500 && r.status !== 503) { console.error("Graph sendMail outcome unknown", r.status); throw uncertain(`Microsoft 365 answered ${r.status}, so it is not known whether the email was sent. Check the Sent Items of ${c.sender} before retrying.`); }
   if (r.status === 401) cachedToken = null;
   console.error("Graph sendMail refused", r.status);
   throw fail(502, r.status === 403 ? "Microsoft 365 did not allow the app to send as " + c.sender + " (Mail.Send or the Exchange mailbox scope is not in place). Nothing was sent."

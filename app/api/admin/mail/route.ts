@@ -9,7 +9,8 @@ export const dynamic = "force-dynamic";
 /**
  * Email send log, Administrator (MA001) only. GET: configuration summary (no secrets) and the latest messages with
  * their outcome. POST { action: "retry", id, sentItemsChecked? }: re-send one failed notification (never one already sent). A message
- * interrupted while sending also needs sentItemsChecked: true, after MA001 has checked the sender's Sent Items.
+ * whose outcome is unknown ("uncertain", or interrupted while "sending") also needs sentItemsChecked: true, after MA001
+ * has checked the sender's Sent Items; that confirmation is audited (mail.sent_items_confirmed). UI: Settings → Sign-in accounts.
  */
 export function GET(request: Request) {
   return signedIn(apiEnv(), request, async ({ db, env, actor }) => {
@@ -27,9 +28,14 @@ export function POST(request: Request) {
     if (actor.id !== administratorId) throw fail(403, "Only the Administrator can retry emails.");
     const body = await readJson<{ action?: unknown; id?: unknown; sentItemsChecked?: unknown }>(request, 1000);
     if (body.action !== "retry" || typeof body.id !== "string") throw fail(400, "Unknown action.");
-    const row = await retry(env, db, body.id, undefined, body.sentItemsChecked === true);
+    let confirmed = false;
+    // The Sent Items confirmation is audited before the send is attempted, so it is on record even if the send fails.
+    const row = await retry(env, db, body.id, undefined, body.sentItemsChecked === true, async (r) => {
+      confirmed = true;
+      await audit(db, { ...who, action: "mail.sent_items_confirmed", target: r.id, detail: { recipient: r.recipient, subject: r.subject, previousStatus: r.status, attempts: r.attempts } });
+    });
     if (!row) throw fail(404, "This message is not in the email log.");
-    await audit(db, { ...who, action: "mail.retried", target: row.id, detail: { status: row.status, ...(body.sentItemsChecked === true ? { sentItemsChecked: true } : {}) } });
+    await audit(db, { ...who, action: "mail.retried", target: row.id, detail: { status: row.status, attempts: row.attempts, ...(confirmed ? { sentItemsChecked: true } : {}) } });
     const { text_body: _t, html_body: _h, ...safe } = row; void _t; void _h;
     return reply(safe);
   });
