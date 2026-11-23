@@ -28,6 +28,8 @@ import { auditStatement } from "./auth";
 export type Records = Map<string, string>;
 export type StoredJob = { job: JobRecord; revision: number };
 export type Who = { accountId: string; employeeId: string };
+/** A saved job change, for server-side follow-ups (notifications). Never sent to the browser. */
+export type JobChange = { before?: JobRecord; after: JobRecord; revision: number; allJobs: JobRecord[] };
 
 const readOnly = (values: Records): StorageLike => ({ getItem: (key) => values.get(key) ?? null, setItem: () => {}, removeItem: () => {} });
 /** Runs workflow logic against the given records. */
@@ -274,13 +276,13 @@ export async function saveJob(db: D1Database, ctx: Context, who: Who, id: string
   if (!Number.isInteger(body.revision) || body.revision !== (stored?.revision ?? 0)) throw fail(409, "This job was changed by someone else. The workspace will reload with the saved version; your change was not saved.");
   if (!isObject(proposed) || proposed.id !== id) throw fail(400, "The job record could not be read.");
   // Nothing but server-maintained fields differs: keep the stored record untouched (no new revision, no audit entry).
-  if (stored && body.commands === undefined && sameContent(stored.job, proposed)) return { job: stored.job, revision: stored.revision };
+  if (stored && body.commands === undefined && sameContent(stored.job, proposed)) return { job: stored.job, revision: stored.revision, change: undefined as JobChange | undefined };
   checkJobSave(ctx, actor, stored?.job, proposed, all);
   let next = finalize(stored?.job, proposed, who, ctx.values, at);
   const commands = body.commands === undefined ? [] : readCommands(body.commands);
   if (commands.length) next = runCommands(ctx, actor, next, commands, at, !stored);
   const revision = await writeJob(db, id, next, stored?.revision ?? 0, who, at, stored ? "job.saved" : "job.created", commands.length ? { commands: commands.map((c) => c.type) } : {});
-  return { job: next, revision };
+  return { job: next, revision, change: { before: stored?.job, after: next, revision, allJobs: all } as JobChange };
 }
 
 function runCommands(ctx: Context, actor: Actor, job: JobRecord, commands: Command[], at: string, creating = false): JobRecord {
@@ -302,7 +304,7 @@ export async function runJobOperations(db: D1Database, ctx: Context, who: Who, i
   const commands = readCommands(body.commands);
   const next = runCommands(ctx, actor, stored.job, commands, at);
   const revision = await writeJob(db, id, next, stored.revision, who, at, "job.command", { commands: commands.map((c) => c.type) });
-  return { job: next, revision };
+  return { job: next, revision, change: { before: stored.job, after: next, revision, allJobs: [...jobs.values()].map((s) => s.job) } as JobChange };
 }
 
 export async function trashOrRestore(db: D1Database, ctx: Context, who: Who, id: string, mode: "trash" | "restore", revision: unknown, at = new Date().toISOString()) {

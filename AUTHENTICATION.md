@@ -81,7 +81,7 @@ Invitations are the only email the app sends. Nothing is sent until this is conf
 | `MAIL_REPLY_TO` | optional, e.g. the administrator's mailbox | Replies to invitations |
 | `INVITE_TTL_HOURS` | optional, default `72` (1–336) | Link lifetime |
 
-DNS on the sending domain (from the provider's dashboard): SPF and DKIM records, plus a DMARC policy. Check with the VAPS IT/Microsoft 365 administrator before adding them, so they do not conflict with the existing mail setup; a subdomain (e.g. `mail.<domain>`) avoids touching the main domain's records. Send one invitation to a test mailbox first and check it is not marked as spam. Microsoft 365 / Graph sending remains deferred.
+DNS on the sending domain (from the provider's dashboard): SPF and DKIM records, plus a DMARC policy. Check with the VAPS IT/Microsoft 365 administrator before adding them, so they do not conflict with the existing mail setup; a subdomain (e.g. `mail.<domain>`) avoids touching the main domain's records. Send one invitation to a test mailbox first and check it is not marked as spam. **Microsoft 365 (bsg@visionaps.com via Graph, `MAIL_PROVIDER=graph`), employee and client notifications, and the recipient allow-list: see EMAIL-SETUP.md.**
 
 ## Deployment configuration (no secret values are needed)
 

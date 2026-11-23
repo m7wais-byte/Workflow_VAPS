@@ -11,6 +11,7 @@ import { api } from "./workspace-sync";
 import { appStorage } from "./app-storage";
 import { accessRole, accessRoleLabels, accessRolesKey, storedSuperUsers } from "./authorization";
 import { ukDateTime } from "./uk-format";
+import { EmailLog } from "./email-log";
 import type { Employee } from "./employee-directory";
 
 type Account = { id: string; username: string; email: string | null; employeeId: string; active: boolean; mustChangePassword: boolean; passwordChangedAt: string | null; createdAt: string; activeSessions: number; activatedAt: string | null; lastSignInAt: string | null; invitedAt: string | null; invitationExpiresAt: string | null };
@@ -65,7 +66,7 @@ export function AccountSettings({ employees, meAccountId, positionOf, isAdminist
     return <>{a.active ? "Active" : "Deactivated"}{a.mustChangePassword ? " · temporary password" : ""}<small>{a.lastSignInAt ? "Last sign-in " + ukDateTime(a.lastSignInAt) : "Not signed in yet"} · {a.activeSessions} session(s)</small></>;
   };
   const byEmployee = new Map((accounts || []).map((a) => [a.employeeId, a]));
-  return <section className="panel settings-panel account-settings">
+  return <><section className="panel settings-panel account-settings">
     <div className="panel-heading"><div><h2>Sign-in accounts</h2><p>Access is by invitation only. {isAdministrator ? "Enter the work email, choose the access level and send the invitation." : "The Administrator sends invitations and sets access levels."} The employee sets their own password from the emailed link; the account becomes active only then. They sign in with their work email or their fixed employee ID.</p>
       <p className="role-legend"><strong>Super User:</strong> the extra permissions configured in Authorization. <strong>Normal User:</strong> jobs assigned to them only (including jobs covered by a workflow duty assigned to them). Roles never grant workflow duties or approvals.</p></div></div>
     {sent && <div className="temp-password" role="status"><h3>Invitation sent to {sent.employee}</h3><p>Emailed to <strong>{sent.email}</strong>. The link works once and expires {ukDateTime(sent.expiresAt)}.</p>
@@ -96,5 +97,6 @@ export function AccountSettings({ employees, meAccountId, positionOf, isAdminist
         </div></td>
       </tr>; })}
     </tbody></table></div>}
-  </section>;
+  </section>
+  {isAdministrator && <EmailLog />}</>;
 }
