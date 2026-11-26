@@ -96,7 +96,9 @@ export function staffMail(input: { to: string; name: string; job: JobRecord; ite
   return { to: input.to, subject, text, html };
 }
 
-const clientHeading: Record<ClientEvent, string> = { "sampling-report": "Sampling report approved", interim: "Validation results completed", "final-report": "Final report approved" };
+/** Wording follows the job's own status: VAPS approves the sampling report; an approved final report is *issued* to the client,
+ *  and "approved" for the final report means the client's own approval, recorded later (Client approval stage). */
+const clientHeading: Record<ClientEvent, string> = { "sampling-report": "Sampling report approved", interim: "Validation results completed", "final-report": "Final report issued" };
 /** Client email: only fields of the client progress view and the client's own job identifiers. */
 export function clientMail(input: { to: string; job: JobRecord; event: ClientEvent; at?: string; nowIso: string }): Mail {
   const { job } = input;
@@ -104,8 +106,8 @@ export function clientMail(input: { to: string; job: JobRecord; event: ClientEve
   const ref = job.jobNumber || job.id, theirs = job.clientReference ? ` (your reference ${job.clientReference})` : "";
   const expected = view.expected.date && (view.expected.kind === "actual" || view.expected.kind === "confirmed") ? omanDate(view.expected.date + "T12:00:00Z") : "";
   const stages = view.stages.filter((s) => !s.planned || s.status !== "not-started").map((s) => ({ label: s.label, status: progressStatusLabel[s.status] }));
-  const lead = input.event === "final-report" ? "The final report for this job has been approved. VAPS will issue it to you through the agreed channel."
-    : input.event === "sampling-report" ? "The sampling report for this job has been approved." : "The validation results for this job's samples are complete.";
+  const lead = input.event === "final-report" ? "The final report for this job has been issued. VAPS sends the report itself through the agreed channel."
+    : input.event === "sampling-report" ? "The sampling report for this job has been approved by VAPS." : "The validation results for this job's samples are complete.";
   const subject = `VAPS job ${ref}: ${clientHeading[input.event]}`;
   const text = [`Dear ${job.clientFocalPoint || "client"},`, "", `${lead}`, "", `Job: ${ref}${theirs}`, `Update: ${clientHeading[input.event]}${input.at ? " on " + omanDate(input.at) : ""}`, view.sentence ? `Status: ${view.sentence}` : "", expected ? `Expected completion: ${expected}` : "", "", ...stages.map((s) => `- ${s.label}: ${s.status}`), "", "Regards,", "VAPS PVT Laboratory"].filter((l, i, a) => l !== "" || a[i - 1] !== "").join("\n");
   const html = `<p>Dear ${escape(job.clientFocalPoint || "client")},</p><p>${escape(lead)}</p>`

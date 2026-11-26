@@ -6,7 +6,7 @@ Workflow VAPS sends three kinds of email from **bsg@visionaps.com**. The sender 
 |---|---|---|
 | Employee invitation | MA001 presses *Send invitation* (Settings → Sign-in accounts) | The work email entered for that employee |
 | Employee notification | A workflow action newly lands on an employee: **assignment** (job, sampling, test), **review** (data, report, team-lead, QC, approval), **returned** for correction | The employee's work email (the email on their sign-in account) |
-| Client notification | An approved client-facing milestone: **sampling-report** approved, **interim** (validation results complete), **final-report** approved | The job's client focal point email (Job Setup) |
+| Client notification | An approved client-facing milestone: **sampling-report** approved, **interim** (validation results complete), **final-report** issued (the internally approved final report; the client’s own approval is recorded later) | The job's client focal point email (Job Setup) |
 
 Employee notifications come from the same calculation as each employee's *My work* list, so the email always matches what the dashboard shows. Nobody is emailed about a step they did themselves.
 

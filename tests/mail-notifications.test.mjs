@@ -174,13 +174,18 @@ test('full workflow: each newly assigned action and review is emailed once to th
   assert.match(nasser.html, /Black Oil — DL/); assert.match(nasser.html, new RegExp(id));
   // Nobody is emailed about their own step: SALIM dispatched, so no SALIM row for the dispatch revision.
   const keys = staff.map((r) => r.dedupe_key); assert.equal(new Set(keys).size, keys.length);
-  // Client: sampling report approved and final report approved, to the job's client contact only.
+  // Client: sampling report approved and final report issued, to the job’s client contact only.
   assert.deepEqual(client.map((r) => [r.event, r.recipient, r.status]), [['sampling-report', 'client.contact@client.example.test', 'sent'], ['final-report', 'client.contact@client.example.test', 'sent']]);
   for (const r of client) {
     for (const name of ['Salim', 'Mohsin', 'Husseini', 'Wilfred', 'Shereiqi', 'Nasser', 'Yaqeen', 'Bahri', 'Ali', 'Test sampling report', 'Test final report', 'G-sheet', 'Run DL', 'QC', 'workbook', 'Workbook', 'vaps.example.test', '#workflow', 'Client approved (test)'])
       assert.ok(!r.html_body.includes(name) && !r.text_body.includes(name), `client email contains internal text "${name}"`);
     assert.match(r.text_body, /PO-TEST-77/); assert.match(r.subject, new RegExp(id));
   }
+  // Wording follows the job status: VAPS approves the sampling report; the final report is issued (the client approves it later).
+  const [samplingMail, finalMail] = client;
+  assert.match(samplingMail.subject, /: Sampling report approved$/); assert.match(samplingMail.text_body, /approved by VAPS/);
+  assert.match(finalMail.subject, /: Final report issued$/); assert.match(finalMail.text_body, /has been issued/);
+  assert.doesNotMatch(finalMail.subject + finalMail.text_body + finalMail.html_body, /report (has been )?approved|will issue/i, 'final report email must not say approved or "will issue"');
   assert.equal(graph.sent.length - sentBefore, staff.length + client.length, 'every send is in the log');
 });
 
