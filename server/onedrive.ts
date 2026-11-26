@@ -65,9 +65,11 @@ async function open(secret: string, sealed: string) {
 type AuthRow = { status: string; account: string | null; sealed: string | null; pending: string | null; pending_expires: string | null; pending_interval: number | null; connected_at: string | null; last_error: string | null };
 const authRow = (db: D1Database) => db.prepare("SELECT status, account, sealed, pending, pending_expires, pending_interval, connected_at, last_error FROM onedrive_auth WHERE id = 'default'").first<AuthRow>();
 async function saveAuth(db: D1Database, fields: Partial<AuthRow>, at: string) {
-  const cols = Object.keys(fields) as (keyof AuthRow)[];
-  await db.prepare(`INSERT INTO onedrive_auth (id, ${cols.join(", ")}, updated_at) VALUES ('default', ${cols.map(() => "?").join(", ")}, ?) ON CONFLICT(id) DO UPDATE SET ${cols.map((k) => `${k} = excluded.${k}`).join(", ")}, updated_at = excluded.updated_at`)
-    .bind(...cols.map((k) => fields[k] ?? null), at).run();
+  // status is NOT NULL and SQLite checks that before ON CONFLICT: the insert always carries one, but only the fields
+  // given are updated (a token rotation or a second sign-in must not change the stored status).
+  const cols = Object.keys(fields) as (keyof AuthRow)[], insert = cols.includes("status") ? cols : [...cols, "status" as const];
+  await db.prepare(`INSERT INTO onedrive_auth (id, ${insert.join(", ")}, updated_at) VALUES ('default', ${insert.map(() => "?").join(", ")}, ?) ON CONFLICT(id) DO UPDATE SET ${cols.map((k) => `${k} = excluded.${k}`).join(", ")}, updated_at = excluded.updated_at`)
+    .bind(...insert.map((k) => k === "status" ? fields.status ?? "not-connected" : fields[k] ?? null), at).run();
 }
 
 const tokenUrl = (c: OneDriveConfig) => `https://login.microsoftonline.com/${encodeURIComponent(c.tenant)}/oauth2/v2.0/token`;
@@ -262,8 +264,17 @@ export async function mirrorFile(env: Record<string, unknown>, db: D1Database, b
     const { driveId, row } = await jobFolders(c, db, routed.job_id, at);
     const bytes = routed.source === "job" ? await scopeBytes(db, routed.job_id, fileId) : await (await bucket?.get(fileId))?.arrayBuffer();
     if (!bytes) throw new GraphError(410, "file bytes");
-    const folder = routed.section === "lab" ? row.lab_id : row.sampling_id, name = safeName(routed.name);
-    const item = await graph<Item>(c, db, "PUT", `/drives/${driveId}/items/${folder}:/${seg(name)}:/content?@microsoft.graph.conflictBehavior=rename`, bytes);
+    const name = safeName(routed.name);
+    const put = (f: typeof row) => graph<Item>(c, db, "PUT", `/drives/${driveId}/items/${routed.section === "lab" ? f.lab_id : f.sampling_id}:/${seg(name)}:/content?@microsoft.graph.conflictBehavior=rename`, bytes);
+    let item: Item;
+    try { item = await put(row); }
+    catch (e) {
+      // The recorded folder was deleted or moved in OneDrive: forget it, find or re-create the job folders, try once more.
+      if (!(e instanceof GraphError && e.status === 404)) throw e;
+      await db.prepare("DELETE FROM onedrive_jobs WHERE job_id = ?").bind(routed.job_id).run();
+      parent = null;
+      item = await put((await jobFolders(c, db, routed.job_id, at)).row);
+    }
     await db.prepare("UPDATE onedrive_files SET status = 'ok', item_id = ?, copy_name = ?, last_error = NULL, updated_at = ? WHERE file_id = ?").bind(item.id, item.name, at, fileId).run();
     const renamed = item.name !== name;
     await audit(db, { ...who, action: "onedrive.file.copied", target: fileId, detail: { jobId: routed.job_id, section: routed.section, name: item.name, renamed } }, at);
