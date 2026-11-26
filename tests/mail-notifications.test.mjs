@@ -186,6 +186,10 @@ test('full workflow: each newly assigned action and review is emailed once to th
   assert.match(samplingMail.subject, /: Sampling report approved$/); assert.match(samplingMail.text_body, /approved by VAPS/);
   assert.match(finalMail.subject, /: Final report issued$/); assert.match(finalMail.text_body, /has been issued/);
   assert.doesNotMatch(finalMail.subject + finalMail.text_body + finalMail.html_body, /report (has been )?approved|will issue/i, 'final report email must not say approved or "will issue"');
+  // One date, in Oman time: the Update line and the Status sentence name the same day.
+  const upd = /Update: Final report issued on (\d{2}) (\w{3}) (\d{4})/.exec(finalMail.text_body), st = /issued on (\d{2})\/(\d{2})\/(\d{4})/.exec(finalMail.text_body);
+  assert.ok(upd && st, finalMail.text_body);
+  assert.deepEqual([upd[1], String(new Date(`${upd[2]} 1, 2000`).getMonth() + 1).padStart(2, '0'), upd[3]], [st[1], st[2], st[3]], 'Update and Status dates differ');
   assert.equal(graph.sent.length - sentBefore, staff.length + client.length, 'every send is in the log');
 });
 
