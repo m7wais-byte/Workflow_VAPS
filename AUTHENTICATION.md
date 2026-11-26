@@ -81,7 +81,7 @@ Invitations are the only email the app sends. Nothing is sent until this is conf
 | `MAIL_REPLY_TO` | optional, e.g. the administrator's mailbox | Replies to invitations |
 | `INVITE_TTL_HOURS` | optional, default `72` (1–336) | Link lifetime |
 
-DNS on the sending domain (from the provider's dashboard): SPF and DKIM records, plus a DMARC policy. Check with the VAPS IT/Microsoft 365 administrator before adding them, so they do not conflict with the existing mail setup; a subdomain (e.g. `mail.<domain>`) avoids touching the main domain's records. Send one invitation to a test mailbox first and check it is not marked as spam. Microsoft 365 / Graph sending remains deferred.
+DNS on the sending domain (from the provider's dashboard): SPF and DKIM records, plus a DMARC policy. Check with the VAPS IT/Microsoft 365 administrator before adding them, so they do not conflict with the existing mail setup; a subdomain (e.g. `mail.<domain>`) avoids touching the main domain's records. Send one invitation to a test mailbox first and check it is not marked as spam. **Microsoft 365 (bsg@visionaps.com via Graph, `MAIL_PROVIDER=graph`), employee and client notifications, and the recipient allow-list: see EMAIL-SETUP.md.**
 
 ## Deployment configuration (no secret values are needed)
 
@@ -104,6 +104,12 @@ Sites gives no direct database access, so the Administrator account is created i
 3. Setup then closes for good: once an MA001 account exists, every further attempt is refused, even with the secret still set. Simultaneous attempts cannot create a second account (the database insert itself is conditional). Five wrong secrets pause setup for 15 minutes from that address.
 4. Remove `ADMIN_SETUP_TOKEN` from the Sites panel afterwards. Without it (or with a value shorter than 32 characters) setup is switched off entirely.
 The secret and the password are never logged or written to the audit trail; the audit records `account.setup` and any refused attempts.
+
+**If /#setup says "not available":** the message now says which case applies, without revealing the value:
+- *"does not receive ADMIN_SETUP_TOKEN"*: the running deployment has no such secret. Check the exact name (case, no spaces) on **this** site's project (the pilot and the official site are separate projects with separate secrets), then **redeploy the saved version**: Sites applies secrets only to a new deployment.
+- *"shorter than 32 characters"*: the secret arrives but is too short (surrounding spaces and newlines are ignored). Save a longer value and redeploy.
+
+`GET <site>/api/deployment` shows the running build (commit and build time), whether `DB` and `FILES` are bound, `APP_ORIGIN`, and `adminSetupSecret: missing | too_short | ok`. It never shows a secret, its length, or the OneDrive folder link.
 
 ### Creating the first administrator (VAPS-owned Cloudflare / direct database access)
 ```bash

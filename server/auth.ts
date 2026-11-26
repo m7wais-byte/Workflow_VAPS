@@ -315,14 +315,30 @@ export const SETUP_MIN_SECRET = 32;
 export const SETUP_UNAVAILABLE = "Administrator setup is not available on this server.";
 export const SETUP_DONE = "Administrator setup has already been completed. Sign in instead.";
 const SETUP_LIMIT = 5;
-export const setupSecret = (env: Record<string, unknown>) => { const s = env.ADMIN_SETUP_TOKEN; return typeof s === "string" && s.length >= SETUP_MIN_SECRET ? s : null; };
+/**
+ * The setup secret as the running Worker sees it. Read from the Worker bindings, falling back to process.env
+ * (nodejs_compat), and trimmed, so a pasted trailing newline or space does not break the comparison.
+ */
+const rawSetupSecret = (env: Record<string, unknown>) => {
+  const v = env.ADMIN_SETUP_TOKEN ?? (globalThis as { process?: { env?: Record<string, unknown> } }).process?.env?.ADMIN_SETUP_TOKEN;
+  return typeof v === "string" ? v.trim() : "";
+};
+/** "missing" / "too_short" / "ok". Never the value or its length: safe to show on the setup page and in diagnostics. */
+export const setupSecretState = (env: Record<string, unknown>): "missing" | "too_short" | "ok" => {
+  const s = rawSetupSecret(env);
+  return !s ? "missing" : s.length < SETUP_MIN_SECRET ? "too_short" : "ok";
+};
+export const setupSecret = (env: Record<string, unknown>) => { const s = rawSetupSecret(env); return s.length >= SETUP_MIN_SECRET ? s : null; };
+export const setupUnavailableMessage = (state: "missing" | "too_short") => state === "missing"
+  ? SETUP_UNAVAILABLE + " The running deployment does not receive ADMIN_SETUP_TOKEN: check the secret's exact name on this site, then redeploy the saved version so the new deployment picks it up."
+  : SETUP_UNAVAILABLE + ` The running deployment receives ADMIN_SETUP_TOKEN, but it is shorter than ${SETUP_MIN_SECRET} characters. Save a longer random value and redeploy.`;
 export const setupOpen = async (db: D1Database, administratorId: string) => !(await db.prepare("SELECT id FROM accounts WHERE employee_id = ?").bind(administratorId).first());
 
 export async function completeAdministratorSetup(db: D1Database, config: AuthConfig, input: { secret: string; token: unknown; password: unknown; address: string; administratorId: string }, employeeActive: EmployeeCheck, nowDate = new Date()) {
   const now = nowDate.getTime(), at = nowDate.toISOString(), key = "setup:" + input.address;
   if ((await throttleState(db, key, now)).locked) throw fail(429, "Too many attempts. Wait 15 minutes and try again.");
   // Compare fingerprints of equal length in constant time.
-  const given = typeof input.token === "string" ? input.token : "";
+  const given = typeof input.token === "string" ? input.token.trim() : "";
   const ok = timingSafeEqualHex(await sha256Hex(given), await sha256Hex(input.secret));
   if (!ok) { await recordFailure(db, key, SETUP_LIMIT, now); await audit(db, { action: "account.setup_refused", detail: { reason: "secret" } }, at); throw fail(403, "The setup secret is not correct."); }
   if (!(await setupOpen(db, input.administratorId))) throw fail(409, SETUP_DONE);

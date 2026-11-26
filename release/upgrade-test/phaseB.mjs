@@ -1,0 +1,35 @@
+// Phase B: run the CANDIDATE build on the same persisted D1/R2. It must apply only 0006 + 0007 and keep everything.
+import assert from 'node:assert/strict'; import fs from 'node:fs';
+import { start, routes, extra, cookieOf } from './harness.mjs';
+const persist = process.argv[2];
+const snap = JSON.parse(fs.readFileSync(persist + '/snapshot.json', 'utf8'));
+// Release settings: no mail provider, no OneDrive pilot — the defaults for release preparation.
+const { DB, FILES, call, applied, api } = await start(routes, extra, { APP_ORIGIN: 'https://vaps.example' }, persist);
+const ok = (m) => console.log('  ✓ ' + m);
+assert.deepEqual(applied, ['0006_onedrive_pilot.sql', '0007_mail_outbox.sql']); ok('upgrade applied only ' + applied.join(' + '));
+const accounts = (await DB.prepare('SELECT id, username, employee_id, email, password_hash, active, activated_at FROM accounts ORDER BY employee_id').all()).results;
+assert.deepEqual(accounts, snap.accounts); ok(accounts.length + ' accounts unchanged (IDs, emails, password hashes, activation)');
+const jobs = (await DB.prepare('SELECT id, job_number, payload, revision, trashed FROM jobs').all()).results;
+assert.deepEqual(jobs, snap.jobs); ok('job ' + snap.jobId + ' unchanged byte for byte (revision ' + snap.rev + ')');
+assert.deepEqual((await DB.prepare('SELECT * FROM files').all()).results, snap.files); ok('file metadata unchanged');
+assert.equal((await DB.prepare('SELECT COUNT(*) n FROM sessions WHERE revoked_at IS NULL').first()).n, snap.sessions); ok('existing sessions still valid (' + snap.sessions + ')');
+assert.ok((await DB.prepare('SELECT COUNT(*) n FROM audit_log').first()).n >= snap.audit); ok('audit log kept');
+const login = async (u) => { const r = await call('login', 'POST', '/', { json: { username: u, password: snap.pw[u] } }); assert.equal(r.status, 200, u + ' ' + JSON.stringify(r.data)); return cookieOf(r.setCookie); };
+const c = {}; for (const u of Object.keys(snap.pw)) c[u] = await login(u); ok('all ' + Object.keys(c).length + ' employees sign in with their existing passwords after upgrade');
+const me = (await call('session', 'GET', '/', { cookie: c.MA001 })).data; assert.equal(me.employeeId ?? me.account?.employeeId ?? me.employee?.id, 'MA001');
+const ws = async (u) => (await call('workspace', 'GET', '/', { cookie: c[u] })).data;
+const roleOf = async (u) => { const w = await ws(u); return { jobs: (w.jobs ?? []).map((j) => j.id ?? j.job?.id) }; };
+for (const u of ['MA001', 'SALIM', 'MOHSIN', 'HUSSEINI']) assert.ok((await roleOf(u)).jobs.includes(snap.jobId), u + ' should see the job');
+ok('Administrator, Super User (SALIM) and assigned Normal Users (MOHSIN, HUSSEINI) see the job');
+assert.ok(!(await roleOf('YAQEEN')).jobs.includes(snap.jobId)); ok('unassigned Normal User (YAQEEN) does not see the job');
+let f = await call('file', 'GET', '/', { cookie: c.MOHSIN, params: { id: snap.fileId } });
+assert.equal(f.status, 200); assert.equal(Buffer.from(f.data).toString(), snap.fileBytes); ok('uploaded G-sheet downloads byte for byte from FILES');
+f = await call('file', 'GET', '/', { cookie: c.YAQEEN, params: { id: snap.fileId } }); assert.ok([403, 404].includes(f.status)); ok('unassigned Normal User refused the file (' + f.status + ')');
+let r = await call('operations', 'POST', '/', { cookie: c.MOHSIN, params: { id: snap.jobId }, json: { commands: [{ type: 'report-action', kind: 'sampling', action: 'submit', comments: '' }], revision: snap.rev } });
+assert.equal(r.status, 200, JSON.stringify(r.data)); ok('pre-upgrade job accepts the next workflow command (revision ' + snap.rev + ' → ' + r.data.revision + ')');
+r = await call('operations', 'POST', '/', { cookie: c.YAQEEN, params: { id: snap.jobId }, json: { commands: [{ type: 'report-action', kind: 'sampling', action: 'approve', comments: '' }], revision: r.data.revision } });
+assert.ok([403, 404].includes(r.status)); ok('unrelated Normal User cannot act on it (' + r.status + ')');
+const out = (await DB.prepare('SELECT status, COUNT(*) n FROM mail_outbox GROUP BY status').all()).results;
+assert.ok(out.every((o) => o.status !== 'sent')); ok('mail outbox: nothing sent with mail off ' + JSON.stringify(out));
+assert.equal((await DB.prepare('SELECT COUNT(*) n FROM onedrive_jobs').first()).n, 0); ok('OneDrive pilot off: no folder rows');
+console.log('PHASE B (candidate): PASS'); process.exit(0);

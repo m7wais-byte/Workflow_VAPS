@@ -132,12 +132,20 @@ test('completed job: every activity completed with actual dates and the report i
   const w = view({ ...j4, operations: o, status: 'Completed' });
   assert.equal(w.closed, true); assert.equal(w.currentStage, 'Client approval'); assert.equal(w.stages.at(-1).id, 'client'); assert.equal(w.stages.at(-1).status, 'in-progress');
   assert.match(w.now, /waiting for client approval/); assert.match(w.sentence, /Waiting for client approval of the final report and the sample disposal instruction/);
-  assert.equal(w.done, w.total - 1); assert.equal(w.expected.date, o.finalReports.at(-1).approvedAt.slice(0, 10), 'the report delivery date is unchanged');
+  assert.equal(w.done, w.total - 1); const omanDay = (at) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Muscat' }).format(new Date(at));
+  assert.equal(w.expected.date, omanDay(o.finalReports.at(-1).approvedAt), 'the report delivery date is unchanged (its Oman day)');
   const v = view({ ...j4, operations: { ...o, clientDisposal: { by: 'SALIM', at: '2026-11-20T08:00:00.000Z' } }, status: 'Completed' });
   assert.equal(v.closed, true); assert.equal(v.currentStage, 'Completed'); assert.equal(v.stages.at(-1).status, 'completed');
   assert.ok(v.rows.every(r => r.status === 'completed' && r.actual));
-  assert.equal(v.expected.kind, 'actual'); assert.equal(v.expected.date, o.finalReports.at(-1).approvedAt.slice(0, 10));
+  assert.equal(v.expected.kind, 'actual'); assert.equal(v.expected.date, omanDay(o.finalReports.at(-1).approvedAt));
   assert.equal(v.done, v.total); assert.match(v.sentence, /All planned work is completed/); assert.doesNotMatch(v.sentence, /Waiting for client/);
+  // Oman time: an approval at 01:30 on 21 Nov in Oman is 21:30 UTC on 20 Nov. Dates follow the Oman day, as the client email does.
+  const late = { ...o, finalReports: o.finalReports.map((r, i, a) => i === a.length - 1 ? { ...r, approvedAt: '2026-11-20T21:30:00.000Z' } : r) };
+  const z = view({ ...j4, operations: late, status: 'Completed' }, 'client');
+  assert.equal(z.expected.date, '2026-11-21'); assert.equal(row(z, 'Final report').actual, '2026-11-21');
+  assert.match(clientProgress(z).sentence, /issued on 21\/11\/2026/);
+  // Plain days are never shifted.
+  assert.equal(view({ ...j4, operations: { ...late, finalReports: late.finalReports.map((r) => ({ ...r, approvedAt: '2026-11-20' })) }, status: 'Completed' }).expected.date, '2026-11-20');
 });
 
 test('missing estimates read "To be confirmed"; the client view never uses internal team dates', () => {

@@ -63,7 +63,15 @@ export function workStatus(status: WorkState): ProgressStatus {
   }
 }
 
-const isoDay = (v?: string) => v ? v.slice(0, 10) : undefined;
+/** VAPS works in Oman time: a full timestamp counts on its Oman (Asia/Muscat) day, so an approval at 01:00 Oman time
+ *  (21:00 UTC the day before) is shown on the day it happened in Oman. Plain yyyy-mm-dd days are kept as they are. */
+const omanDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Muscat' });
+const isoDay = (v?: string) => {
+  if (!v) return undefined;
+  if (v.length <= 10 || !v.includes('T')) return v.slice(0, 10);
+  const t = Date.parse(v);
+  return Number.isFinite(t) ? omanDay.format(t) : v.slice(0, 10);
+};
 /** A stored date only when it is a real yyyy-mm-dd day. */
 const validDay = (v?: string) => { const d = isoDay(v); return d && /^\d{4}-\d{2}-\d{2}$/.test(d) && Number.isFinite(Date.parse(d)) ? d : undefined; };
 const maxDate = (list: (string | undefined)[]) => list.filter(Boolean).sort().at(-1) as string | undefined;
@@ -230,7 +238,7 @@ export function jobProgressView(job: JobRecord, opts: Options): ProgressView {
       : approve?.state === 'in-progress' || approve?.state === 'blocked' || check?.state === 'in-progress' ? 'under-review'
       : prepStep?.state === 'in-progress' || prepStep?.state === 'blocked' ? 'in-progress' : 'not-started';
     const rRow = row({ key: 'report', label: reopened ? 'Revised final report' : 'Final report', group: 'report', status: rStatus,
-      detail: reopened ? `Earlier report issued ${fmt(previous.at(-1)!.approvedAt!)} · revision for additional work` : undefined, additional: reopened || undefined,
+      detail: reopened ? `Earlier report issued ${fmt(isoDay(previous.at(-1)!.approvedAt!)!)} · revision for additional work` : undefined, additional: reopened || undefined,
       actual: isoDay(final?.approvedAt), attention: attentionOf([prepStep, check, approve]) });
     stages.push({ id: 'report', label: 'Final report', status: rStatus, current: false, at: rStatus === 'completed' ? rRow.actual : undefined, rows: [rRow.key] });
     // 5 · Client approval and sample disposal: the samples are kept until the client approves the final report and instructs disposal.
