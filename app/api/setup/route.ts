@@ -1,7 +1,7 @@
 import { apiEnv } from "../../../server/env";
 import { database } from "../../../server/api";
 import { assertSameOrigin, authConfig, clientAddress, fail, handle, readJson, reply, sessionCookie } from "../../../server/http";
-import { completeAdministratorSetup, SETUP_UNAVAILABLE, setupOpen, setupSecret } from "../../../server/auth";
+import { completeAdministratorSetup, setupOpen, setupSecret, setupSecretState, setupUnavailableMessage } from "../../../server/auth";
 import { context, employeeActive, loadRecords } from "../../../server/workspace";
 import { administratorId } from "../../authorization";
 export const dynamic = "force-dynamic";
@@ -14,9 +14,13 @@ export function POST(request: Request) {
   return handle(async () => {
     const env = apiEnv(), db = database(env), config = authConfig(env);
     assertSameOrigin(request, config);
-    const secret = setupSecret(env);
-    if (!secret) throw fail(404, SETUP_UNAVAILABLE);
     const body = await readJson<{ action?: unknown; token?: unknown; password?: unknown }>(request, 4000);
+    const secret = setupSecret(env);
+    if (!secret) {
+      // Once MA001 exists, setup reads as closed (also after the secret is removed), not as misconfigured.
+      if (body.action === "check" && !(await setupOpen(db, administratorId))) return reply({ open: false });
+      throw fail(404, setupUnavailableMessage(setupSecretState(env) as "missing" | "too_short"));
+    }
     if (body.action === "check") return reply({ open: await setupOpen(db, administratorId) });
     if (body.action !== "complete") throw fail(400, "Unknown action.");
     const ctx = context((await loadRecords(db)).values);

@@ -6,7 +6,7 @@ import { startSitesApi } from './fixtures/sites-api.mjs';
 
 const { mf, DB, call } = await startSitesApi({
   setup: 'app/api/setup/route.ts', login: 'app/api/auth/login/route.ts', session: 'app/api/auth/session/route.ts',
-  invite: 'app/api/admin/invitations/route.ts', accounts: 'app/api/admin/accounts/route.ts', workspace: 'app/api/workspace/route.ts',
+  deployment: 'app/api/deployment/route.ts', invite: 'app/api/admin/invitations/route.ts', accounts: 'app/api/admin/accounts/route.ts', workspace: 'app/api/workspace/route.ts',
 });
 const env = globalThis.__vapsTestEnv;
 const SECRET = 'test-setup-secret-' + 'x'.repeat(30);
@@ -20,14 +20,27 @@ test('without a configured secret, setup is off and creates nothing', async () =
     const r = await setup(json);
     assert.equal(r.status, 404, JSON.stringify(json)); assert.match(r.data.error, /not available/);
   }
+  const missing = await setup({ action: 'check' });
+  assert.match(missing.data.error, /does not receive ADMIN_SETUP_TOKEN/, 'says the running deployment does not receive the secret');
+  assert.equal((await call('deployment', 'GET', '/')).data.adminSetupSecret, 'missing');
   env.ADMIN_SETUP_TOKEN = 'too-short-secret';
-  assert.equal((await setup({ action: 'check' })).status, 404, 'a secret under 32 characters counts as not configured');
+  const short = await setup({ action: 'check' });
+  assert.equal(short.status, 404, 'a secret under 32 characters counts as not configured');
+  assert.match(short.data.error, /shorter than 32 characters/);
+  assert.ok(!JSON.stringify(short.data).includes('too-short-secret') && !/\b16\b/.test(short.data.error), 'never the value or its length');
+  env.ADMIN_SETUP_TOKEN = '   ' + 'x'.repeat(20) + '            \n';
+  assert.equal((await setup({ action: 'check' })).status, 404, 'surrounding spaces do not count toward the length');
+  const d = (await call('deployment', 'GET', '/')).data;
+  assert.equal(d.adminSetupSecret, 'too_short'); assert.deepEqual(d.bindings, { DB: true, FILES: true });
+  assert.ok(!JSON.stringify(d).includes('xxxxxxxx'), 'diagnostics never include the value');
   assert.deepEqual(await accounts(), []);
 });
 
 test('a wrong secret is refused and repeated guessing is paused; a weak password creates nothing', async () => {
-  env.ADMIN_SETUP_TOKEN = SECRET;
+  env.ADMIN_SETUP_TOKEN = SECRET + '\n'; // pasted with a trailing newline
   assert.deepEqual((await setup({ action: 'check' })).data, { open: true });
+  assert.equal((await call('deployment', 'GET', '/')).data.adminSetupSecret, 'ok');
+  env.ADMIN_SETUP_TOKEN = SECRET;
   const wrong = await setup({ action: 'complete', token: SECRET + 'x', password: PASSWORD });
   assert.equal(wrong.status, 403); assert.equal(wrong.setCookie, '');
   assert.equal((await setup({ action: 'complete', token: SECRET, password: 'short' })).status, 400);
@@ -82,6 +95,15 @@ test('MA001 stays the Administrator; invitation email stays disabled', async () 
   const invite = await call('invite', 'POST', '/', { cookie, json: { employeeId: 'SALIM', email: 'salim@vaps.example.test' } });
   assert.equal(invite.status, 503); assert.match(invite.data.error, /Email is not configured/);
   assert.equal((await DB.prepare('SELECT COUNT(*) AS n FROM invitations').first()).n, 0);
+});
+
+test('after the secret is removed, setup reads as completed (not misconfigured) and stays closed', async () => {
+  delete env.ADMIN_SETUP_TOKEN;
+  assert.deepEqual((await setup({ action: 'check' })).data, { open: false });
+  const r = await setup({ action: 'complete', token: 'x'.repeat(40), password: 'Another passphrase entirely' });
+  assert.equal(r.status, 404);
+  assert.equal((await accounts()).length, 1);
+  assert.equal((await call('deployment', 'GET', '/')).data.adminSetupSecret, 'missing');
 });
 
 test.after(async () => { await mf.dispose(); });
