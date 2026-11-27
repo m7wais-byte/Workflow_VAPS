@@ -1,0 +1,16 @@
+// Local-only Wrangler config used inside the Docker container (migrations, backups and restores).
+// The names and the placeholder database id must match vite.config.ts, so these commands reach the same local
+// D1 database and R2 bucket that the dev server uses. Never used for a Cloudflare deploy.
+{
+  "name": "vaps-local",
+  "compatibility_date": "2026-05-15",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "site-creator-d1",
+      "database_id": "00000000-0000-4000-8000-000000000000",
+      "migrations_dir": "../drizzle"
+    }
+  ],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "site-creator-r2" }]
+}
