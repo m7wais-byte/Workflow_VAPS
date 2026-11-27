@@ -97,5 +97,11 @@ Where that document says "Sites panel", use *Worker → Settings → Variables a
   - The restore overwrites the database in place and prints a bookmark that undoes it.
 - **Database export:** `npx wrangler d1 export vaps-test-db --remote --output=vaps-test-db.sql`.
   - The file contains records. Keep it private and never commit it.
-- **Files:** R2 has no Time Travel. Backing up uploaded files is part of the rollout step and is **not built yet**.
+- **Files:** R2 has no Time Travel. `scripts/backup/backup.mjs` copies the database and every uploaded file into one folder, with a checked manifest. Run it from a computer signed in with `npx wrangler login`, or with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` set:
+  ```bash
+  node scripts/backup/backup.mjs --remote --db vaps-test-db --bucket vaps-test-files
+  ```
+  - **Restoring:** `scripts/backup/restore.mjs` writes only into a new, **empty** D1 database (create one with `npx wrangler d1 create <name>`) and a bucket. It then checks the row counts and every file.
+  - **Status:** the backup/restore drill has passed locally in Docker (DOCKER.md). It has not yet been run against Cloudflare.
+  - **Still to decide (VAPS):** where backups are kept, how often they run, and for how long.
 - **Custom domain:** a domain such as `workflow.visionaps.com` needs the domain's DNS zone to be active on Cloudflare. That is a VAPS IT decision, because the Microsoft 365 email records live in the same zone.

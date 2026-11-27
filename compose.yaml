@@ -1,0 +1,23 @@
+# Local Workflow VAPS (Sites edition) in Docker. Same file on every computer: `docker compose up --build`.
+# Open http://localhost:3000. Details, first Administrator setup, backups and restores: DOCKER.md.
+name: vaps
+
+services:
+  app:
+    build: .
+    image: vaps-workflow-local
+    ports:
+      # VAPS_PORT picks the port on this computer (default 3000), e.g. for a second, restored copy on 3001.
+      - "${VAPS_PORT:-3000}:3000"
+    environment:
+      # The address you open in the browser.
+      APP_ORIGIN: http://localhost:${VAPS_PORT:-3000}
+    volumes:
+      # Local database, uploaded files and the setup secret. Survives restarts and rebuilds.
+      - vaps-data:/app/.wrangler
+      # Backup files written by scripts/backup (records: never commit or share them).
+      - ./backups:/app/backups
+    restart: unless-stopped
+
+volumes:
+  vaps-data:
