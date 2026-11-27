@@ -36,15 +36,25 @@ The workflow never creates the database or the bucket. If either is missing it s
      - `CLOUDFLARE_API_TOKEN`: the token value.
      - `CLOUDFLARE_ACCOUNT_ID`: from the right-hand column of the account's *Overview* page.
    - The token belongs to VAPS and the repository to RawandAqel. Either add the VAPS owner as a collaborator so they paste it in themselves, or have them type it in during a screen share. Never send it through chat, email, a ticket or a file.
-5. **Turn on GitHub Actions (repository owner).** The builder's GitHub Pages workflow (`pages.yml`) must stay off in this private repository. Turn it off first, then turn Actions on. Do nothing in between: `pages.yml` only runs on a push to `main`.
+5. **Turn on GitHub Actions (repository owner, signed in as RawandAqel).** The builder's GitHub Pages workflow (`pages.yml`) must stay off in this private repository.
+   - Turn Actions on, then turn `pages.yml` off straight away, with no push in between. `pages.yml` only runs on a push to `main`.
+   - In GitHub: *Settings → Actions → General → Allow all actions → Save*, then *Actions → Deploy GitHub Pages → ⋯ → Disable workflow*.
+   - Or from a terminal where `gh` also knows other accounts. The `GH_TOKEN=` part makes the commands act as RawandAqel:
    ```bash
+   export GH_TOKEN=$(gh auth token --hostname github.com --user RawandAqel)
    gh api -X PUT repos/RawandAqel/Workflow_VAPS/actions/permissions -F enabled=true
    gh workflow disable pages.yml -R RawandAqel/Workflow_VAPS
+   unset GH_TOKEN
    ```
 
 ## 2. First deploy (in this order)
 
-1. **Deploy.** Push `deploy/test`, or re-run the latest *Deploy test (Cloudflare)* run.
+1. **Deploy.** A deploy starts only from a push to `deploy/test` made *after* Actions is on. Earlier pushes are never run, and the workflow has no "Run workflow" button because it is not on `main`. Start the first deploy with an empty commit:
+   ```bash
+   git switch deploy/test
+   git commit --allow-empty -m "Trigger first test deploy"
+   git push private deploy/test
+   ```
    - Each run does: type check → tests → find the database and bucket → build → apply migrations → deploy.
    - The run's summary shows the address.
 2. **Protect it before anything else.**

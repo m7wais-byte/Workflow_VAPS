@@ -14,12 +14,11 @@ concurrency:
   group: deploy-test
   cancel-in-progress: false
 
+# The Cloudflare token is given only to the steps that call Cloudflare, never to npm ci or the tests.
 env:
   VAPS_DEPLOY_WORKER_NAME: vaps-workflow-test
   VAPS_DEPLOY_D1_NAME: vaps-test-db
   VAPS_DEPLOY_R2_BUCKET: vaps-test-files
-  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
   WRANGLER_SEND_METRICS: "false"
 
 jobs:
@@ -27,6 +26,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check Cloudflare secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           missing=""
           [ -n "$CLOUDFLARE_API_TOKEN" ] || missing="$missing CLOUDFLARE_API_TOKEN"
@@ -50,6 +52,9 @@ jobs:
 
       # The repository's own Wrangler (package.json) is used for every Cloudflare step.
       - name: Find the D1 database and R2 bucket (never creates them)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -o pipefail
           id=$(npx wrangler d1 list --json | node scripts/deploy/find-d1.mjs "$VAPS_DEPLOY_D1_NAME")
@@ -65,12 +70,20 @@ jobs:
       # Migrations run before the new code goes live. They are additive and only move forward:
       # a later rollback of the Worker does not undo them.
       - name: Apply database migrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           node -e 'const fs=require("fs");fs.writeFileSync(process.argv[1],JSON.stringify({name:process.env.VAPS_DEPLOY_WORKER_NAME,compatibility_date:"2026-05-15",d1_databases:[{binding:"DB",database_name:process.env.VAPS_DEPLOY_D1_NAME,database_id:process.env.VAPS_DEPLOY_D1_ID,migrations_dir:process.argv[2]}]}))' "$RUNNER_TEMP/migrations.json" "$GITHUB_WORKSPACE/drizzle"
           npx wrangler d1 migrations apply "$VAPS_DEPLOY_D1_NAME" --remote --config "$RUNNER_TEMP/migrations.json"
 
       - name: Deploy the Worker
-        run: npx wrangler deploy | tee "$RUNNER_TEMP/deploy.log"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -o pipefail
+          npx wrangler deploy | tee "$RUNNER_TEMP/deploy.log"
 
       - name: Summary
         if: success()
