@@ -32,19 +32,18 @@ The workflow never creates the database or the bucket. If either is missing it s
    - Account resources: **Include → the VAPS account only**. No zone permissions are needed.
    - Set an expiry, for example 6 months, and put a renewal reminder in the calendar.
    - This permission list is our best reading of Cloudflare's documentation. If the first run fails with an authentication error, add the permission it names.
-   - Add two **repository secrets** in GitHub: *RawandAqel/Workflow_VAPS → Settings → Secrets and variables → Actions → New repository secret*:
+   - Add two **repository secrets** in the GitHub repository that runs the deploy workflow: *&lt;owner&gt;/&lt;repo&gt; → Settings → Secrets and variables → Actions → New repository secret*:
      - `CLOUDFLARE_API_TOKEN`: the token value.
      - `CLOUDFLARE_ACCOUNT_ID`: from the right-hand column of the account's *Overview* page.
-   - The token belongs to VAPS and the repository to RawandAqel. Either add the VAPS owner as a collaborator so they paste it in themselves, or have them type it in during a screen share. Never send it through chat, email, a ticket or a file.
-5. **Turn on GitHub Actions (repository owner, signed in as RawandAqel).** The builder's GitHub Pages workflow (`pages.yml`) must stay off in this private repository.
-   - Turn Actions on, then turn `pages.yml` off straight away, with no push in between. `pages.yml` only runs on a push to `main`.
+   - If the token's owner (VAPS) is not an admin of that repository, either add them as a collaborator so they paste it in themselves, or have them type it in during a screen share. Never send it through chat, email, a ticket or a file.
+5. **Make sure GitHub Actions can run the deploy workflow (repository admin).**
+   - In the main repository, Actions is already on, and `pages.yml` keeps publishing the GitHub Pages demo; leave it as it is.
+   - In a private copy that should not publish the Pages demo: turn Actions on, then turn `pages.yml` off straight away, with no push in between. `pages.yml` only runs on a push to `main`.
    - In GitHub: *Settings → Actions → General → Allow all actions → Save*, then *Actions → Deploy GitHub Pages → ⋯ → Disable workflow*.
-   - Or from a terminal where `gh` also knows other accounts. The `GH_TOKEN=` part makes the commands act as RawandAqel:
+   - Or with the GitHub CLI, signed in as a repository admin:
    ```bash
-   export GH_TOKEN=$(gh auth token --hostname github.com --user RawandAqel)
-   gh api -X PUT repos/RawandAqel/Workflow_VAPS/actions/permissions -F enabled=true
-   gh workflow disable pages.yml -R RawandAqel/Workflow_VAPS
-   unset GH_TOKEN
+   gh api -X PUT repos/<owner>/<repo>/actions/permissions -F enabled=true
+   gh workflow disable pages.yml -R <owner>/<repo>
    ```
 
 ## 2. First deploy (in this order)

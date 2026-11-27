@@ -7,9 +7,9 @@ Platform status:
 - **Not yet tested** on Windows, Linux and Intel computers. They should work with Docker Desktop.
 
 ## Get the code (another computer)
-The Docker files are on the `deploy/test` branch, not on `main`, which mirrors the builder's repository. You need access to the private repository.
+Clone the repository and check out a branch that contains these Docker files (`Dockerfile`, `compose.yaml`, `docker/`):
 ```bash
-git clone -b deploy/test https://github.com/RawandAqel/Workflow_VAPS.git
+git clone -b <branch> https://github.com/<owner>/Workflow_VAPS.git
 cd Workflow_VAPS
 ```
 
