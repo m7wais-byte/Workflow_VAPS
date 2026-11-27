@@ -1,6 +1,17 @@
 # Running Workflow VAPS locally with Docker
 
-This runs the Sites edition, the same code that deploys to Cloudflare: sign-in, shared database (D1) and file storage (R2), simulated locally. The same files work on any computer with Docker Desktop, on macOS, Windows or Linux, and on Intel or Apple silicon. **Local test data only.**
+This runs the Sites edition, the same code that deploys to Cloudflare: sign-in, shared database (D1) and file storage (R2), simulated locally. **Local test data only.**
+
+Platform status:
+- **Verified** on macOS with Apple silicon, including a run from a clean clone.
+- **Not yet tested** on Windows, Linux and Intel computers. They should work with Docker Desktop.
+
+## Get the code (another computer)
+The Docker files are on the `deploy/test` branch, not on `main`, which mirrors the builder's repository. You need access to the private repository.
+```bash
+git clone -b deploy/test https://github.com/RawandAqel/Workflow_VAPS.git
+cd Workflow_VAPS
+```
 
 ## Start
 ```bash

@@ -72,6 +72,19 @@ The workflow never creates the database or the bucket. If either is missing it s
      - `appOrigin`: the address.
    - Then open `<address>/#setup`, enter the secret and choose MA001's password.
 6. **Remove `ADMIN_SETUP_TOKEN`.** Setup also closes by itself once MA001 exists.
+7. **Prepare the empty database for a test job.** These were found in the local end-to-end walk.
+   - **Cylinders:** every cylinder starts *Not checked*, and a job can only use *Ready* ones. A sampling employee checks at least one in *Sampling → Cylinders → Check cylinder*.
+   - **QC reviewer:** set it in *Settings → Authorization → Responsibilities → QC review*. It is empty by default, and the workflow stops at QC.
+   - **Workbook access:** only the PVT Team Lead holds *View / Download workbook* by default. Grant it to whoever must open attached workbooks, such as the QC reviewer, the Chemistry Team Lead and the final approver.
+   - **Test accounts:** while `MAIL_PROVIDER` is unset, invitations are refused. Test mail mode is for local development only, never a deployed site. Until email is approved, create each test account with `node scripts/create-account.mjs <username> <employee-id>` and `npx wrangler d1 execute vaps-test-db --remote --file <printed path>` (AUTHENTICATION.md).
+     - Each account gets a temporary password, shown once, which must be changed at first sign-in.
+     - Delete the printed SQL file afterwards.
+
+The OneDrive live test (ONEDRIVE-PILOT.md) needs some of the job flow first.
+- **Quickest Sampling file:** attach a client request / scope document on the *Create job* form. It is routed to the Sampling folder.
+- **G-sheet:** the test plan's Sampling file additionally needs preparation (with a Ready cylinder), the data sheet and the backup engineer's review.
+- **Lab file:** additionally needs sampling report approval, the Phase 1 scope release and a test assignment.
+- Allow about 30–45 minutes for the full path.
 
 Settings and secrets entered in the dashboard **survive every deploy**: the build sets `keep_vars`. Leave `MAIL_PROVIDER` unset; email stays off until VAPS IT approves it (EMAIL-SETUP.md).
 
