@@ -27,7 +27,7 @@ export type ExternalWork = { provider:string; notes:string; expectedReturn:strin
 export type ExecutionChoice = { by:'Internal'|'Third-party'; provider?:string; /** Optional at scope time; otherwise the team lead assigns the coordinator. */coordinator?:string; notes?:string; expectedReturn?:string };
 export type CustomTest = { /** Stable ID kept through drafts, release and tracking. */id:string; name:string; notes:string; team:Destination; execution?:ExecutionChoice };
 export type ScopeRecord = { id:string; linkId?:string; title:string; sampleIds:string[]; stream:Stream; notes:string; addedBy:string; at:string; reason:string; source:'Original request'|'Additional work'; /** Validation requested for the sample; the PVT Team Lead chooses the steps. */validationRequest?:boolean; plannedBy?:string; plannedAt?:string };
-export type ReportVersion = { version:number; status:'Draft'|'Checking'|'Awaiting Approval'|'Changes Requested'|'Approved'; text:string; preparedBy:string; preparedAt:string; checker:string; checkedAt?:string; submittedAt?:string; approvedBy?:string; approvedAt?:string; comments:string; snapshot:string; file?:FileVersion;
+export type ReportVersion = { version:number; status:'Draft'|'Checking'|'Awaiting Approval'|'Changes Requested'|'Approved'; text:string; preparedBy:string; preparedAt:string; checker:string; checkedAt?:string; submittedAt?:string; approvedBy?:string; approvedAt?:string; /** Final report only: when this approved version actually reached the client, recorded by the coordinator. Approval alone is internal. */issuedAt?:string; issuedBy?:string; issueNote?:string; comments:string; snapshot:string; file?:FileVersion;
  /** Sampling reports: details outside the sample evidence (installation, client branding, company, names/titles), saved with the version and frozen at approval. Missing on versions saved before it existed. */
  letterhead?:ReportLetterhead };
 export type Destination = Stream | 'Both';
@@ -92,6 +92,12 @@ export const samplingStarted=(job:JobRecord)=>!!job.operations?.samplingStart||!
 export const canManageJobAccess=(_job:JobRecord,actor:Actor)=>hasAccess(actor,'jobAccessEdit');
 /** The job is finished: final report approved, or completed in the earlier workflow. */
 export const jobFinished=(job:JobRecord)=>operationComplete(job)||(!job.operations?.dispatchedAt&&job.status==='Completed');
+/** The approved final report version, once it is recorded as issued (delivered) to the client. Approval alone is internal. */
+export const finalIssued=(job:JobRecord)=>{const r=latest(operationsFor(job).finalReports);return r?.status==='Approved'&&r.issuedAt?r:undefined;};
+/** Approved internally, not yet issued to the client. Jobs whose client approval was already recorded count as issued. */
+export const issuePending=(job:JobRecord)=>{const o=operationsFor(job);return !!job.operations?.dispatchedAt&&operationComplete(job)&&!finalIssued(job)&&!o.clientDisposal&&!o.cylindersReleased;};
+/** Calendar day (yyyy-mm-dd) in Oman for an ISO time. */
+export const omanDay=(iso:string)=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Muscat'}).format(new Date(iso));
 /** Cylinder serials recorded on the job's samples (glass bottles and IATA cans excluded). */
 /** Every cylinder the job holds: the sample cylinders and the backup cylinders reserved for it. */
 export const jobCylinderSerials=(job:JobRecord)=>[...new Set([...(job.samples||[]).filter(s=>!isAtmospheric(s)&&s.bottleSerial?.trim()).map(s=>s.bottleSerial.trim()),...backupCylinders(job)])];
@@ -301,6 +307,8 @@ export type Command =
  | {type:'dispatch';engineer:string;driver:string;/** Supporting sampling employees besides the accountable engineer. */team?:string[]}
  /** The accountable sampling employee confirms the job briefing and starts the sampling work. */
  | {type:'start-job'}
+ /** After VAPS approves the final report, the coordinator records when it was issued (delivered) to the client. */
+ | {type:'report-issue';note?:string;/** Day the report reached the client (yyyy-mm-dd, Oman); today when omitted. */on?:string}
  /** After the job is finished, the coordinator releases its cylinders to the sampling team for cleaning, certification and checks. */
  /** The coordinator records that the client approved the final report and instructed disposal of the samples. Cylinders are discharged only after this. */
  | {type:'client-disposal';note?:string}
@@ -368,9 +376,22 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
   next.events=[...(job.events||[]),{date:`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,time:`${pad(d.getHours())}:${pad(d.getMinutes())}`,description:'Job started by '+(actor.employees.find(e=>e.id===actor.id)?.name||actor.id)+' (accountable). Sampling preparation begins.',createdBy:actor.id,createdAt:now,auto:true}];
   break;
  }
+ case 'report-issue':{
+  if(!hasAccess(actor,'createJob')&&actor.id!==o.dispatchedBy)throw Error('Only the job coordinator records that the final report was issued to the client.');
+  const r=latest(o.finalReports);
+  if(!operationComplete(job)||r?.status!=='Approved')throw Error('The final report is issued to the client after VAPS approves it.');
+  if(r.issuedAt)throw Error('This version of the final report is already recorded as issued to the client.');
+  const today=omanDay(now),on=command.on?.trim()||today;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(on)||on>today||on<omanDay(r.approvedAt||now))throw Error('Enter the day the report reached the client: not before its approval and not in the future.');
+  r.issuedAt=on===today?now:on+'T08:00:00.000Z';r.issuedBy=actor.id;if(command.note?.trim())r.issueNote=command.note.trim();else delete r.issueNote;reason=command.note?.trim()||'';
+  const d=new Date(now);const pad=(n:number)=>String(n).padStart(2,'0');
+  next.events=[...(job.events||[]),{date:`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,time:`${pad(d.getHours())}:${pad(d.getMinutes())}`,description:`Final report v${r.version} issued to the client${on===today?'':' on '+on}. Recorded by `+(actor.employees.find(e=>e.id===actor.id)?.name||actor.id)+(r.issueNote?'. Note: '+r.issueNote:''),createdBy:actor.id,createdAt:now,auto:true}];
+  break;
+ }
  case 'client-disposal':{
   if(!hasAccess(actor,'createJob')&&actor.id!==o.dispatchedBy)throw Error('Only the job coordinator records the client’s approval and disposal instruction.');
   if(!jobFinished(job))throw Error('The client’s approval is recorded after the final report is approved and issued.');
+  if(issuePending(job))throw Error('Record first that the final report was issued to the client.');
   if(o.clientDisposal)throw Error('The client’s approval and disposal instruction are already recorded.');
   o.clientDisposal={by:actor.id,at:now,...(command.note?.trim()?{note:command.note.trim()}:{})};reason=command.note?.trim()||'';
   const d=new Date(now);const pad=(n:number)=>String(n).padStart(2,'0');
@@ -778,11 +799,11 @@ export function applyOperation(job:JobRecord,command:Command,actor:Actor,now=new
  // A scope or workbook change invalidates a pending final review, never overwrites an approved version.
  if(['scope','request-addition','add-validation','workbook-return'].includes(command.type)||(command.type==='lab-scope'&&command.action==='release')){
   const r=latest(o.finalReports);if(r?.status==='Awaiting Approval'){r.status='Changes Requested';r.comments='Scope or workbook state changed. Review a new revision.';}
-  if(r?.status==='Approved')o.finalReports.push({...r,version:o.finalReports.length+1,status:'Changes Requested',file:undefined,approvedAt:undefined,approvedBy:undefined,comments:'Additional work or workbook correction requires a new report revision.'});
+  if(r?.status==='Approved')o.finalReports.push({...r,version:o.finalReports.length+1,status:'Changes Requested',file:undefined,approvedAt:undefined,approvedBy:undefined,issuedAt:undefined,issuedBy:undefined,issueNote:undefined,comments:'Additional work or workbook correction requires a new report revision.'});
  }
  o.revision++;o.history.push({at:now,by:actor.id,action:command.type,reason});next.lastUpdatedById=actor.id;next.lastUpdatedAt=now;
  // Recording the client's approval or discharging cylinders happens after the job is finished and never changes its status.
- if(command.type!=='client-disposal'&&command.type!=='release-cylinders')next.status=operationComplete(next)?'Completed':samplingApproved(next)?'Sampling Completed':next.status==='Completed'?'Report Draft':next.status;
+ if(command.type!=='client-disposal'&&command.type!=='release-cylinders'&&command.type!=='report-issue')next.status=operationComplete(next)?'Completed':samplingApproved(next)?'Sampling Completed':next.status==='Completed'?'Report Draft':next.status;
  return next;
 }
 /** Next action once every data sheet is complete: the backup engineer confirms the review. */

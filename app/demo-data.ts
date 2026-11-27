@@ -120,7 +120,7 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
  j3 = run(j3, 'SHEREIQI', { type: 'lead-review', id: v2[4].id, decision: 'approve', target: '', comments: '' }, t());
  j3 = run(j3, 'YAQEEN', { type: 'progress', id: find(j3, '1.02', 'Others — Water Analysis', 'Chemical').id, status: 'In Progress', notes: 'Sub-sample taken.' }, t());
 
- // 4 · Completed (PVT DL + Chemical Water Analysis, final report approved), then Validation added later as additional work.
+ // 4 · Completed (PVT DL + Chemical Water Analysis, final report approved and issued to the client), then Validation added later as additional work.
  t = clock(20); start = t();
  const wh = { samplingDate: addDays(day, -19), samplingTime: '08:30', whp: '380', wht: '51', chokeSize: '28/64' };
  let j4 = job(4, { samplingSource: 'Wellhead Sampling', well: 'DEMO-WH-01', whp: '380', wht: '51', chokeSize: '28/64', requiredTests: ['Black Oil — DL', 'Others — Water Analysis'], assignedEngineerId: 'HUSSEINI', assignedDriverId: 'ALI',
@@ -136,6 +136,7 @@ export async function buildDemoJobs(storeFile: StoreFile, today = new Date()): P
  j4 = run(j4, 'SHEREIQI', { type: 'report-draft', kind: 'final', text: 'DEMO final report: DL and water analysis complete. Fictional results.', checker: 'SHEREIQI', file: { ...finalFile, version: 1, submittedBy: 'SHEREIQI', submittedAt: submitted, status: 'Available', comments: '' } }, submitted);
  j4 = run(j4, 'SHEREIQI', { type: 'report-action', kind: 'final', action: 'submit', comments: '' }, t());
  j4 = run(j4, 'WILFRED', { type: 'report-action', kind: 'final', action: 'approve', comments: '' }, t());
+ j4 = run(j4, 'SALIM', { type: 'report-issue', note: 'DEMO: emailed to the client focal point.' }, t());
  j4 = { ...j4, stages: j4.stages.map(s => ({ ...s, status: 'Completed' as const, completed: s.completed || j4.lastUpdatedAt })), currentStage: 'Final Report' };
  const later = clock(0); later();
  j4 = run(j4, 'SALIM', { type: 'add-validation', sampleIds: ['1.01'], steps: ['Opening Pressure', 'Restoration', 'Flash', 'PV'], reason: 'DEMO: client requested Validation of the retained sample before release.' }, later());

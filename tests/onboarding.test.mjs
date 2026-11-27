@@ -214,6 +214,11 @@ test('full workflow with onboarded demo accounts; Normal Users see only assigned
   await step('SHEREIQI', [{ type: 'report-action', kind: 'final', action: 'submit', comments: '' }]);
   await refused('SALIM', [{ type: 'report-action', kind: 'final', action: 'approve', comments: '' }]);
   await step('WILFRED', [{ type: 'report-action', kind: 'final', action: 'approve', comments: '' }]);
+  // Approval is internal: the coordinator records the issue to the client before the client's approval.
+  await refused('SALIM', [{ type: 'client-disposal', note: '' }]);
+  await refused('NASSER', [{ type: 'report-issue', note: '' }]);
+  await refused('SALIM', [{ type: 'report-issue', on: '2099-01-01' }]); // the issue day reaches the server rules
+  await step('SALIM', [{ type: 'report-issue', note: 'Emailed to the focal point (test).' }]);
   await refused('NASSER', [{ type: 'client-disposal', note: '' }]);
   await step('SALIM', [{ type: 'client-disposal', note: 'Client approved (test).' }]);
   await step('SALIM', [{ type: 'release-cylinders', note: '', assignee: 'MOHSIN' }]);

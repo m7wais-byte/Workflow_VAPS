@@ -14,7 +14,7 @@ import type { JobRecord } from './page';
 import type { Responsibilities } from './authorization';
 import { storedResponsibilities } from './authorization';
 import { jobFlow, activityStep, type FlowState, type FlowStep, type JobFlow } from './job-flow';
-import { operationsFor, isDraft, legacyDispatch, unplannedValidation, interimReport, phase2Undecided, latest, type ActivityRecord, type Stream, type WorkState } from './operations-model';
+import { operationsFor, isDraft, legacyDispatch, unplannedValidation, interimReport, phase2Undecided, latest, finalIssued, type ActivityRecord, type Stream, type WorkState } from './operations-model';
 import { durationOf, dayConvention, type ScheduleEstimate } from './schedule-estimate';
 import { ukDate } from "./uk-format";
 
@@ -114,6 +114,9 @@ export function jobProgressView(job: JobRecord, opts: Options): ProgressView {
   const rows: ProgressRow[] = [];
   const stages: ProgressStage[] = [];
   const notes: string[] = [];
+  // The final report is approved internally first and issued to the client afterwards (recorded by the coordinator).
+  // Until it is issued the client sees it in progress, never the internal approval.
+  let pendingIssue = false, issuedOn: string | undefined;
 
   const scheduleFor = (key: string, team?: { start?: string; finish?: string }): RowSchedule | undefined => {
     const e: ScheduleEstimate | undefined = plan[key];
@@ -234,26 +237,34 @@ export function jobProgressView(job: JobRecord, opts: Options): ProgressView {
     const prepStep = st('report:prep'), check = st('report:check'), approve = st('report:approval');
     const final = latest(o.finalReports), previous = o.finalReports.filter((r) => r.status === 'Approved' && r.approvedAt);
     const reopened = !flow.closed && previous.length > 0;
-    const rStatus: ProgressStatus = approve?.state === 'completed' ? 'completed'
+    // Jobs whose client approval was recorded before the issue step existed count as issued on their approval day.
+    const issuedAt = finalIssued(job)?.issuedAt || (o.clientDisposal || o.cylindersReleased ? previous.at(-1)?.approvedAt : undefined);
+    const approved: ProgressStatus = approve?.state === 'completed' ? 'completed'
       : approve?.state === 'in-progress' || approve?.state === 'blocked' || check?.state === 'in-progress' ? 'under-review'
       : prepStep?.state === 'in-progress' || prepStep?.state === 'blocked' ? 'in-progress' : 'not-started';
+    pendingIssue = approved === 'completed' && !issuedAt;
+    issuedOn = approved === 'completed' ? isoDay(issuedAt) : undefined;
+    const rStatus: ProgressStatus = client && pendingIssue ? 'in-progress' : approved;
+    const earlier = previous.at(-1);
     const rRow = row({ key: 'report', label: reopened ? 'Revised final report' : 'Final report', group: 'report', status: rStatus,
-      detail: reopened ? `Earlier report issued ${fmt(isoDay(previous.at(-1)!.approvedAt!)!)} · revision for additional work` : undefined, additional: reopened || undefined,
-      actual: isoDay(final?.approvedAt), attention: attentionOf([prepStep, check, approve]) });
+      detail: reopened ? `Earlier report ${earlier?.issuedAt ? 'issued ' + fmt(isoDay(earlier.issuedAt)!) : 'approved ' + fmt(isoDay(earlier!.approvedAt!)!)} · revision for additional work`
+        : client ? undefined : pendingIssue ? 'Approved internally · to be issued to the client' : issuedOn ? `Issued to the client ${fmt(issuedOn)}` : undefined,
+      additional: reopened || undefined,
+      actual: client ? (rStatus === 'completed' ? issuedOn : undefined) : isoDay(final?.approvedAt), attention: attentionOf([prepStep, check, approve]) });
     stages.push({ id: 'report', label: 'Final report', status: rStatus, current: false, at: rStatus === 'completed' ? rRow.actual : undefined, rows: [rRow.key] });
     // 5 · Client approval and sample disposal: the samples are kept until the client approves the final report and instructs disposal.
     // Cylinders released before this step was recorded separately count as approved by the client.
     const clientAt = o.clientDisposal?.at || o.cylindersReleased?.at;
-    const cStatus: ProgressStatus = clientAt ? 'completed' : rStatus === 'completed' ? 'in-progress' : 'not-started';
+    const cStatus: ProgressStatus = clientAt ? 'completed' : issuedAt && approved === 'completed' ? 'in-progress' : 'not-started';
     const cRow = row({ key: 'client', label: 'Client approval and sample disposal', group: 'client', status: cStatus, actual: isoDay(clientAt),
-      detail: cStatus === 'completed' ? 'Final report approved by the client · sample disposal instructed' : cStatus === 'in-progress' ? 'Waiting for client approval of the final report and the sample disposal instruction' : 'After the final report' });
+      detail: cStatus === 'completed' ? 'Final report approved by the client · sample disposal instructed' : cStatus === 'in-progress' ? 'Waiting for client approval of the final report and the sample disposal instruction' : 'After the final report is issued to the client' });
     stages.push({ id: 'client', label: 'Client approval', status: cStatus, current: false, at: cStatus === 'completed' ? cRow.actual : undefined, rows: [cRow.key] });
   }
 
   // Current stage: the first one not completed.
   const current = stages.find((s) => s.status !== 'completed');
   if (current) current.current = true;
-  const closed = modern ? flow.closed : !current;
+  const closed = (modern ? flow.closed : !current) && !(client && pendingIssue);
 
   const counted = rows;
   const done = counted.filter((r) => r.status === 'completed').length;
@@ -261,14 +272,15 @@ export function jobProgressView(job: JobRecord, opts: Options): ProgressView {
   const live = rows.filter((r) => r.status === 'in-progress' || r.status === 'under-review');
   // The work is finished, but the samples are kept until the client approves the final report and instructs disposal.
   const awaitingClient = closed && rows.some((r) => r.group === 'client' && r.status !== 'completed');
-  const now = awaitingClient ? 'Final report issued · waiting for client approval and the sample disposal instruction' : closed ? 'All planned work is completed' : draft ? 'Job details are being prepared' : live.length ? describeNow(live) : 'Waiting for the next activity to start';
+  const toIssue = awaitingClient && pendingIssue; // staff view only: the client view is not closed until the report is issued
+  const now = toIssue ? 'Final report approved internally · to be issued to the client' : awaitingClient ? 'Final report issued · waiting for client approval and the sample disposal instruction' : closed ? 'All planned work is completed' : draft ? 'Job details are being prepared' : live.length ? describeNow(live) : 'Waiting for the next activity to start';
   const nextRow = rows.filter((r) => r.status === 'not-started').sort((a, b) => (a.schedule?.start || '9999').localeCompare(b.schedule?.start || '9999') || rows.indexOf(a) - rows.indexOf(b))[0];
-  const next = awaitingClient ? 'Sample disposal after client approval' : closed ? 'No further work planned' : nextRow ? nextRow.label + (nextRow.schedule?.start ? ` · planned start ${fmt(nextRow.schedule.start)}` : '')
+  const next = toIssue ? 'Issue of the final report to the client' : awaitingClient ? 'Sample disposal after client approval' : closed ? 'No further work planned' : nextRow ? nextRow.label + (nextRow.schedule?.start ? ` · planned start ${fmt(nextRow.schedule.start)}` : '')
     : stages.find((s) => s.status === 'not-started')?.label || (stages.find((s) => s.id === 'lab')?.planned ? 'Confirmation of the laboratory scope' : 'Completion of the work in progress');
   return {
     audience, jobId: job.jobNumber || job.id, client: job.clientName, location: jobLocation(job), sampling: samplingLabel(job) || undefined,
     info: { field: job.fieldArea || undefined, well: (job.wells?.filter(Boolean).join(', ') || job.well) || undefined, samples: job.samples?.length || Number(job.requestedSampleCount) || undefined, jobDate: validDay(job.dateReceived), dueDate: validDay(job.dueDate) },
-    stages, rows, currentStage: awaitingClient ? 'Client approval' : closed ? 'Completed' : current?.label || 'Not started', now, next, sentence: sentenceFor(stages, rows, expected, closed, draft) + (awaitingClient ? ' Waiting for client approval of the final report and the sample disposal instruction.' : ''),
+    stages, rows, currentStage: toIssue ? 'Final report' : awaitingClient ? 'Client approval' : closed ? 'Completed' : current?.label || 'Not started', now, next, sentence: sentenceFor(stages, rows, expected, closed, draft, modern ? issuedOn : expected.date) + (toIssue ? ' The final report is approved internally and will be issued to the client.' : awaitingClient ? ' Waiting for client approval of the final report and the sample disposal instruction.' : ''),
     done, total: counted.length, expected, lastUpdate: lastProgressUpdate(job), scopeConfirmed: !!o.scopeConfirmedAt, overdue: rows.filter((r) => r.overdue).length,
     convention: dayConvention, closed, draft, legacy: !modern, notes,
   };
@@ -312,9 +324,10 @@ export function expectedCompletion(rows: ProgressRow[], stages: ProgressStage[],
 }
 
 /** "Sampling is completed. PVT testing is in progress, and Chemistry testing is scheduled to begin on 12/11/2026. Expected report delivery: 30/11/2026." */
-export function sentenceFor(stages: ProgressStage[], rows: ProgressRow[], expected: ExpectedCompletion, closed: boolean, draft: boolean): string {
+export function sentenceFor(stages: ProgressStage[], rows: ProgressRow[], expected: ExpectedCompletion, closed: boolean, draft: boolean, issuedOn?: string): string {
   if (draft) return 'The job is being prepared. The planned work will be shown here once it is confirmed.';
-  if (closed) return `All planned work is completed${expected.date ? ' and the final report was issued on ' + fmt(expected.date) : ''}.`;
+  // "Issued" only with the recorded issue date; an internally approved report is not issued yet.
+  if (closed) return `All planned work is completed${issuedOn ? ' and the final report was issued on ' + fmt(issuedOn) : ''}.`;
   const out: string[] = [];
   const startOf = (list: ProgressRow[]) => { const s = list.map((r) => r.schedule?.source === 'plan' ? r.schedule.start : undefined); return s.every(Boolean) ? minDate(s) : undefined; };
   const phrase = (subject: string, status: ProgressStatus, list: ProgressRow[], verb = 'is') => status === 'completed' ? `${subject} ${verb} completed`

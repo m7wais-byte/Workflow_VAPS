@@ -6,8 +6,8 @@
  *    and after. An action that newly appears is emailed to that employee: kind assignment/task → "assignment",
  *    review → "review", returned → "returned". The employee who made the change is not emailed about their own step.
  *  - Clients: approved, client-facing milestones only: an approved sampling report ("sampling-report"), completed
- *    validation results / interim report ("interim"), and the approved final report when the job is complete
- *    ("final-report"). The message uses the client progress view (app/job-progress.ts, audience "client"): no staff
+ *    validation results / interim report ("interim"), and the final report once the coordinator records that it
+ *    was issued to the client ("final-report"; the internal approval alone sends nothing). The message uses the client progress view (app/job-progress.ts, audience "client"): no staff
  *    names, comments, internal statuses or files.
  *
  * Settings (server configuration; all off unless set):
@@ -26,7 +26,7 @@
 import type { JobRecord } from "../app/page";
 import { workItems, type WorkItem, type UpcomingItem } from "../app/work-items";
 import { jobProgressView, clientProgress, progressStatusLabel } from "../app/job-progress";
-import { operationsFor, latest, interimReport, operationComplete } from "../app/operations-model";
+import { operationsFor, latest, interimReport, operationComplete, finalIssued } from "../app/operations-model";
 import { canOpenJob } from "../app/job-access";
 import { actorFor, withRecords, type Context, type Who } from "./workspace";
 import { fail } from "./http";
@@ -97,8 +97,9 @@ export function clientMilestones(before: JobRecord | undefined, after: JobRecord
   if (s?.status === "Approved" && s.approvedAt && !(sb?.status === "Approved" && sb.version === s.version)) out.push({ event: "sampling-report", version: "v" + s.version, at: s.approvedAt });
   const i = interimReport(after), ib = before ? interimReport(before) : { state: "none" };
   if (i.state === "completed" && ib.state !== "completed") out.push({ event: "interim", version: "1", at: i.at });
-  const f = latest(o.finalReports);
-  if (f?.status === "Approved" && f.approvedAt && operationComplete(after) && !(before && operationComplete(before) && latest(b!.finalReports)?.version === f.version)) out.push({ event: "final-report", version: "v" + f.version, at: f.approvedAt });
+  // The final report is client news when the coordinator records it as issued, not at the internal approval.
+  const f = finalIssued(after), fb = before ? finalIssued(before) : undefined;
+  if (f?.issuedAt && operationComplete(after) && fb?.version !== f.version) out.push({ event: "final-report", version: "v" + f.version, at: f.issuedAt });
   return out;
 }
 
@@ -131,7 +132,7 @@ export function clientMail(input: { to: string; job: JobRecord; event: ClientEve
   const ref = job.jobNumber || job.id, theirs = job.clientReference ? ` (your reference ${job.clientReference})` : "";
   const expected = view.expected.date && (view.expected.kind === "actual" || view.expected.kind === "confirmed") ? omanDate(view.expected.date + "T12:00:00Z") : "";
   const stages = view.stages.filter((s) => !s.planned || s.status !== "not-started").map((s) => ({ label: s.label, status: progressStatusLabel[s.status] }));
-  const lead = input.event === "final-report" ? "The final report for this job has been issued. VAPS sends the report itself through the agreed channel."
+  const lead = input.event === "final-report" ? "VAPS has issued the final report for this job. The report itself reaches you through the agreed channel (for example email or transmittal)."
     : input.event === "sampling-report" ? "The sampling report for this job has been approved by VAPS." : "The validation results for this job's samples are complete.";
   const subject = `VAPS job ${ref}: ${clientHeading[input.event]}`;
   const text = [`Dear ${job.clientFocalPoint || "client"},`, "", `${lead}`, "", `Job: ${ref}${theirs}`, `Update: ${clientHeading[input.event]}${input.at ? " on " + omanDate(input.at) : ""}`, view.sentence ? `Status: ${view.sentence}` : "", expected ? `Expected completion: ${expected}` : "", "", ...stages.map((s) => `- ${s.label}: ${s.status}`), "", "Regards,", "VAPS PVT Laboratory", ...(input.ref ? ["", `Reference: ${input.ref}`] : [])].filter((l, i, a) => l !== "" || a[i - 1] !== "").join("\n");

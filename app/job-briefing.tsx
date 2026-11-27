@@ -4,10 +4,11 @@
 import { useState } from "react";
 import { Settings2, PlayCircle } from "lucide-react";
 import type { JobRecord } from "./page";
-import { samplingApproved, samplingTeam, samplingWorkers, samplingStarted, canManageJobAccess, canViewJobAccess, operationsFor, jobFinished, jobCylinderSerials, hasAccess, holder, type Actor, type Command } from "./operations-model";
+import { samplingApproved, samplingTeam, samplingWorkers, samplingStarted, canManageJobAccess, canViewJobAccess, operationsFor, jobFinished, issuePending, finalIssued, latest, omanDay, jobCylinderSerials, hasAccess, holder, type Actor, type Command } from "./operations-model";
 import { legacyPlan, planRecordCount, rowSummary } from "./sampling-plan";
 import { ukDate, ukDateTime } from "./uk-format";
 import { PersonOptions } from "./person-picker";
+import { DateInput } from "./uk-date";
 
 type Props = { job: JobRecord; actor: Actor; onCommand: (c: Command) => void; onStarted: () => void };
 
@@ -84,6 +85,7 @@ export function CylinderRelease({ job, actor, onCommand }: Omit<Props, "onStarte
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const [assignee, setAssignee] = useState("");
+  const [issuedOn, setIssuedOn] = useState("");
   const o = operationsFor(job), serials = jobCylinderSerials(job);
   const name = (id?: string) => actor.employees.find((e) => e.id === id)?.name || "Not recorded";
   if (!jobFinished(job)) return null;
@@ -93,11 +95,26 @@ export function CylinderRelease({ job, actor, onCommand }: Omit<Props, "onStarte
   if (rel) return <section className="panel ops-panel cyl-release is-done"><h2>Cylinders released</h2><p>{name(rel.by)} released {serials.length} cylinder{serials.length === 1 ? "" : "s"} on {ukDateTime(rel.at)}: {serials.join(", ")}. {rel.assignee ? name(rel.assignee) + " releases and redresses them (dispose, clean, certify, pressure test) in" : "The sampling team collects, cleans, certifies and checks them in"} <a href="#sampling">Sampling → Cylinders</a>.</p></section>;
   const release = () => { try { onCommand({ type: "release-cylinders", note, assignee }); setError(""); } catch (e) { setError((e as Error).message); } };
   const client = o.clientDisposal;
+  const issued = finalIssued(job);
   const owner = holder(actor, "clientApproval");
   const ownerLine = <p className="briefing-note">Responsible: <strong>{owner ? name(owner) : "Not assigned"}</strong> (Client approval & sample disposal{owner ? "" : " · assign it in Settings → Authorization"}).</p>;
+  // Final approval is internal: the report counts as issued only when the coordinator records that it reached the client.
+  if (issuePending(job)) {
+    const r = latest(o.finalReports), today = omanDay(new Date().toISOString());
+    // The button names the day that will be recorded: a mistyped day never turns into "today" unseen.
+    const issue = () => { try { onCommand({ type: "report-issue", note, on: issuedOn }); setNote(""); setIssuedOn(""); setError(""); } catch (e) { setError((e as Error).message); } };
+    return <section className="panel ops-panel cyl-release" aria-labelledby="cyl-issue-title">
+      <h2 id="cyl-issue-title">Final report approved internally · to be issued to the client</h2>
+      <p>VAPS approved final report v{r?.version}{r?.approvedAt ? <> on {ukDateTime(r.approvedAt)}</> : null}{r?.approvedBy ? <> by {name(r.approvedBy)}</> : null}. The client&apos;s view shows it as issued only after you record when it was sent through the agreed channel (email, transmittal or hand delivery).</p>
+      {ownerLine}
+      {canRelease ? <div className="cyl-release-form"><label><span>Issued on (leave empty for today)</span><DateInput value={issuedOn} onChange={(e) => setIssuedOn(e.target.value)} min={r?.approvedAt ? omanDay(r.approvedAt) : undefined} max={today} aria-label="Day the final report was issued to the client" /></label><label><span>Transmittal or reference (optional)</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Emailed to the focal point, transmittal T-0412" /></label><button type="button" className="attention-button" onClick={issue}>Record report issued on {ukDate(issuedOn || today)}</button></div> : <p className="briefing-note">The job coordinator records when the final report was issued to the client.</p>}
+      {error && <p className="ops-error" role="alert">{error}</p>}
+    </section>;
+  }
   // Cylinders are discharged only after the client approves the final report and tells us to dispose of the samples.
   if (!client) return <section className="panel ops-panel cyl-release" aria-labelledby="cyl-client-title">
     <h2 id="cyl-client-title">Final report issued · waiting for the client</h2>
+    {issued?.issuedAt && <p className="briefing-note">Final report v{issued.version} issued to the client on {ukDate(issued.issuedAt)}, recorded by {name(issued.issuedBy)}{issued.issueNote ? ": " + issued.issueNote : ""}.</p>}
     <p>{serials.length ? <>This job still holds <strong>{serials.length} cylinder{serials.length === 1 ? "" : "s"}</strong>: {serials.join(", ")}. They stay with the job, and the samples are kept,</> : <>The samples are kept</>} until the client approves the final report and tells us to dispose of the samples.</p>
     {ownerLine}
     {canRelease ? <div className="cyl-release-form"><label><span>Client message or reference (optional)</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Email from the focal point, 18/11/2026" /></label><button type="button" className="attention-button" onClick={() => { try { onCommand({ type: "client-disposal", note }); setNote(""); setError(""); } catch (e) { setError((e as Error).message); } }}>Client approved the report · dispose of the samples</button></div> : <p className="briefing-note">The job coordinator records the client&apos;s approval and disposal instruction.</p>}

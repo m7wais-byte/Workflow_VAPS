@@ -155,6 +155,11 @@ test('full workflow: each newly assigned action and review is emailed once to th
   await step('SHEREIQI', [{ type: 'report-action', kind: 'final', action: 'submit', comments: '' }]);
   await refused('SALIM', [{ type: 'report-action', kind: 'final', action: 'approve', comments: '' }]);
   await step('WILFRED', [{ type: 'report-action', kind: 'final', action: 'approve', comments: '' }]);
+  // Approval is internal: no client email yet, and the client's approval waits for the recorded issue.
+  assert.equal((await rows()).filter((r) => r.audience === 'client' && r.event === 'final-report').length, 0, 'no client email at the internal approval');
+  await refused('SALIM', [{ type: 'client-disposal', note: '' }]);
+  await refused('NASSER', [{ type: 'report-issue', note: '' }]);
+  await step('SALIM', [{ type: 'report-issue', note: 'Emailed to the focal point (test).' }]);
   await refused('NASSER', [{ type: 'client-disposal', note: '' }]);
   await step('SALIM', [{ type: 'client-disposal', note: 'Client approved (test).' }]);
   await step('SALIM', [{ type: 'release-cylinders', note: '', assignee: 'MOHSIN' }]);
@@ -167,6 +172,7 @@ test('full workflow: each newly assigned action and review is emailed once to th
   assert.ok(to('SALIM').some((r) => r.event === 'review'), 'sampling approver: report awaiting approval');
   assert.ok(to('NASSER').some((r) => r.event === 'assignment') && to('YAQEEN').some((r) => r.event === 'assignment'), 'lab engineers: test assignment');
   assert.ok(to('SHEREIQI').some((r) => r.event === 'review') && to('WILFRED').some((r) => r.event === 'review'), 'team lead and QC: awaiting review');
+  assert.ok(to('SALIM').some((r) => r.dedupe_key.includes(':report-issue:')), 'coordinator: record the issue to the client after the internal approval');
   for (const r of staff) {
     assert.equal(r.status, 'sent', JSON.stringify(r)); assert.equal(r.job_id, id); assert.equal(r.recipient, emailOf(r.employee_id));
     assert.ok(r.subject.startsWith(`[${id}] `), r.subject);
@@ -179,14 +185,14 @@ test('full workflow: each newly assigned action and review is emailed once to th
   // Client: sampling report approved and final report issued, to the job’s client contact only.
   assert.deepEqual(client.map((r) => [r.event, r.recipient, r.status]), [['sampling-report', 'client.contact@client.example.test', 'sent'], ['final-report', 'client.contact@client.example.test', 'sent']]);
   for (const r of client) {
-    for (const name of ['Salim', 'Mohsin', 'Husseini', 'Wilfred', 'Shereiqi', 'Nasser', 'Yaqeen', 'Bahri', 'Ali', 'Test sampling report', 'Test final report', 'G-sheet', 'Run DL', 'QC', 'workbook', 'Workbook', 'vaps.example.test', '#workflow', 'Client approved (test)'])
+    for (const name of ['Salim', 'Mohsin', 'Husseini', 'Wilfred', 'Shereiqi', 'Nasser', 'Yaqeen', 'Bahri', 'Ali', 'Test sampling report', 'Test final report', 'G-sheet', 'Run DL', 'QC', 'workbook', 'Workbook', 'vaps.example.test', '#workflow', 'Client approved (test)', 'Emailed to the focal point'])
       assert.ok(!r.html_body.includes(name) && !r.text_body.includes(name), `client email contains internal text "${name}"`);
     assert.match(r.text_body, /PO-TEST-77/); assert.match(r.subject, new RegExp(id));
   }
   // Wording follows the job status: VAPS approves the sampling report; the final report is issued (the client approves it later).
   const [samplingMail, finalMail] = client;
   assert.match(samplingMail.subject, /: Sampling report approved$/); assert.match(samplingMail.text_body, /approved by VAPS/);
-  assert.match(finalMail.subject, /: Final report issued$/); assert.match(finalMail.text_body, /has been issued/);
+  assert.match(finalMail.subject, /: Final report issued$/); assert.match(finalMail.text_body, /VAPS has issued the final report/);
   assert.doesNotMatch(finalMail.subject + finalMail.text_body + finalMail.html_body, /report (has been )?approved|will issue/i, 'final report email must not say approved or "will issue"');
   // One date, in Oman time: the Update line and the Status sentence name the same day.
   const upd = /Update: Final report issued on (\d{2}) (\w{3}) (\d{4})/.exec(finalMail.text_body), st = /issued on (\d{2})\/(\d{2})\/(\d{4})/.exec(finalMail.text_body);
