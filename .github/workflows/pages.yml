@@ -28,6 +28,9 @@ jobs:
         run: npx tsc --noEmit -p .
       - name: Build static Pages edition
         run: npm run build:pages
+        env:
+          # Absolute address of this repository's Pages site, used for og:image (no account name in the code).
+          VAPS_PAGES_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
       - name: Tests
         run: npm run test:pages
       - uses: actions/configure-pages@v6

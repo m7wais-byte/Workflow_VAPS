@@ -89,7 +89,7 @@ actions tied to the current ChatGPT user. Leave public content anonymous.
 
 ## GitHub Pages Edition
 
-A browser-only build is published at https://m7wais-byte.github.io/Workflow_VAPS/ by `.github/workflows/pages.yml` on every push to `main`. Build it locally with `npm run build:pages`. The D1 API and client share links are off in that edition. See [GITHUB-PAGES.md](GITHUB-PAGES.md) for details and for moving browser records between editions.
+A browser-only build is published at the repository's GitHub Pages address (`https://<owner>.github.io/Workflow_VAPS/`) by `.github/workflows/pages.yml` on every push to `main`. Build it locally with `npm run build:pages`. The D1 API and client share links are off in that edition. See [GITHUB-PAGES.md](GITHUB-PAGES.md) for details and for moving browser records between editions.
 
 ## Launch status
 

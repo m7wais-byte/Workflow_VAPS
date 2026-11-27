@@ -7,7 +7,7 @@ export const directoryKey = 'vaps-directory-v1';
 export const seedPeople = [
  ['SALIM','Salim Al Maqbali','coordination'],['WILFRED','Wilfred Mendonca','coordination'],
  ['HUSSEINI','Ahmed Al Husseini','sampling'],['MOHSIN','Mohsin Al Dhuhli','sampling'],['ALI','Ali Al Hasani','transport'],['HUMAID','Humaid Al Habsi','transport'],
- ['SHEREIQI','Ahmed Al Shereiqi','analysis'],['BAHRI','Al Yaqdhan Al Bahri','analysis'],['AHAD','Ahad Al Aasmi','analysis'],['NASSER','Nasser Al Saqri','analysis'],['RANJITH','Ranjith','analysis'],['YAQEEN','Yaqeen Al Haddabi','analysis'],['MA001','Mohammed Al Awaisi','Software Developer']
+ ['SHEREIQI','Ahmed Al Shereiqi','analysis'],['BAHRI','Al Yaqdhan Al Bahri','analysis'],['AHAD','Ahad Al Aasmi','analysis'],['NASSER','Nasser Al Saqri','analysis'],['RANJITH','Ranjith','analysis'],['YAQEEN','Yaqeen Al Haddabi','analysis'],['MA001','VAPS Administrator','administration']
 ];
 export function initialDirectory(): Directory {
  const roles = [...new Set(seedPeople.map(p => p[2]))];
