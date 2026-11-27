@@ -9,7 +9,10 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "./workspace-sync";
 import { ukDateTime } from "./uk-format";
 
-type Row = { id: string; audience: string; event: string; job_id: string | null; employee_id: string | null; recipient: string; subject: string; status: string; attempts: number; last_error: string | null; created_at: string; sent_at: string | null; next: "retry" | "check-sent-items" | null };
+/** The short reference printed in each notification (server/notify.ts mailReference), to find it in Sent Items. */
+const reference = (id: string) => id.slice(0, 8).toUpperCase();
+
+type Row = { id: string; audience: string; event: string; job_id: string | null; employee_id: string | null; recipient: string; subject: string; status: string; attempts: number; last_error: string | null; created_at: string; sent_at: string | null; updated_at: string; next: "retry" | "check-sent-items" | null };
 type Log = { config: { provider: string | null; sender: string | null; dashboard: string | null; allowedRecipients: string[] | "everyone"; staffEvents: string[]; clientEvents: string[] }; messages: Row[] };
 
 const statusLabel: Record<string, string> = { sent: "Sent", queued: "Queued", sending: "Sending", failed: "Failed", blocked: "Blocked", uncertain: "Outcome unknown" };
@@ -40,7 +43,8 @@ export function EmailLog() {
     {checking && <div className="temp-password" role="dialog" aria-label="Check Sent Items before retrying">
       <h3>Check Sent Items first</h3>
       <p>It is not known whether this email was sent. Microsoft may already have delivered it.</p>
-      <p>In Outlook, open the <strong>Sent Items</strong> of <strong>{sender}</strong> and look for <strong>&ldquo;{checking.subject}&rdquo;</strong> to <strong>{checking.recipient}</strong>, around {ukDateTime(checking.created_at)}.</p>
+      <p>In Outlook, open the <strong>Sent Items</strong> of <strong>{sender}</strong> and look for <strong>&ldquo;{checking.subject}&rdquo;</strong> to <strong>{checking.recipient}</strong> with <strong>Reference: {reference(checking.id)}</strong> at the bottom. The last attempt was at {ukDateTime(checking.updated_at)}{checking.attempts > 1 ? ` (attempt ${checking.attempts}; the first was at ${ukDateTime(checking.created_at)})` : ""}.</p>
+      <p>Microsoft moves a sent email into Sent Items only after it leaves the mailbox, which can take a few minutes. If the last attempt was less than 10 minutes ago, wait and check again before deciding.</p>
       <p>If it is there, do not retry: it was delivered. Retry only if it is not there.</p>
       <label className="sent-items-confirm"><input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} /> I checked the Sent Items of {sender} and this email is not there.</label>
       <div className="row-actions"><button type="button" disabled={!checked || !!busy} onClick={() => void retry(checking, true)}>{busy === checking.id ? "Sending…" : "Retry now"}</button><button type="button" onClick={() => { setChecking(null); setChecked(false); }}>Cancel</button></div>
@@ -51,11 +55,11 @@ export function EmailLog() {
     {log && (log.messages.length ? <div className="client-table-wrap"><table className="client-table"><thead><tr><th>Created</th><th>Email</th><th>To</th><th>Status</th><th>Actions</th></tr></thead><tbody>
       {log.messages.map((m) => <tr key={m.id}>
         <td>{ukDateTime(m.created_at)}</td>
-        <td>{m.subject}<small>{m.audience === "invite" ? "Invitation" : m.audience === "client" ? "Client" : "Employee"} · {m.event}{m.job_id ? " · " + m.job_id : ""}</small></td>
+        <td>{m.subject}<small>{m.audience === "invite" ? "Invitation" : m.audience === "client" ? "Client" : "Employee"} · {m.event}{m.job_id ? " · " + m.job_id : ""}{m.audience !== "invite" ? " · Ref " + reference(m.id) : ""}</small></td>
         <td>{m.recipient}</td>
         <td>{statusLabel[m.status] || m.status}<small>{m.sent_at ? "Sent " + ukDateTime(m.sent_at) : m.last_error || ""}{m.attempts > 1 ? ` · ${m.attempts} attempts` : ""}</small></td>
         <td><div className="row-actions">
-          {m.next === "retry" && <button type="button" disabled={!!busy} onClick={() => void retry(m, false)}>{busy === m.id ? "Sending…" : "Retry"}</button>}
+          {m.next === "retry" && <button type="button" disabled={!!busy} onClick={() => void retry(m, false)}>{busy === m.id ? "Sending…" : m.status === "queued" ? "Send now" : "Retry"}</button>}
           {m.next === "check-sent-items" && <button type="button" disabled={!!busy} onClick={() => { setChecking(m); setChecked(false); setError(""); setMessage(""); }}>Check Sent Items…</button>}
         </div></td>
       </tr>)}

@@ -20,11 +20,12 @@ Client emails contain only the client progress view: job number, the client's ow
 |---|---|---|
 | Sent | Microsoft 365 accepted it (202) | Nothing |
 | Blocked | Recipient not on `MAIL_ALLOWED_RECIPIENTS`; nothing left the server | Nothing |
-| Failed | Refused before sending (sign-in failed, 403, 404, 429, 503). Nothing was sent | **Retry** |
-| Outcome unknown | No answer, a timeout, or 500/502/504 from Microsoft. It may already have been delivered | **Check Sent Items…** |
+| Queued | Written to the outbox when the workflow step was saved; sending follows within seconds. A row still queued after that (the server stopped before sending) was never attempted | **Send now** |
+| Failed | Refused before sending (sign-in failed, 401, 403, 404, 429). Nothing was sent | **Retry** |
+| Outcome unknown | No answer, a timeout, or any 5xx (500/502/503/504) from Microsoft. It may already have been delivered | **Check Sent Items…** |
 | Sending | In progress. After 10 minutes with no result, it is treated like *Outcome unknown* | **Check Sent Items…** once stale |
 
-*Check Sent Items…* shows the subject, recipient and time to look for in bsg@visionaps.com's **Sent Items**. Retry is enabled only after MA001 ticks *"I checked the Sent Items … and this email is not there"*. The server refuses that retry without the confirmation (409). It records `mail.sent_items_confirmed` in the audit log before sending, then `mail.retried` with the result. API: `POST /api/admin/mail { action: "retry", id, sentItemsChecked: true }`.
+Every notification ends with a short **Reference** (also shown in the Email log). *Check Sent Items…* shows the subject, recipient, reference and the time of the last attempt to look for in bsg@visionaps.com's **Sent Items**. Retry is enabled only after MA001 ticks *"I checked the Sent Items … and this email is not there"*. The server refuses that retry without the confirmation (409). It records `mail.sent_items_confirmed` in the audit log before sending, then `mail.retried` with the result. API: `POST /api/admin/mail { action: "retry", id, sentItemsChecked: true }`.
 
 Invitations are never retried from the log. If an invitation fails or its outcome is unknown, the invitation is cancelled at once, so a link that arrives late does not work. MA001 sends a new invitation instead. The email body and one-time link are never stored.
 
@@ -35,6 +36,7 @@ Microsoft's tenant check reports visionaps.com as a managed Microsoft Entra tena
 Approval needed from: a **Global Administrator**, or an **Exchange Administrator** together with an **Application Administrator** or **Privileged Role Administrator**, of the VAPS tenant.
 
 a. **Confirm the mailbox.** In Exchange admin center → Recipients → Mailboxes, bsg@visionaps.com should be listed as a user or shared mailbox. Or run `Get-EXOMailbox bsg@visionaps.com | fl RecipientTypeDetails`.
+   Also confirm that the mailbox's sign-in name is exactly `bsg@visionaps.com`: `Get-EXOMailbox bsg@visionaps.com | fl UserPrincipalName,PrimarySmtpAddress` must show the same address for both. Graph addresses the mailbox by its sign-in name, and the sender is fixed in the code.
 
 b. **Register the app** (Entra admin center → App registrations → New registration). Use a name such as *Workflow VAPS mail sender*, single tenant, no redirect URI. Note the **Application (client) ID**, the **Directory (tenant) ID**, and the **Object ID of its Enterprise Application (service principal)**.
 
@@ -52,7 +54,7 @@ Check it. The first command should say *InScope: True*, the second *False*:
 Test-ServicePrincipalAuthorization -Identity <Application (client) ID> -Resource bsg@visionaps.com
 Test-ServicePrincipalAuthorization -Identity <Application (client) ID> -Resource <another mailbox>
 ```
-That is the whole grant: **Application Mail.Send**, scoped to bsg@visionaps.com. No Mail.Read, Mail.ReadWrite or mailbox access, and no tenant-wide Mail.Send. Changes can take up to an hour to apply.
+That is the whole grant: **Application Mail.Send**, scoped to bsg@visionaps.com. No Mail.Read, Mail.ReadWrite or mailbox access, and no tenant-wide Mail.Send. Changes can take **up to 2 hours** to apply (Microsoft: "between 30 minutes and 2 hours", and the test command "bypasses this cache", so *InScope: True* can show before sending works). Wait 2 hours after the grant before the pilot email test.
 
 e. **Mail flow.** Messages are sent by Exchange Online itself, so the existing SPF, DKIM and DMARC for visionaps.com apply and no DNS change is needed. Check that outbound policies allow bsg@visionaps.com to send to external recipients for client notifications. Copies are kept in the mailbox's Sent Items.
 

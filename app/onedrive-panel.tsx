@@ -4,14 +4,14 @@
  * Workflow VAPS keeps the original of every file; OneDrive holds a copy in <Job ID>/Sampling or <Job ID>/Lab.
  * Failures say whether the original is saved here; MA001 can retry and connect the VAPS Microsoft account.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CloudOff, LogIn, RefreshCw, UploadCloud } from 'lucide-react';
 import { serverMode } from './app-storage';
 import { api, type CopyUpload } from './workspace-sync';
 import { filePurposes, sectionFolder, type FilePurpose } from './file-routing';
 import { ukDateTime } from './uk-format';
 
-type FileRow = { id: string; purpose: FilePurpose; folder: string; name: string; status: 'pending' | 'ok' | 'error' | 'replaced'; copyName: string | null; renamed: boolean; error: string | null; savedInVaps: boolean; updatedAt: string };
+type FileRow = { id: string; purpose: FilePurpose; folder: string; name: string; status: 'pending' | 'copying' | 'uncertain' | 'ok' | 'error' | 'replaced'; copyName: string | null; renamed: boolean; error: string | null; savedInVaps: boolean; updatedAt: string };
 type Status = { configured: boolean; connected: boolean; canManage: boolean; job: { status: 'ok' | 'error'; error: string | null; folderUrl: string | null; updatedAt: string } | null; files: FileRow[] };
 type Connection = { status: 'off' | 'not-connected' | 'pending' | 'connected' | 'expired'; account: string | null; error: string | null; signIn?: { url: string; code: string; expiresAt: string } };
 
@@ -23,6 +23,7 @@ export function uploadNotice(u: CopyUpload): { tone: 'ok' | 'warn' | 'risk'; tex
   if (s.status === 'off') return null;
   const folder = sectionFolder[filePurposes[u.purpose].section];
   if (s.status === 'error') return { tone: 'risk', text: `${u.name} is saved in Workflow VAPS. The OneDrive copy failed: ${s.message || 'OneDrive could not be reached.'} ${RETRY_HINT}` };
+  if (s.status === 'queued') return { tone: 'ok', text: `${u.name} is saved in Workflow VAPS. The copy to OneDrive (${folder}) is still in progress; this panel shows when it is done.` };
   if (s.renamed) return { tone: 'warn', text: `${u.name} is saved in Workflow VAPS and copied to OneDrive (${folder}) as “${s.name}”, because a file with the same name is already in that folder. Both files are kept.` };
   return { tone: 'ok', text: `${u.name} is saved in Workflow VAPS and copied to OneDrive (${folder}).` };
 }
@@ -30,15 +31,18 @@ export function uploadNotice(u: CopyUpload): { tone: 'ok' | 'warn' | 'risk'; tex
 function fileNote(f: FileRow): string {
   if (f.status === 'ok') return f.renamed ? `Saved in OneDrive as “${f.copyName}”: a file with this name was already in the folder. Both are kept.` : 'Copied.';
   if (f.status === 'replaced') return 'Not copied: this version was replaced in Workflow VAPS before it reached OneDrive.';
+  if (f.status === 'copying') return 'Original saved in Workflow VAPS. Copying to OneDrive now.';
+  if (f.status === 'uncertain') return `Original saved in Workflow VAPS. ${f.error || 'OneDrive did not confirm the copy.'}`;
   return f.status === 'pending' ? 'Original saved in Workflow VAPS. Waiting to be copied.' : `Original saved in Workflow VAPS. OneDrive copy failed: ${f.error || 'unknown error'}`;
 }
 const pill = (s: string) => s === 'ok' ? 'flow-closed' : s === 'error' ? 'overdue' : 'flow-pending';
-const label = (s: string) => ({ ok: 'Copied', error: 'Failed', pending: 'Pending', replaced: 'Replaced' })[s] || s;
+const label = (s: string) => ({ ok: 'Copied', error: 'Failed', pending: 'Pending', copying: 'Copying', uncertain: 'Checking', replaced: 'Replaced' })[s] || s;
 
 /** MA001: connect the VAPS Microsoft account with Microsoft's device sign-in (no password or token passes through Workflow VAPS). */
 function Connect({ onConnected }: { onConnected: () => void }) {
   const [c, setC] = useState<Connection | null>(null), [error, setError] = useState(''), [busy, setBusy] = useState(false);
-  const act = useCallback(async (action: string) => { setBusy(true); try { const r = await api<Connection>('/api/admin/onedrive', { method: 'POST', json: { action } }); setC((prev) => ({ ...r, signIn: r.signIn || (r.status === 'pending' ? prev?.signIn : undefined) })); setError(''); if (r.status === 'connected') onConnected(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); } }, [onConnected]);
+  const inFlight = useRef(false);
+  const act = useCallback(async (action: string) => { if (inFlight.current) return; inFlight.current = true; setBusy(true); try { const r = await api<Connection>('/api/admin/onedrive', { method: 'POST', json: { action } }); setC((prev) => ({ ...r, signIn: r.signIn || (r.status === 'pending' ? prev?.signIn : undefined) })); setError(''); if (r.status === 'connected') onConnected(); } catch (e) { setError((e as Error).message); } finally { inFlight.current = false; setBusy(false); } }, [onConnected]);
   useEffect(() => { let current = true; api<Connection>('/api/admin/onedrive').then((r) => { if (current) setC(r); }, (e: Error) => { if (current) setError(e.message); }); return () => { current = false; }; }, []);
   // While a sign-in is waiting, check every 5 seconds whether it has been approved.
   useEffect(() => { if (c?.status !== 'pending' || !c.signIn) return; const t = setInterval(() => void act('poll'), 5000); return () => clearInterval(t); }, [c?.status, c?.signIn, act]);
@@ -70,10 +74,16 @@ export function OneDrivePanel({ jobId, revision }: { jobId: string; /** Changes 
     window.addEventListener('vaps-file-copy', on);
     return () => window.removeEventListener('vaps-file-copy', on);
   }, [jobId, load]);
+  const inProgress = !!status?.files.some((f) => f.status === 'copying' || f.status === 'pending');
+  useEffect(() => {
+    if (!serverMode || !inProgress) return;
+    let n = 0; const t = setInterval(() => { n++; setTick((x) => x + 1); if (n >= 6) clearInterval(t); }, 5000);
+    return () => clearInterval(t);
+  }, [inProgress, revision]);
   if (!serverMode || !status?.configured) return null;
 
   const failed = status.files.filter((f) => f.status === 'error').length + (status.job?.status === 'error' ? 1 : 0);
-  const pending = status.files.filter((f) => f.status === 'pending').length;
+  const pending = status.files.filter((f) => f.status === 'pending' || f.status === 'copying' || f.status === 'uncertain').length;
   const state = !status.connected ? 'off' : !status.job ? 'pending' : failed ? 'error' : pending ? 'pending' : 'ok';
   const summary = state === 'off' ? 'Not connected · originals saved in Workflow VAPS' : state === 'ok' ? `Synced · ${status.files.filter((f) => f.status === 'ok').length} file${status.files.length === 1 ? '' : 's'}` : state === 'error' ? `${failed} problem${failed === 1 ? '' : 's'} · originals saved in Workflow VAPS` : !status.job ? 'Folders not created yet' : `${pending} waiting`;
   const retry = async () => {
