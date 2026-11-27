@@ -12,6 +12,9 @@ services:
     environment:
       # The address you open in the browser.
       APP_ORIGIN: http://localhost:${VAPS_PORT:-3000}
+      # Optional test-mode notifications (nothing is sent; see DOCKER.md), e.g. NOTIFY_STAFF=assignment
+      NOTIFY_STAFF: ${NOTIFY_STAFF:-}
+      NOTIFY_CLIENT: ${NOTIFY_CLIENT:-}
     volumes:
       # Local database, uploaded files and the setup secret. Survives restarts and rebuilds.
       - vaps-data:/app/.wrangler

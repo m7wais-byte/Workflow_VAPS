@@ -27,6 +27,10 @@ umask 077
   echo "MAIL_PROVIDER=test"
   echo "MAIL_ALLOWED_RECIPIENTS=${MAIL_ALLOWED_RECIPIENTS:-*}"
   echo "APP_ORIGIN=${APP_ORIGIN:-http://localhost:3000}"
+  # Optional: notifications in test mail mode (nothing leaves the computer), e.g. NOTIFY_STAFF=assignment,review,returned
+  [ -n "${NOTIFY_STAFF:-}" ] && echo "NOTIFY_STAFF=$NOTIFY_STAFF"
+  [ -n "${NOTIFY_CLIENT:-}" ] && echo "NOTIFY_CLIENT=$NOTIFY_CLIENT"
+  true
 } > /app/.dev.vars
 
 echo "Applying database migrations to the local D1 database..."

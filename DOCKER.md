@@ -35,7 +35,7 @@ All local data lives in the Docker volume `vaps_vaps-data`, never in the image o
 1. Show this computer's setup secret: `docker compose exec app cat /app/.wrangler/setup-secret`
 2. Open `http://localhost:3000/#setup`, enter the secret, and choose MA001's password.
 
-Email runs in **test mode**: nothing is sent. When MA001 invites someone (Settings → Sign-in accounts), the one-time link appears on screen. Open it in a private window to set that person's password. Use test addresses such as `name@vaps.example.test`, never real staff emails.
+Email runs in **test mode**: nothing is sent. To see workflow notifications in the Email log locally, start with `NOTIFY_STAFF=assignment,review,returned docker compose up -d` (and `NOTIFY_CLIENT=…` for client milestones). When MA001 invites someone (Settings → Sign-in accounts), the one-time link appears on screen. Open it in a private window to set that person's password. Use test addresses such as `name@vaps.example.test`, never real staff emails.
 
 ## Before the first job on a fresh database
 - **QC reviewer:** Settings → Authorization → Responsibilities → QC review is empty by default, and the workflow stops at QC until someone is assigned.
