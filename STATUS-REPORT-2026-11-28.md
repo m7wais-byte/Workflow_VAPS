@@ -33,6 +33,7 @@ The test deployment itself cannot run until three things are in place:
 | 3 | #72 | Item 29: "Final report approved internally" vs "Final report issued to the client" | 1 |
 | any time after #69 | #71 | Identity clean-up (A6), the #58 tracking-bar fix, the release checklist | 3 |
 | any time | this PR | This report (one file) | 1 |
+| any time | #74 | Items 27, 28 and 30: domain options, backup policy, the 12 clarification items (three documents) | 2 |
 
 - **Target branch.** All PRs target #68's branch (`claude/determined-carson-64dvid`), so #68 becomes the complete release candidate. Nothing goes to `main` until the live tests pass.
 - **Why the PRs list extra commits.** They come from our fork, and GitHub only accepts a base branch from this repository. So each PR also lists the commits of the PRs under it. After the earlier PR is merged, GitHub shows only the PR's own commits.
@@ -91,7 +92,7 @@ The test deployment itself cannot run until three things are in place:
   - The client's approval can only be recorded after that.
 - **Items 19–20, client access.** New work, after the pilot starts. The pilot runs with client notifications off.
 - **Item 24, administrator transfer.** Needs a code change, because MA001 is fixed in the code today. Planned after the pilot starts.
-- **Items 27, 28, 30.** Write-ups to follow (section 4).
+- **Items 27, 28, 30.** Done in #74: domain options, backup policy, and the 12 clarification items.
 
 ## 3. What we need from you and VAPS
 
@@ -155,7 +156,7 @@ The order matters for two reasons:
 | When | Who | What |
 |---|---|---|
 | Now | Owner / VAPS | Section 3, items 1–7 |
-| Before 1 Dec | Us | Write-ups: domain options (item 27), backup policy with cost and recovery procedure (item 28), and the 12 clarification items (item 30), each with a recommendation and whether it blocks the pilot, security or launch |
+| Done (#74) | Us | Write-ups: domain options (item 27), backup policy with cost and recovery procedure (item 28), and the 12 clarification items (item 30), each with a recommendation and whether it blocks the pilot, security or launch |
 | When access is given | Us | Move #69–#72 into this repository; you review and merge in the order in section 1 |
 | When Cloudflare and the secrets are in place | Us | First deployment to `deploy/test`; one-time administrator setup; basic checks on the test site |
 | Then | Us, with the pilot account | Live OneDrive test, including the O10 checks |
