@@ -38,7 +38,7 @@ Every Cloudflare and Microsoft fact below is from the providers' documentation, 
 ## 3. Schedule and retention
 
 1. **Continuous: D1 Time Travel.** Cloudflare keeps the database history automatically. Any minute of the last 30 days can be restored.
-2. **Nightly, 02:00 Oman time:** a scheduled GitHub Actions job runs `scripts/backup/backup.mjs --remote` and uploads the result to the backup bucket. The time matters: a D1 export blocks other database requests while it runs (seconds for a database this size). The backups go to R2, not to GitHub artifacts. Artifacts are limited to 90 days in public repositories and are readable by anyone who can read the repository.
+2. **Nightly, 02:00 Oman time:** a scheduled GitHub Actions job runs `scripts/backup/backup.mjs --remote` and uploads the result to the backup bucket. The time matters: a D1 export blocks other database requests while it runs (briefly, for a database this size). The backups go to R2, not to GitHub artifacts. Artifacts are limited to 90 days in public repositories and are readable by anyone who can read the repository.
    - `daily/<date>/`: the full database export and its checked manifest. **Deleted after 30 days** by a bucket lifecycle rule.
    - `monthly/<yyyy-mm>/`: the first nightly export of each month. **Deleted after 365 days.**
    - `files/<file id>`: every file not yet in the backup, copied once with its checksum. Kept while the app keeps the file.
@@ -47,12 +47,7 @@ Every Cloudflare and Microsoft fact below is from the providers' documentation, 
 5. **Failure alert:** GitHub emails a failed scheduled run to the person who last edited the schedule line in the workflow. That must be the contact VAPS names in section 7, or the job gets an extra email step. Two failed nights in a row are treated as an incident.
 6. **Schedule on a private repository.** GitHub switches off scheduled workflows in a public repository after 60 days with no activity. That is one more reason to finish making the repository private before the backup job goes live.
 
-The backup job uses its own Cloudflare API token, with only these permissions:
-- read D1;
-- read the app bucket;
-- write the backup bucket.
-
-It cannot change the live app or its data.
+The backup job uses its own Cloudflare API token, used by nothing else. It has only the D1 and R2 permissions the job needs: no Workers, DNS or account settings. Wrangler's R2 permission covers every bucket in the account, so the token cannot be limited to the backup bucket. That is why the bucket lock above protects the backups even if the token leaks.
 
 ## 4. Recovery procedures
 

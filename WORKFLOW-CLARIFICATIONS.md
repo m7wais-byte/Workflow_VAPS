@@ -19,7 +19,7 @@ As you asked, nothing non-critical holds up the safe pilot.
 | 4 | Mandatory Validation steps | No | No | Only if VAPS names mandatory steps |
 | 5 | Validation for other sampling types | No | No | No (sequences to be supplied) |
 | 6 | PV terminology in older records | No | No | No (clean database) |
-| 7 | Workbook review and QC | **Setup:** a QC reviewer must be assigned | No | **Yes**: add the independence check |
+| 7 | Workbook review and QC | **Setup:** assign a QC reviewer and give the reviewers workbook access | No | **Yes**: add the independence check |
 | 8 | Independent final report review | No (setup rule) | No | **Yes**: add the independence check |
 | 9 | Authority for additional scope | No | No | No (confirm the rule) |
 | 10 | Partial shipment and receipt | No | No | No: already closed in the code |
@@ -31,6 +31,7 @@ As you asked, nothing non-critical holds up the safe pilot.
 - **Backups on every job:** give each job a backup sampling employee, so the data review is not done by the person who entered the data.
 - **Different people:** the sampling approver and the final approver must not also prepare reports.
 - **Client approval:** give the Client approval duty to someone who also holds *Create job* (see "Also found").
+- **Workbook access:** grant *View workbook* and *Download workbook* to both team leads and the QC reviewer (Settings → Authorization). By default only one team lead has them, so the reviewers would be refused the workbooks they must approve.
 
 **None of the 12 is a security issue.** They are workflow and quality rules. Sign-in and permissions are enforced on the server either way.
 
@@ -108,8 +109,8 @@ As you asked, nothing non-critical holds up the safe pilot.
 - **Recommendation:**
   - Keep QC mandatory, and assign a QC reviewer who is not a team lead before the pilot.
   - Before launch, add checks that nobody reviews or QC-approves a workbook they produced, and that the QC reviewer is not the lead who approved it.
-  - Also decide the default workbook view and download access. Today only one team lead has it, so the QC reviewer and the other lead are refused workbooks they review (finding 7 of the end-to-end walk in #69).
-- **Blocks:** the pilot setup (a QC reviewer must be assigned), and launch.
+  - For the pilot, grant *View workbook* and *Download workbook* to both team leads and the QC reviewer. Today only one team lead has them by default, so the others are refused workbooks they review (finding 7 of the end-to-end walk in #69). Before launch, make that the default.
+- **Blocks:** the pilot setup (a QC reviewer, and workbook access for the reviewers), and launch.
 
 ### 8. Does final reporting need an independent reviewer?
 - **Today:**
