@@ -1,0 +1,23 @@
+# Never copied into the image: dependencies are installed inside it, and local state, settings, records and
+# backups stay on the computer (or in the vaps-data volume).
+.git
+node_modules
+.wrangler
+.dev.vars
+.env*
+dist
+dist-pages
+.next
+.vinext
+backups
+*.sqlite
+vaps-export-*.json
+.DS_Store
+.sites
+.sites-runtime
+output
+outputs
+work
+tmp
+coverage
+*.tsbuildinfo

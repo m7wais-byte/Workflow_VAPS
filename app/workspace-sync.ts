@@ -154,7 +154,7 @@ export function clearWorkspace() {
 /* ---------- files (Sites edition) ---------- */
 /** Which job a file belongs to and what it is; the server picks its OneDrive folder from that (OneDrive pilot). */
 export type UploadTarget = { jobId: string; purpose: FilePurpose };
-export type CopyResult = { status: "off" | "ok" | "error"; message?: string; name?: string; renamed?: boolean; savedInVaps?: boolean };
+export type CopyResult = { status: "off" | "ok" | "error" | "queued"; message?: string; name?: string; renamed?: boolean; savedInVaps?: boolean };
 /** Sent after each job upload so the job's OneDrive panel can say what happened (`vaps-file-copy` window event). */
 export type CopyUpload = { jobId: string; name: string; purpose: FilePurpose; copy: CopyResult };
 export async function uploadToServer(file: File, anyType: boolean, target?: UploadTarget) {

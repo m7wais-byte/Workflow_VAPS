@@ -24,7 +24,7 @@
  * A failure to send never fails or undoes the workflow save.
  */
 import type { JobRecord } from "../app/page";
-import { workItems, type WorkItem } from "../app/work-items";
+import { workItems, type WorkItem, type UpcomingItem } from "../app/work-items";
 import { jobProgressView, clientProgress, progressStatusLabel } from "../app/job-progress";
 import { operationsFor, latest, interimReport, operationComplete } from "../app/operations-model";
 import { canOpenJob } from "../app/job-access";
@@ -65,6 +65,30 @@ export function newStaffActions(ctx: Context, before: JobRecord | undefined, aft
   return out;
 }
 
+/**
+ * A test assigned with a planned start after today waits in "Coming up", not in the actions, so it never "newly
+ * appears" as an action. Its assignment is emailed when it newly appears in Coming up (once: the action that appears on
+ * the start date was already in that employee's list before and after any later save that day).
+ */
+export function newLaterAssignments(ctx: Context, before: JobRecord | undefined, after: JobRecord, allJobs: JobRecord[], at: string) {
+  const out: { employeeId: string; item: WorkItem }[] = [];
+  if (!ctx.directory) return out;
+  const day = today(at), others = allJobs.filter((j) => j.id !== after.id);
+  const later = (job: JobRecord, id: string, jobs: JobRecord[]) => withRecords(ctx.values, () => { const a = actorFor(ctx, id, jobs); return canOpenJob(job, a) ? workItems([job], a, day).upcoming.filter((u: UpcomingItem) => u.key.startsWith("soon-test:")) : []; });
+  for (const employee of ctx.directory.employees.filter((e) => e.active)) {
+    let now: UpcomingItem[];
+    try { now = later(after, employee.id, [...others, after]); } catch { continue; }
+    if (!now.length) continue;
+    const had = new Set(before ? later(before, employee.id, [...others, before]).map((u) => u.key) : []);
+    for (const u of now) {
+      if (had.has(u.key)) continue;
+      const start = /(\d{4}-\d{2}-\d{2})/.exec(u.after)?.[1];
+      out.push({ employeeId: employee.id, item: { key: u.key.replace(/^soon-test:/, "test:"), kind: "assignment", action: `Start test${start ? " on " + omanDate(start + "T12:00:00Z") : ""}`, jobId: u.jobId, jobNumber: u.jobNumber, client: u.client, area: u.area, role: u.role, test: u.test, sample: u.sample, due: u.due, dueKind: u.dueKind, open: u.open } as unknown as WorkItem });
+    }
+  }
+  return out;
+}
+
 /** Approved client-facing milestones reached by this change. */
 export function clientMilestones(before: JobRecord | undefined, after: JobRecord): { event: ClientEvent; version: string; at?: string }[] {
   const out: { event: ClientEvent; version: string; at?: string }[] = [];
@@ -82,17 +106,18 @@ export function clientMilestones(before: JobRecord | undefined, after: JobRecord
 
 const button = (href: string, label: string) => `<p><a href="${escape(href)}" style="display:inline-block;background:#0f5c7a;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none">${escape(label)}</a></p>`;
 const foot = `<p style="color:#6b818c;font-size:12px">Sent by the VAPS PVT Lab &amp; Sampling workspace. Please do not share this email outside VAPS.</p>`;
+const reference = (ref?: string) => (ref ? `<p style="color:#6b818c;font-size:12px">Reference: ${escape(ref)}</p>` : "");
 
-export function staffMail(input: { to: string; name: string; job: JobRecord; item: WorkItem; event: StaffEvent; link: string }): Mail {
+export function staffMail(input: { to: string; name: string; job: JobRecord; item: WorkItem; event: StaffEvent; link: string; ref?: string }): Mail {
   const { job, item } = input;
   const heading = input.event === "review" ? "Awaiting your review" : input.event === "returned" ? "Returned to you for correction" : "Assigned to you";
   const detail = [item.test && `Test: ${item.test}`, item.sample && `Sample: ${item.sample}`, item.due && `Due: ${omanDate(item.due + "T12:00:00Z")}`].filter(Boolean) as string[];
   const subject = `[${job.jobNumber || job.id}] ${heading}: ${item.action}`;
-  const text = [`Hello ${input.name},`, "", `${heading} in the VAPS workspace:`, "", `Job ID: ${job.jobNumber || job.id}`, `Client: ${job.clientName || "—"}`, `Action: ${item.action}`, `Your role: ${item.role || item.area}`, ...detail, "", `Open the job: ${input.link}`, "", "Sign in with your work email or employee ID."].join("\n");
+  const text = [`Hello ${input.name},`, "", `${heading} in the VAPS workspace:`, "", `Job ID: ${job.jobNumber || job.id}`, `Client: ${job.clientName || "—"}`, `Action: ${item.action}`, `Your role: ${item.role || item.area}`, ...detail, "", `Open the job: ${input.link}`, "", "Sign in with your work email or employee ID.", ...(input.ref ? ["", `Reference: ${input.ref}`] : [])].join("\n");
   const html = `<p>Hello ${escape(input.name)},</p><p><strong>${escape(heading)}</strong> in the VAPS workspace:</p>`
     + `<table cellpadding="4" style="border-collapse:collapse"><tr><td>Job ID</td><td><strong>${escape(job.jobNumber || job.id)}</strong></td></tr><tr><td>Client</td><td>${escape(job.clientName || "—")}</td></tr><tr><td>Action</td><td><strong>${escape(item.action)}</strong></td></tr><tr><td>Your role</td><td>${escape(item.role || item.area)}</td></tr>`
     + detail.map((d) => { const [k, ...v] = d.split(": "); return `<tr><td>${escape(k)}</td><td>${escape(v.join(": "))}</td></tr>`; }).join("") + `</table>`
-    + button(input.link, "Open the job in Workflow VAPS") + `<p>Sign in with your work email or employee ID.</p>` + foot;
+    + button(input.link, "Open the job in Workflow VAPS") + `<p>Sign in with your work email or employee ID.</p>` + foot + reference(input.ref);
   return { to: input.to, subject, text, html };
 }
 
@@ -100,7 +125,7 @@ export function staffMail(input: { to: string; name: string; job: JobRecord; ite
  *  and "approved" for the final report means the client's own approval, recorded later (Client approval stage). */
 const clientHeading: Record<ClientEvent, string> = { "sampling-report": "Sampling report approved", interim: "Validation results completed", "final-report": "Final report issued" };
 /** Client email: only fields of the client progress view and the client's own job identifiers. */
-export function clientMail(input: { to: string; job: JobRecord; event: ClientEvent; at?: string; nowIso: string }): Mail {
+export function clientMail(input: { to: string; job: JobRecord; event: ClientEvent; at?: string; nowIso: string; ref?: string }): Mail {
   const { job } = input;
   const view = clientProgress(jobProgressView(job, { today: today(input.nowIso), audience: "client" }));
   const ref = job.jobNumber || job.id, theirs = job.clientReference ? ` (your reference ${job.clientReference})` : "";
@@ -109,11 +134,11 @@ export function clientMail(input: { to: string; job: JobRecord; event: ClientEve
   const lead = input.event === "final-report" ? "The final report for this job has been issued. VAPS sends the report itself through the agreed channel."
     : input.event === "sampling-report" ? "The sampling report for this job has been approved by VAPS." : "The validation results for this job's samples are complete.";
   const subject = `VAPS job ${ref}: ${clientHeading[input.event]}`;
-  const text = [`Dear ${job.clientFocalPoint || "client"},`, "", `${lead}`, "", `Job: ${ref}${theirs}`, `Update: ${clientHeading[input.event]}${input.at ? " on " + omanDate(input.at) : ""}`, view.sentence ? `Status: ${view.sentence}` : "", expected ? `Expected completion: ${expected}` : "", "", ...stages.map((s) => `- ${s.label}: ${s.status}`), "", "Regards,", "VAPS PVT Laboratory"].filter((l, i, a) => l !== "" || a[i - 1] !== "").join("\n");
+  const text = [`Dear ${job.clientFocalPoint || "client"},`, "", `${lead}`, "", `Job: ${ref}${theirs}`, `Update: ${clientHeading[input.event]}${input.at ? " on " + omanDate(input.at) : ""}`, view.sentence ? `Status: ${view.sentence}` : "", expected ? `Expected completion: ${expected}` : "", "", ...stages.map((s) => `- ${s.label}: ${s.status}`), "", "Regards,", "VAPS PVT Laboratory", ...(input.ref ? ["", `Reference: ${input.ref}`] : [])].filter((l, i, a) => l !== "" || a[i - 1] !== "").join("\n");
   const html = `<p>Dear ${escape(job.clientFocalPoint || "client")},</p><p>${escape(lead)}</p>`
     + `<table cellpadding="4" style="border-collapse:collapse"><tr><td>Job</td><td><strong>${escape(ref)}</strong>${escape(theirs)}</td></tr><tr><td>Update</td><td>${escape(clientHeading[input.event])}${input.at ? " on " + escape(omanDate(input.at)) : ""}</td></tr>${view.sentence ? `<tr><td>Status</td><td>${escape(view.sentence)}</td></tr>` : ""}${expected ? `<tr><td>Expected completion</td><td>${escape(expected)}</td></tr>` : ""}</table>`
     + (stages.length ? `<ul>${stages.map((s) => `<li>${escape(s.label)}: ${escape(s.status)}</li>`).join("")}</ul>` : "")
-    + `<p>Regards,<br>VAPS PVT Laboratory</p>`;
+    + `<p>Regards,<br>VAPS PVT Laboratory</p>` + reference(input.ref);
   return { to: input.to, subject, text, html };
 }
 
@@ -186,37 +211,86 @@ export async function outbox(db: D1Database, limit = 100, at = new Date().toISOS
   return rows.map((r) => ({ ...r, next: nextStep(r, at) }));
 }
 
-/* ---------- After a job change ---------- */
+/* ---------- After a job change: queue first, send afterwards ---------- */
+
+/** The short reference printed in a message and shown in the email log (to find it in the sender's Sent Items). */
+export const mailReference = (id: string) => id.slice(0, 8).toUpperCase();
+type Prepared = { row: OutboxRow; mail: Mail };
+type Draft = Queued & { id: string; status: "queued" | "blocked"; error: string | null };
+
+/**
+ * Works out this change's notifications and writes them all to the outbox in one batch: "queued" when they may be
+ * sent, "blocked" (with the reason) when the address is not allowed or not usable. Quick, so it runs inside the
+ * request: a request cancelled afterwards leaves queued rows that MA001 can send from the email log, never lost ones.
+ * Returns the rows this call created that are waiting to be sent.
+ */
+export async function queueJobNotifications(env: Record<string, unknown>, db: D1Database, ctx: Context, who: Who, change: { before?: JobRecord; after: JobRecord; revision: number; allJobs: JobRecord[] }, at = new Date().toISOString()): Promise<Prepared[]> {
+  const staff = staffEvents(env), client = clientEvents(env);
+  if ((!staff.size && !client.size) || !mailerFrom(env)) return [];
+  const origin = dashboardOrigin(env), job = change.after, drafts: Draft[] = [];
+  const draft = (q: Queued & { id: string }, unusable?: string) => {
+    const allowed = !unusable && recipientAllowed(env, q.mail.to);
+    drafts.push({ ...q, status: allowed ? "queued" : "blocked", error: unusable || (allowed ? null : RECIPIENT_BLOCKED) });
+  };
+  try {
+    if (staff.size && origin) {
+      const emails = new Map(((await db.prepare("SELECT employee_id, email FROM accounts WHERE active = 1 AND email IS NOT NULL").all<{ employee_id: string; email: string }>()).results).map((r) => [r.employee_id, r.email]));
+      const found = [...newStaffActions(ctx, change.before, job, change.allJobs, at), ...newLaterAssignments(ctx, change.before, job, change.allJobs, at)];
+      for (const { employeeId, item } of found) {
+        try {
+          const event = staffEventOf(item), to = emails.get(employeeId);
+          // No sign-in account or email (e.g. drivers without a work email): nothing to send, nothing to record.
+          if (!staff.has(event) || employeeId === who.employeeId || !validEmail(to)) continue;
+          const name = ctx.directory?.employees.find((e) => e.id === employeeId)?.name || employeeId;
+          const link = `${origin}/#workflow/${encodeURIComponent(job.id)}/overview`, id = crypto.randomUUID();
+          draft({ id, dedupeKey: `staff:${event}:${employeeId}:${item.key}:${job.id}:r${change.revision}`, audience: "staff", event, jobId: job.id, employeeId, mail: staffMail({ to, name, job, item, event, link, ref: mailReference(id) }) });
+        } catch (e) { console.error("Notification for one employee failed", e instanceof Error ? e.name : "unknown"); }
+      }
+    }
+    if (client.size) {
+      const raw = String(job.clientFocalPointEmail || "").trim();
+      for (const m of withRecords(ctx.values, () => clientMilestones(change.before, job))) {
+        if (!client.has(m.event) || !raw) continue; // no focal-point email: nothing is sent to the client
+        try {
+          const id = crypto.randomUUID(), to = raw.slice(0, 254), usable = validEmail(to);
+          const mail = usable ? withRecords(ctx.values, () => clientMail({ to, job, event: m.event, at: m.at, nowIso: at, ref: mailReference(id) })) : { to, subject: `VAPS job ${job.jobNumber || job.id}: ${m.event}`, text: "", html: "" };
+          draft({ id, dedupeKey: `client:${m.event}:${job.id}:${m.version}:${to.toLowerCase()}`, audience: "client", event: m.event, jobId: job.id, mail },
+            usable ? undefined : "The job's client focal-point email is not one valid address (check Job Setup), so nothing was sent.");
+        } catch (e) { console.error("Client notification failed", e instanceof Error ? e.name : "unknown"); }
+      }
+    }
+    if (!drafts.length) return [];
+    await db.batch(drafts.map((d) => db.prepare(`INSERT INTO mail_outbox (id, dedupe_key, audience, event, job_id, employee_id, recipient, subject, text_body, html_body, status, attempts, last_error, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?) ON CONFLICT(dedupe_key) DO NOTHING`)
+      .bind(d.id, d.dedupeKey, d.audience, d.event, d.jobId ?? null, d.employeeId ?? null, d.mail.to.trim().toLowerCase(), d.mail.subject, d.mail.text || null, d.mail.html || null, d.status, d.error, at, at)));
+    const prepared: Prepared[] = [];
+    for (const d of drafts.filter((x) => x.status === "queued")) {
+      const row = await db.prepare("SELECT * FROM mail_outbox WHERE id = ?").bind(d.id).first<OutboxRow>();
+      if (row && row.status === "queued") prepared.push({ row, mail: d.mail }); // a dedupe-key conflict keeps the earlier row: never sent twice
+    }
+    return prepared;
+  } catch (e) { console.error("Notification step failed", e instanceof Error ? e.name : "unknown"); return []; }
+}
+
+/** Sends rows written by queueJobNotifications, one by one, within a time budget. Rows not reached stay "queued". */
+export async function sendQueued(env: Record<string, unknown>, db: D1Database, prepared: Prepared[], budgetMs = 20_000) {
+  const result = { queued: prepared.length, sent: 0, failed: 0, blocked: 0, waiting: 0 }, started = Date.now();
+  for (const { row, mail } of prepared) {
+    if (Date.now() - started > budgetMs) { result.waiting++; continue; }
+    try {
+      const r = await attempt(env, db, row, mail, new Date().toISOString());
+      if (r.status === "sent") result.sent++; else if (r.status === "blocked") result.blocked++; else if (r.status === "failed" || r.status === "uncertain") result.failed++;
+    } catch (e) { result.failed++; console.error("Sending one notification failed", e instanceof Error ? e.name : "unknown"); }
+  }
+  return result;
+}
 
 /**
  * Called after a job write succeeded. Works out the notifications for this change and sends them.
  * Returns a short summary for the response; problems are recorded, never thrown.
  */
 export async function notifyJobChange(env: Record<string, unknown>, db: D1Database, ctx: Context, who: Who, change: { before?: JobRecord; after: JobRecord; revision: number; allJobs: JobRecord[] }, at = new Date().toISOString()) {
-  const result = { queued: 0, sent: 0, failed: 0, blocked: 0 };
-  const staff = staffEvents(env), client = clientEvents(env);
-  if ((!staff.size && !client.size) || !mailerFrom(env)) return result;
-  const origin = dashboardOrigin(env);
-  const tally = (r: OutboxRow) => { result.queued++; if (r.status === "sent") result.sent++; else if (r.status === "blocked") result.blocked++; else if (r.status === "failed") result.failed++; };
-  try {
-    const job = change.after;
-    if (staff.size && origin) {
-      const emails = new Map(((await db.prepare("SELECT employee_id, email FROM accounts WHERE active = 1 AND email IS NOT NULL").all<{ employee_id: string; email: string }>()).results).map((r) => [r.employee_id, r.email]));
-      for (const { employeeId, item } of newStaffActions(ctx, change.before, job, change.allJobs, at)) {
-        const event = staffEventOf(item), to = emails.get(employeeId);
-        if (!staff.has(event) || employeeId === who.employeeId || !validEmail(to)) continue;
-        const name = ctx.directory?.employees.find((e) => e.id === employeeId)?.name || employeeId;
-        const link = `${origin}/#workflow/${encodeURIComponent(job.id)}/overview`;
-        tally(await deliver(env, db, { dedupeKey: `staff:${event}:${employeeId}:${item.key}:${job.id}:r${change.revision}`, audience: "staff", event, jobId: job.id, employeeId, mail: staffMail({ to, name, job, item, event, link }) }, at));
-      }
-    }
-    if (client.size) {
-      const to = job.clientFocalPointEmail?.trim();
-      for (const m of withRecords(ctx.values, () => clientMilestones(change.before, job))) {
-        if (!client.has(m.event) || !validEmail(to)) continue;
-        tally(await deliver(env, db, { dedupeKey: `client:${m.event}:${job.id}:${m.version}:${to.toLowerCase()}`, audience: "client", event: m.event, jobId: job.id, mail: withRecords(ctx.values, () => clientMail({ to, job, event: m.event, at: m.at, nowIso: at })) }, at));
-      }
-    }
-  } catch (e) { console.error("Notification step failed", e instanceof Error ? e.name : "unknown"); }
-  return result;
+  const prepared = await queueJobNotifications(env, db, ctx, who, change, at);
+  const sent = await sendQueued(env, db, prepared);
+  return { queued: sent.queued, sent: sent.sent, failed: sent.failed, blocked: sent.blocked };
 }

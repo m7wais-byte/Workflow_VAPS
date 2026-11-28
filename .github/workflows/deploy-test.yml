@@ -1,0 +1,97 @@
+# Deploys the Sites edition (Worker + D1 + R2) to the private Cloudflare TEST environment.
+# Runs on every push to the deploy/test branch. Setup, secrets and first-time steps: DEPLOY-CLOUDFLARE.md.
+# The database and the file bucket must already exist; this workflow never creates them.
+name: Deploy test (Cloudflare)
+
+on:
+  push:
+    branches: [deploy/test]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-test
+  cancel-in-progress: false
+
+# The Cloudflare token is given only to the steps that call Cloudflare, never to npm ci or the tests.
+env:
+  VAPS_DEPLOY_WORKER_NAME: vaps-workflow-test
+  VAPS_DEPLOY_D1_NAME: vaps-test-db
+  VAPS_DEPLOY_R2_BUCKET: vaps-test-files
+  WRANGLER_SEND_METRICS: "false"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Cloudflare secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          missing=""
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || missing="$missing CLOUDFLARE_API_TOKEN"
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || missing="$missing CLOUDFLARE_ACCOUNT_ID"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing (Settings → Secrets and variables → Actions). See DEPLOY-CLOUDFLARE.md, step 4."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit -p .
+      - name: Tests
+        run: npm run test:pages
+
+      # The repository's own Wrangler (package.json) is used for every Cloudflare step.
+      - name: Find the D1 database and R2 bucket (never creates them)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -o pipefail
+          id=$(npx wrangler d1 list --json | node scripts/deploy/find-d1.mjs "$VAPS_DEPLOY_D1_NAME")
+          echo "VAPS_DEPLOY_D1_ID=$id" >> "$GITHUB_ENV"
+          if ! npx wrangler r2 bucket info "$VAPS_DEPLOY_R2_BUCKET" > /dev/null; then
+            echo "::error::R2 bucket \"$VAPS_DEPLOY_R2_BUCKET\" was not found. Create it once (DEPLOY-CLOUDFLARE.md, step 3): npx wrangler r2 bucket create $VAPS_DEPLOY_R2_BUCKET"
+            exit 1
+          fi
+
+      - name: Build
+        run: npm run build
+
+      # Migrations run before the new code goes live. They are additive and only move forward:
+      # a later rollback of the Worker does not undo them.
+      - name: Apply database migrations
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          node -e 'const fs=require("fs");fs.writeFileSync(process.argv[1],JSON.stringify({name:process.env.VAPS_DEPLOY_WORKER_NAME,compatibility_date:"2026-05-15",d1_databases:[{binding:"DB",database_name:process.env.VAPS_DEPLOY_D1_NAME,database_id:process.env.VAPS_DEPLOY_D1_ID,migrations_dir:process.argv[2]}]}))' "$RUNNER_TEMP/migrations.json" "$GITHUB_WORKSPACE/drizzle"
+          npx wrangler d1 migrations apply "$VAPS_DEPLOY_D1_NAME" --remote --config "$RUNNER_TEMP/migrations.json"
+
+      - name: Deploy the Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -o pipefail
+          npx wrangler deploy | tee "$RUNNER_TEMP/deploy.log"
+
+      - name: Summary
+        if: success()
+        run: |
+          {
+            echo "### Deployed to the Cloudflare test environment"
+            echo "- Commit: \`$(git rev-parse --short=12 HEAD)\`"
+            echo "- Worker: \`$VAPS_DEPLOY_WORKER_NAME\` · D1: \`$VAPS_DEPLOY_D1_NAME\` · R2: \`$VAPS_DEPLOY_R2_BUCKET\`"
+            grep -oE 'https://[^ ]+\.workers\.dev' "$RUNNER_TEMP/deploy.log" | head -1 | sed 's/^/- Address: /'
+            echo "- Check the running build: open \`/api/deployment\` on that address (after signing in through Access)."
+          } >> "$GITHUB_STEP_SUMMARY"

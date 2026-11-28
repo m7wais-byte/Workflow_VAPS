@@ -20,7 +20,7 @@ ENV.MAIL_ALLOWED_RECIPIENTS = [...STAFF.map(emailOf), 'client.contact@client.exa
 
 /* ---------- In-memory Microsoft identity + Graph sendMail ---------- */
 // down: 503 (refused before processing). unsure: 'timeout' (no answer) or a status such as 504: Microsoft may have sent it.
-const graph = { sent: [], tokens: 0, down: false, unsure: null, calls: [] };
+const graph = { sent: [], tokens: 0, down: false, unsure: null, calls: [], delayMs: 0 };
 const realFetch = globalThis.fetch;
 globalThis.fetch = async (input, init = {}) => {
   const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
@@ -36,6 +36,7 @@ globalThis.fetch = async (input, init = {}) => {
   // Send only: the app never reads, lists or deletes mail.
   assert.equal(init.method, 'POST'); assert.equal(url.pathname, `/v1.0/users/${encodeURIComponent(SENDER)}/sendMail`);
   assert.match(init.headers.Authorization, /^Bearer app-token-\d+$/);
+  if (graph.delayMs) await new Promise((ok) => setTimeout(ok, graph.delayMs));
   if (graph.down) return json({ error: { code: 'ServiceUnavailable' } }, 503);
   const body = JSON.parse(init.body);
   if (graph.unsure) {
@@ -54,7 +55,7 @@ const { mf, DB, api, call } = await startSitesApi({
   workspace: 'app/api/workspace/route.ts', record: 'app/api/workspace/records/[key]/route.ts', job: 'app/api/jobs/[id]/route.ts', operations: 'app/api/jobs/[id]/operations/route.ts', files: 'app/api/files/route.ts',
   mail: 'app/api/admin/mail/route.ts',
 }, [
-  'export * as auth from "./server/auth.ts";', 'export * as notify from "./server/notify.ts";', 'export * as mailer from "./server/mail.ts";', 'export { defaultResponsibilities } from "./app/authorization.ts";', 'export { demoConfiguration } from "./app/demo-data.ts";',
+  'export * as auth from "./server/auth.ts";', 'export * as notify from "./server/notify.ts";', 'export { settleBackground } from "./server/background.ts";', 'export { loadRecords, context } from "./server/workspace.ts";', 'export * as mailer from "./server/mail.ts";', 'export { defaultResponsibilities } from "./app/authorization.ts";', 'export { demoConfiguration } from "./app/demo-data.ts";',
   'export { defaultFieldData } from "./app/sample-defaults.ts";', 'export { cylinderCatalog } from "./app/cylinder-catalog.ts";',
 ].join('\n'), ENV);
 const env = globalThis.__vapsTestEnv;
@@ -134,6 +135,7 @@ test('full workflow: each newly assigned action and review is emailed once to th
   // 4. Scope selector releases the laboratory scope; team leads assign; engineers submit workbooks.
   await refused('NASSER', [{ type: 'lab-scope', action: 'release', reason: '', conditions: { pressure: '2400', pressureUnit: 'psi', temperature: '80', temperatureUnit: '°C', notes: '' }, samples: [] }]);
   await step('SALIM', [{ type: 'lab-scope', action: 'release', reason: '', conditions: { pressure: '2400', pressureUnit: 'psi', temperature: '80', temperatureUnit: '°C', notes: 'Test.' }, samples: [{ sampleId: '1.01', fluidType: 'Black Oil', destination: 'Both', pvtTests: ['Black Oil — DL'], chemicalTests: ['Others — Water Analysis'], notes: '', excluded: false, exclusionReason: '' }] }]);
+  globalThis.__scoped = structuredClone(current); // after the scope release, before any test is assigned (E6 test)
   const act = (title) => current.operations.activities.find((a) => a.title === title);
   const dl = act('Black Oil — DL'), water = act('Others — Water Analysis');
   await refused('BAHRI', [{ type: 'schedule', id: dl.id, owner: 'NASSER', start: day, due: day, conditions: dl.conditions, notes: '' }]);
@@ -209,7 +211,7 @@ test('a retried workflow action never sends twice', async () => {
   console.log('--- client sample ---\n' + dump.find((r) => r.event === 'final-report').subject + '\n' + dump.find((r) => r.event === 'final-report').text_body);
 });
 
-test('Graph down: the save still succeeds, the failure is logged, MA001 retries once; a sent message is never re-sent', async () => {
+test('Graph answers 503: the save still succeeds, the outcome is logged as unknown, MA001 retries once after checking Sent Items; never re-sent', async () => {
   const ma = await as('MA001');
   // A fresh job dispatched while Graph is unavailable.
   const nid = 'OM-P-26-302';
@@ -220,17 +222,20 @@ test('Graph down: the save still succeeds, the failure is logged, MA001 retries 
   assert.equal(r.status, 200, JSON.stringify(r.data)); assert.ok(r.data.job.operations.dispatchedAt, 'the workflow change is saved');
   assert.ok(r.data.mail.failed >= 1);
   const failed = (await rows()).find((x) => x.job_id === nid && x.employee_id === 'MOHSIN');
-  assert.equal(failed.status, 'failed'); assert.match(failed.last_error, /Microsoft 365 refused the email \(503\)/);
+  // A 503 does not prove nothing was sent (Microsoft: "temporarily unavailable or overloaded"): outcome unknown.
+  assert.equal(failed.status, 'uncertain'); assert.match(failed.last_error, /Microsoft 365 answered 503/);
   // The log is MA001's only.
   assert.equal((await call('mail', 'GET', '/', { cookie: await as('SALIM') })).status, 403);
   const log = (await call('mail', 'GET', '/', { cookie: ma })).data;
   assert.deepEqual(log.config, { provider: 'graph', sender: SENDER, dashboard: 'https://vaps.example', allowedRecipients: ENV.MAIL_ALLOWED_RECIPIENTS.split(', '), staffEvents: ['assignment', 'review', 'returned'], clientEvents: ['sampling-report', 'interim', 'final-report'] });
   assert.ok(!JSON.stringify(log).includes(ENV.GRAPH_CLIENT_SECRET) && !JSON.stringify(log).includes('#invite='), 'no secret or invitation link in the log');
   const sent = graph.sent.length;
-  const retried = await call('mail', 'POST', '/', { cookie: ma, json: { action: 'retry', id: failed.id } });
+  const blind = await call('mail', 'POST', '/', { cookie: ma, json: { action: 'retry', id: failed.id } });
+  assert.equal(blind.status, 409, 'not without confirming the Sent Items check'); assert.equal(graph.sent.length, sent);
+  const retried = await call('mail', 'POST', '/', { cookie: ma, json: { action: 'retry', id: failed.id, sentItemsChecked: true } });
   assert.equal(retried.status, 200); assert.equal(retried.data.status, 'sent'); assert.equal(retried.data.attempts, 2);
   assert.equal(graph.sent.length, sent + 1);
-  const again = await call('mail', 'POST', '/', { cookie: ma, json: { action: 'retry', id: failed.id } });
+  const again = await call('mail', 'POST', '/', { cookie: ma, json: { action: 'retry', id: failed.id, sentItemsChecked: true } });
   assert.equal(again.data.status, 'sent'); assert.equal(graph.sent.length, sent + 1, 'already sent: not sent again');
 });
 
@@ -328,6 +333,45 @@ test('notifications are off unless configured; staff and client switches are ind
     env.NOTIFY_STAFF = 'assignment, unknown'; assert.deepEqual([...api.notify.staffEvents(env)], ['assignment']);
     env.NOTIFY_CLIENT = 'final-report'; assert.deepEqual([...api.notify.clientEvents(env)], ['final-report']);
   } finally { env.NOTIFY_STAFF = saved.staff; env.NOTIFY_CLIENT = saved.client; }
+});
+
+/* ---------- Reliability fixes (review of PR #68: E3, E4, E6, E9) ---------- */
+const ctxNow = async () => api.context((await api.loadRecords(DB)).values);
+
+test('E4: notifications are written to the outbox before the reply; a slow Microsoft 365 does not hold the save', async () => {
+  const nid = 'OM-P-26-305', job = { ...globalThis.__flow.job, id: nid, jobNumber: nid, globalSequence: 305 };
+  graph.delayMs = 2600;
+  const started = Date.now();
+  const r = await call('job', 'PUT', '/', { cookie: await as('SALIM'), params: { id: nid }, json: { job, revision: 0, commands: [{ type: 'dispatch', engineer: 'MOHSIN', driver: 'ALI', team: ['HUSSEINI'] }] } });
+  const waited = Date.now() - started;
+  assert.equal(r.status, 200, JSON.stringify(r.data)); assert.ok(waited < 2600, `the save did not wait for Microsoft (${waited} ms)`);
+  assert.equal(r.data.mail.sending, true);
+  const queued = (await rows()).filter((x) => x.job_id === nid && x.employee_id === 'MOHSIN');
+  assert.equal(queued.length, 1); assert.ok(['queued', 'sending'].includes(queued[0].status), 'already in the outbox: a cancelled request cannot lose it');
+  await api.settleBackground(); graph.delayMs = 0;
+  assert.equal((await rows()).find((x) => x.id === queued[0].id).status, 'sent');
+});
+
+test('E6: a test assigned to start later is emailed as an assignment once, when assigned', async () => {
+  const ctx = await ctxNow(), before = globalThis.__scoped, at = new Date().toISOString();
+  const after = structuredClone(before), dl = after.operations.activities.find((a) => a.title === 'Black Oil — DL');
+  Object.assign(dl, { owner: 'NASSER', status: 'Scheduled', start: '2099-01-15', due: '2099-01-20' });
+  assert.deepEqual(api.notify.newStaffActions(ctx, before, after, [after], at).filter((f) => f.employeeId === 'NASSER'), [], 'not an action until its start date');
+  const later = api.notify.newLaterAssignments(ctx, before, after, [after], at);
+  assert.deepEqual(later.map((f) => f.employeeId), ['NASSER']);
+  assert.equal(later[0].item.kind, 'assignment'); assert.match(later[0].item.action, /^Start test on 15 Jan 2099$/);
+  assert.deepEqual(api.notify.newLaterAssignments(ctx, after, after, [after], at), [], 'once: a later save finds nothing new');
+});
+
+test('E9 + E3: an unusable client address is logged as blocked with the reason; every message carries its reference', async () => {
+  const ctx = await ctxNow(), at = new Date().toISOString();
+  const job = { ...structuredClone(globalThis.__scoped), id: 'OM-P-26-399', jobNumber: 'OM-P-26-399', clientFocalPointEmail: 'first@client.example.test; second@client.example.test' };
+  const prepared = await api.notify.queueJobNotifications(env, DB, ctx, { accountId: 'test', employeeId: 'MA001' }, { before: undefined, after: job, revision: 1, allJobs: [job] }, at);
+  const mine = (await rows()).filter((x) => x.job_id === 'OM-P-26-399');
+  const client = mine.find((x) => x.audience === 'client');
+  assert.equal(client.status, 'blocked'); assert.match(client.last_error, /client focal-point email is not one valid address/);
+  assert.ok(prepared.length >= 1 && prepared.every((p) => p.row.status === 'queued'), 'staff messages queued, not sent yet');
+  for (const p of prepared) assert.ok(p.mail.text.includes('Reference: ' + api.notify.mailReference(p.row.id)) && p.mail.html.includes('Reference: ' + api.notify.mailReference(p.row.id)));
 });
 
 test.after(async () => { globalThis.fetch = realFetch; await mf.dispose(); });
