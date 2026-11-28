@@ -366,7 +366,7 @@ Verification: TypeScript and lint passed (existing warnings only); 191 tests pas
 
 ## Sample handover step removed
 
-Decision (Mohammed Al Awaisi): there is no recorded sample handover between Sampling and the Laboratory. Earlier sections that describe physical handover, driver handover actions, the `labReceipt` duty or receipt gating are superseded by this section.
+Decision (VAPS): there is no recorded sample handover between Sampling and the Laboratory. Earlier sections that describe physical handover, driver handover actions, the `labReceipt` duty or receipt gating are superseded by this section.
 
 - Sampling's part ends when the sampling report is approved and the scope selector releases the laboratory scope. A final sampling-team step will be defined later.
 - Removed: the "Sample receipt" job section, the `handover-send` / `handover-receive` commands, the driver "Hand over samples" and "Confirm receipt" work items, the "Samples received at laboratory" tracker/progress row, the "Sample handover" milestone and the Laboratory receipt duty in Settings.

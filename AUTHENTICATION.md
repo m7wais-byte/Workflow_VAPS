@@ -55,7 +55,7 @@ This branch (`claude/integration-auth-data-layer`) combines the employee sign-in
 - The account stays **inactive until the employee sets their own password** from the link. Then they are signed in, and afterwards sign in with their **work email or employee ID** (any capitalisation) and that password.
 - **Employee IDs:** existing employees keep their fixed IDs (SALIM, MA001, …). A new employee added in Settings → Employees gets the next free fixed ID (`VAPS-001`, `VAPS-002`, …), shown read-only and never changed; IDs that differ only by capitalisation are refused. The free-text field formerly labelled "Employee ID" is now "Staff code".
 - The status column shows Not invited / Invitation sent (with expiry) / Invitation expired / Active (with **last sign-in**) / Deactivated. Every invitation, activation and role change is audited.
-- **Mohammed (MA001) remains the Administrator.** The transfer to Zaid is not part of this change.
+- **MA001 (VAPS Administrator) remains the Administrator.** The transfer to Zaid is not part of this change.
 
 ## Access roles
 | Role | Who | Access |

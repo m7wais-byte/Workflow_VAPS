@@ -28,7 +28,7 @@ test('the dashboard follows the whole journey with one next responsible person a
  for(const id of ['MOHSIN','HUSSEINI','SHEREIQI','WILFRED'])assert.deepEqual(acts(j,id),[],id+' sees no draft');
  j=step(j,{type:'dispatch',engineer:'MOHSIN',driver:'ALI',team:['HUSSEINI']},'SALIM');
  // Every data sheet is complete: the backup engineer confirms the review; the accountable engineer waits for it.
- assert.deepEqual(acts(j,'MOHSIN'),[],'the accountable engineer waits for the backup review');assert.match(items(j,'MOHSIN').waiting[0].waitingOn,/Mohammed Al Husseini.*backup review|backup review/);
+ assert.deepEqual(acts(j,'MOHSIN'),[],'the accountable engineer waits for the backup review');assert.match(items(j,'MOHSIN').waiting[0].waitingOn,/Ahmed Al Husseini.*backup review|backup review/);
  const m=items(j,'HUSSEINI').actions[0];assert.match(m.action,/^Review the sampling data with Mohsin Al Dhuhli and confirm/);assert.equal(m.kind,'review');assert.equal(m.fromLabel,'Data entered by');assert.equal(m.from,'MOHSIN');assert.equal(m.overdue,true,'due date before today');
  assert.deepEqual(acts(j,'ALI'),[]);assert.deepEqual(acts(j,'SALIM'),[]);
  j=step(j,{type:'data-submit',note:''},'MOHSIN');

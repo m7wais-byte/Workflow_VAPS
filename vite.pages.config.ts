@@ -7,7 +7,8 @@ import { defineConfig, type Plugin } from "vite";
 
 // Project Pages are served from https://<owner>.github.io/<repository>/.
 const base = (process.env.VAPS_PAGES_BASE || "/Workflow_VAPS/").replace(/\/?$/, "/");
-const siteUrl = (process.env.VAPS_PAGES_URL || "https://m7wais-byte.github.io" + base).replace(/\/?$/, "/");
+// Absolute site address for og:image. CI passes it (.github/workflows/pages.yml); a local build without it uses the base path.
+const siteUrl = (process.env.VAPS_PAGES_URL || base).replace(/\/?$/, "/");
 const outDir = resolve(import.meta.dirname, "dist-pages");
 
 // Read by app/deployment.ts and %VITE_…% placeholders in github-pages/index.html.

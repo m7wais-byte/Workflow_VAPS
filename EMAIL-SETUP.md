@@ -65,7 +65,7 @@ e. **Mail flow.** Messages are sent by Exchange Online itself, so the existing S
 | `GRAPH_TENANT_ID` | variable | Directory (tenant) ID from 1b |
 | `GRAPH_CLIENT_ID` | variable | Application (client) ID from 1b |
 | `GRAPH_CLIENT_SECRET` | **secret** | The client secret value from 1c |
-| `APP_ORIGIN` | variable | `https://vaps-pvt-workflow.m7wais.chatgpt.site` (links in every email are built from it) |
+| `APP_ORIGIN` | variable | The site address, for example `https://workflow.visionaps.com` once that domain is live (links in every email are built from it) |
 | `MAIL_ALLOWED_RECIPIENTS` | variable | **Test:** comma-separated test mailboxes only. Unset means nothing is sent to anyone. `*` only after the rollout is approved |
 | `NOTIFY_STAFF` | variable | e.g. `assignment,review,returned`. Unset means off |
 | `NOTIFY_CLIENT` | variable | e.g. `sampling-report,interim,final-report`. Unset means off. Enable separately, after the staff rollout |

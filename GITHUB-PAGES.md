@@ -5,8 +5,8 @@ The workflow app is published in two separate ways:
 | | Sites edition (unchanged) | GitHub Pages edition |
 |---|---|---|
 | Build | `npm run build` (Vinext + Cloudflare, `vite.config.ts`) | `npm run build:pages` (static Vite SPA, `vite.pages.config.ts`) → `dist-pages/` |
-| URL | Existing Sites website | https://m7wais-byte.github.io/Workflow_VAPS/ |
-| Records | Browser storage on the Sites domain | Browser storage on `m7wais-byte.github.io` |
+| URL | Existing Sites website | The repository's GitHub Pages address: `https://<owner>.github.io/Workflow_VAPS/` |
+| Records | Browser storage on the Sites domain | Browser storage on `<owner>.github.io` |
 | D1 database / API | Yes (`/api/job-summary`) | No |
 | Client share links and QR codes (`/track/…`) | Yes | **Off** — the share panel explains why |
 
@@ -38,7 +38,7 @@ Browser storage belongs to one website address, so records saved on the Sites we
 
    This copies the VAPS records to the clipboard. Paste them into a file kept on your own computer only. Do not commit, upload or email it: it contains operational records. Share-link keys and the sign-in session are deliberately left out.
 
-2. **Paste into the Pages edition (first use only).** Open https://m7wais-byte.github.io/Workflow_VAPS/ in the same browser *before* creating any records there, open the Console, and run (replace `PASTE_HERE` with the copied text, kept inside the backticks):
+2. **Paste into the Pages edition (first use only).** Open the Pages edition (`https://<owner>.github.io/Workflow_VAPS/`) in the same browser *before* creating any records there, open the Console, and run (replace `PASTE_HERE` with the copied text, kept inside the backticks):
 
    ```js
    const data = JSON.parse(String.raw`PASTE_HERE`);
@@ -53,4 +53,4 @@ Browser storage belongs to one website address, so records saved on the Sites we
 
 4. **Shared client links stay on Sites.** Existing QR codes and `/track/…` links keep working from the Sites website only.
 
-Note: every GitHub Pages site under `m7wais-byte.github.io` (for example PVT Nexus) shares the same browser-storage area. VAPS keys all start with `vaps-`, so they do not collide, but treat that storage as shared between your Pages projects.
+Note: every GitHub Pages site under the same `<owner>.github.io` address shares the same browser-storage area. VAPS keys all start with `vaps-`, so they do not collide, but treat that storage as shared with any other Pages project of that account.

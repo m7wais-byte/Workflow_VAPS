@@ -90,7 +90,7 @@ test('dropdown lists start from the Excel lists and refuse empty or repeated val
   assert.throws(() => book.readRequestLists('{"clients":[]}'), /Invalid request list settings/);
   assert.equal(book.doneByFor('Nasser Al Saqri', lists.doneBy), 'Nasser');
   assert.equal(book.doneByFor('Al Yaqdhan Al Bahri', lists.doneBy), 'Al-Yaqdhan');
-  assert.equal(book.doneByFor('Mohammed Al Awaisi', lists.doneBy), '');
+  assert.equal(book.doneByFor('VAPS Administrator', lists.doneBy), '');
 });
 
 test('importing the Request Log maps Ready?, H2S and dates without inventing values', () => {
