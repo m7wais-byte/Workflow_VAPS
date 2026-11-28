@@ -7,7 +7,7 @@ const loadEmployeesSafe = () => { try { return appStorage() ? loadDirectory().em
 import type { JobRecord } from "./page";
 import { currentProgress, labComplete, labProgress, labRequested, validationRequested, isValidationTest, scopeText } from "./lab-work";
 import { jobFlow, clientState, scopeSummary, clientStatus, type JobFlow } from "./job-flow";
-import { isDraft as draftJob } from "./operations-model";
+import { isDraft as draftJob, issuePending, finalIssued } from "./operations-model";
 import { jobProgressView, clientProgress, type ProgressView } from "./job-progress";
 import { localDate } from "./local-date";
 
@@ -180,10 +180,38 @@ export function jobSummary(job: JobRecord): JobSummary {
   const base = legacySummary(job, types);
   if (job.operations || draftJob(job)) {
     const flow = jobFlow(job), section = (id: string) => flow.sections.find(s => s.id === id);
-    const dates = [["Job received", job.dateReceived], ["Sampling completed", section("sampling")?.completedAt], ["Laboratory work completed", section("laboratory")?.completedAt], ["Final report approved", section("report")?.completedAt]].filter((d): d is [string, string] => !!d[1]).map(([label, value]) => ({ label, value }));
-    return { ...base, version: 2, progress: JSON.parse(JSON.stringify(clientProgress(jobProgressView(job, { flow, today: localDate(), audience: "client" })))) as ProgressView, nodes: flowNodes(flow), status: clientStatus(flow), current: flow.current, next: flow.next, done: flow.done, total: flow.total, scope: scopeSummary(job), dates, scopeMissing: !job.operations?.scopeConfirmedAt };
+    const issue = clientIssue(job, flow);
+    const dates = [["Job received", job.dateReceived], ["Sampling completed", section("sampling")?.completedAt], ["Laboratory work completed", section("laboratory")?.completedAt], ["Final report issued", issue.at]].filter((d): d is [string, string] => !!d[1]).map(([label, value]) => ({ label, value }));
+    return { ...base, version: 2, progress: JSON.parse(JSON.stringify(clientProgress(jobProgressView(job, { flow, today: localDate(), audience: "client" })))) as ProgressView, nodes: issue.nodes, history: issue.history, status: issue.pending ? "In progress" : clientStatus(flow), current: issue.pending ? "Final report" : flow.current, next: issue.pending ? "Final report to be issued to the client" : flow.next, done: flow.done - issue.masked + (issue.done ? 1 : 0), total: flow.total + 1, scope: scopeSummary(job), dates, scopeMissing: !job.operations?.scopeConfirmedAt };
   }
   return base;
+}
+/**
+ * Client view of the final report. VAPS's approval is internal: until the coordinator records that the report reached
+ * the client, the report section stays in progress, its "Final approval" step reads in progress (no date) and the
+ * approval is left out of the history. One more client step, "Issue to the client", is done once the issue is
+ * recorded. Jobs whose client approval was recorded before this step existed count as issued on their approval day.
+ */
+function clientIssue(job: JobRecord, flow: JobFlow): { nodes: TrackNode[]; history: TrackEvent[]; pending: boolean; done: boolean; masked: number; at?: string } {
+  const pending = issuePending(job), done = !pending && flow.closed;
+  const at = done ? finalIssued(job)?.issuedAt || flow.sections.find((s) => s.id === "report")?.completedAt : undefined;
+  const step: TrackNode = { id: "report:issue", label: "Issue to the client", state: done ? "done" : "pending", ...(at ? { at } : {}) };
+  let masked = 0;
+  const hide = (n: TrackNode): TrackNode => {
+    if (n.children?.length) return { id: n.id, label: n.label, state: "active", ...(n.detail ? { detail: n.detail } : {}), children: n.children.map(hide) };
+    if (n.id !== "report:approval" || n.state !== "done") return n;
+    masked++; return { id: n.id, label: n.label, state: "active" };
+  };
+  const nodes = flowNodes(flow).map((n) => {
+    if (n.id !== "report") return n;
+    const groups = n.children || [], last = groups.length - 1;
+    const withStep = { ...n, ...(at ? { at } : {}), children: groups.map((g, i) => i === last ? { ...g, children: [...(g.children || []), step] } : g) };
+    return pending ? hide(withStep) : withStep;
+  });
+  // The latest "Final approval" history entry is the approval not yet issued.
+  const history = [...(job.workflowHistory || [])], drop = pending ? history.map((e) => e.label === "Final approval" && e.state === "done").lastIndexOf(true) : -1;
+  if (drop >= 0) history.splice(drop, 1);
+  return { nodes, history, pending, done, masked, at };
 }
 function legacySummary(job: JobRecord, types: Map<string, number>): JobSummary {
   return { jobId: job.id, client: job.clientName, location: [job.fieldArea, job.wellMode === "multiple" ? job.wells?.filter(Boolean).join(", ") : job.well].filter(Boolean).join(" · ") || "Not recorded", sampling: job.samplingSource || "Not recorded", sampleCount: job.samples?.length || Number(job.requestedSampleCount) || 0, sampleTypes: [...types].map(([label, count]) => ({ label, count })), nodes: workflowNodes(job), history: job.workflowHistory || [], updatedAt: job.lastUpdatedAt, scopeMissing: !(job.requiredTests || []).length };

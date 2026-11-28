@@ -127,9 +127,21 @@ test('completed job: every activity completed with actual dates and the report i
   const j4 = byId['OM-X-26-004'], o = structuredClone(j4.operations);
   const extra = new Set(o.scope.filter(s => s.source === 'Additional work').map(s => s.id));
   o.scope = o.scope.filter(s => !extra.has(s.id)); o.activities = o.activities.filter(a => !extra.has(a.scopeId)); o.additions = [];
-  o.finalReports = o.finalReports.filter(r => r.status === 'Approved');
+  o.finalReports = o.finalReports.filter(r => r.status === 'Approved').map((r) => { const c = { ...r }; delete c.issuedAt; delete c.issuedBy; delete c.issueNote; return c; });
+  // Approved internally: the coordinator still records the issue; the client sees the report in progress, never the approval.
+  const a = view({ ...j4, operations: o, status: 'Completed' }), ac = view({ ...j4, operations: o, status: 'Completed' }, 'client');
+  assert.equal(a.closed, true); assert.equal(a.currentStage, 'Final report'); assert.match(a.now, /approved internally · to be issued to the client/);
+  assert.equal(row(a, 'Final report').detail, 'Approved internally · to be issued to the client'); assert.equal(a.stages.at(-1).status, 'not-started');
+  assert.doesNotMatch(a.sentence, /was issued/);
+  assert.equal(ac.closed, false); assert.equal(row(ac, 'Final report').status, 'in-progress'); assert.equal(row(ac, 'Final report').actual, undefined);
+  assert.doesNotMatch(JSON.stringify(clientProgress(ac)), /approved internally|issued on|was issued/i);
   // Final report issued: the work is done, but the samples are kept until the client approves and instructs disposal.
-  const w = view({ ...j4, operations: o, status: 'Completed' });
+  const issuedAt = '2026-11-23T06:00:00.000Z';
+  const oi = { ...o, finalReports: o.finalReports.map((r, i, all) => i === all.length - 1 ? { ...r, issuedAt, issuedBy: 'SALIM' } : r) };
+  const w = view({ ...j4, operations: oi, status: 'Completed' });
+  assert.equal(row(w, 'Final report').detail, 'Issued to the client 23/11/2026');
+  const wc = clientProgress(view({ ...j4, operations: oi, status: 'Completed' }, 'client'));
+  assert.equal(row(wc, 'Final report').status, 'completed'); assert.equal(row(wc, 'Final report').actual, '2026-11-23'); assert.match(wc.sentence, /issued on 23\/11\/2026/);
   assert.equal(w.closed, true); assert.equal(w.currentStage, 'Client approval'); assert.equal(w.stages.at(-1).id, 'client'); assert.equal(w.stages.at(-1).status, 'in-progress');
   assert.match(w.now, /waiting for client approval/); assert.match(w.sentence, /Waiting for client approval of the final report and the sample disposal instruction/);
   assert.equal(w.done, w.total - 1); const omanDay = (at) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Muscat' }).format(new Date(at));
@@ -140,7 +152,7 @@ test('completed job: every activity completed with actual dates and the report i
   assert.equal(v.expected.kind, 'actual'); assert.equal(v.expected.date, omanDay(o.finalReports.at(-1).approvedAt));
   assert.equal(v.done, v.total); assert.match(v.sentence, /All planned work is completed/); assert.doesNotMatch(v.sentence, /Waiting for client/);
   // Oman time: an approval at 01:30 on 21 Nov in Oman is 21:30 UTC on 20 Nov. Dates follow the Oman day, as the client email does.
-  const late = { ...o, finalReports: o.finalReports.map((r, i, a) => i === a.length - 1 ? { ...r, approvedAt: '2026-11-20T21:30:00.000Z' } : r) };
+  const late = { ...o, finalReports: o.finalReports.map((r, i, a) => i === a.length - 1 ? { ...r, approvedAt: '2026-11-20T21:00:00.000Z', issuedAt: '2026-11-20T21:30:00.000Z' } : r) };
   const z = view({ ...j4, operations: late, status: 'Completed' }, 'client');
   assert.equal(z.expected.date, '2026-11-21'); assert.equal(row(z, 'Final report').actual, '2026-11-21');
   assert.match(clientProgress(z).sentence, /issued on 21\/11\/2026/);

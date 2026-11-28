@@ -16,7 +16,13 @@ Workflow VAPS copies job files to a OneDrive for Business folder owned by the VA
 | Saving the job again, or a retry | Both folders are reused. If the tracking rows in D1 are lost, the existing folders are found and reused. |
 | A job file is added | It is copied to Sampling or Lab by purpose. This uses the same routing as PR #63 (`app/file-routing.ts`). |
 | Two files have the same name | Both are kept. OneDrive gives the new copy a numbered name (`G-sheet 1.csv`), and the job shows that name. |
+| A save, an upload or a Retry at the same moment | Each file is claimed before it is copied, so it is copied once. |
+| OneDrive does not confirm an upload (no answer, timeout, 5xx) | The upload is never re-sent automatically. The file shows **Checking**; on the next save or Retry, Workflow VAPS first looks in the folder for the same name and size and records that file instead of uploading a second copy. |
+| OneDrive answers slowly | The save or upload replies within a few seconds and the copy continues in the background; the panel refreshes and shows **Copying**, then **Copied**. Files not reached within about 20 seconds wait for the next save or Retry. |
+| OneDrive works again after a failure | The job's folder error clears on the next successful save. |
 | OneDrive is unavailable, or not connected | The save or upload still succeeds in Workflow VAPS. The job's **OneDrive copy** panel shows "Original saved in Workflow VAPS. OneDrive copy failed: …". The copy is retried on the next save, or by MA001 with **Retry OneDrive copy**. |
+| MA001 disconnects OneDrive | Copying stops at once on every server instance (the stored connection is checked before each use). |
+| A job is moved to Trash | No OneDrive folders are created for it. |
 | The sign-in expires or is revoked | Copies wait with the message "not connected". MA001 reconnects, and copying resumes. |
 | Pilot settings are not set | Workflow VAPS behaves exactly as before. |
 
@@ -69,8 +75,8 @@ the key are encrypted and never shown again. Do not paste the link into chat, Gi
 | Name | Kind | Value |
 |---|---|---|
 | `ONEDRIVE_CLIENT_ID` | variable | Application (client) ID from step 1 |
-| `ONEDRIVE_TENANT_ID` | variable | Directory (tenant) ID from step 1 |
-| `ONEDRIVE_ACCOUNT` | variable | Your VAPS Microsoft sign-in address. Only this account is accepted when connecting. |
+| `ONEDRIVE_TENANT_ID` | variable, **required** | Directory (tenant) ID from step 1. `common`, `organizations` and `consumers` are refused (the app registration is single-tenant). |
+| `ONEDRIVE_ACCOUNT` | variable, **required** | The VAPS Microsoft account that owns the parent folder (its sign-in address). Only this account is accepted when connecting. Without it the pilot stays off. |
 | `ONEDRIVE_PARENT_URL` | **secret** | The OneDrive folder link (the parent folder). Keep it out of the repo, chat and email. |
 | `ONEDRIVE_TOKEN_KEY` | **secret** | At least 32 random characters, for example from `openssl rand -base64 48`. Changing it later means connecting OneDrive again. |
 

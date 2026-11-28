@@ -54,3 +54,6 @@ vaps-export-*.json
 
 # Local Worker variables (development only, never committed)
 .dev.vars
+
+# Backups made by scripts/backup contain operational records: never commit them
+/backups/

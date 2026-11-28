@@ -3,6 +3,7 @@ import { signedIn } from "../../../server/api";
 import { fail, reply } from "../../../server/http";
 import { filesBucket, uploadFile, uploadTarget, MAX_FILE_BYTES } from "../../../server/files";
 import { mirrorFile, routeFile, routedFile } from "../../../server/onedrive";
+import { backgroundResult } from "../../../server/background";
 export const dynamic = "force-dynamic";
 /**
  * Uploads one file (multipart field "file"); returns its reference for the job record. With "jobId" and "purpose"
@@ -24,6 +25,8 @@ export function POST(request: Request) {
     const saved = await uploadFile(db, bucket, who, form);
     if (!target) return reply(saved, 201);
     await routeFile(db, saved.id, target.jobId, target.purpose, saved.name, new Date().toISOString());
-    return reply({ ...saved, copy: await mirrorFile(env, db, bucket, saved.id, who) }, 201);
+    // The OneDrive copy runs after the reply; the upload waits at most 3 seconds for it. The original is already stored.
+    const copy = await backgroundResult("onedrive-file", () => mirrorFile(env, db, bucket, saved.id, who), 3000);
+    return reply({ ...saved, copy: copy ?? { status: "queued", savedInVaps: true } }, 201);
   });
 }

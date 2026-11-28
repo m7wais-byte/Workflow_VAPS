@@ -37,6 +37,7 @@ globalThis.fetch = async (input, init = {}) => {
   ms.calls.push(method + ' ' + path);
   if (!ms.access.has((init.headers?.Authorization || '').replace('Bearer ', ''))) return json({}, 401);
   if (path === '/me') return json({ userPrincipalName: ms.account });
+  if (ms.delayMs) await new Promise((ok) => setTimeout(ok, ms.delayMs));
   if (ms.down) return json({ error: 'serviceUnavailable' }, 503);
   let m;
   if ((m = /^\/shares\/u!([^/]+)\/driveItem$/.exec(path))) {
@@ -49,13 +50,15 @@ globalThis.fetch = async (input, init = {}) => {
     if (children(m[1]).some((c) => c.name.toLowerCase() === body.name.toLowerCase())) return json({ error: { code: 'nameAlreadyExists' } }, 409);
     const item = { id: 'item' + ++ms.seq, name: body.name, parent: m[1], folder: true }; ms.items.set(item.id, item); return json(view(item), 201);
   }
-  if (method === 'GET' && (m = /^\/drives\/drv1\/items\/([^/:]+):\/(.+)$/.exec(path))) { const item = children(m[1]).find((c) => c.name === m[2]); return item ? json(view(item)) : json({}, 404); }
+  if (method === 'GET' && (m = /^\/drives\/drv1\/items\/([^/:]+):\/(.+)$/.exec(path))) { const item = children(m[1]).find((c) => c.name === m[2]); return item ? json({ ...view(item), ...(item.folder ? {} : { size: Buffer.byteLength(item.content || '') }) }) : json({}, 404); }
   if (method === 'PUT' && (m = /^\/drives\/drv1\/items\/([^/:]+):\/(.+):\/content$/.exec(path))) {
     if (!ms.items.has(m[1])) return json({ error: { code: 'itemNotFound' } }, 404);
     assert.equal(url.searchParams.get('@microsoft.graph.conflictBehavior'), 'rename', 'uploads never replace an existing file');
     let name = m[2]; const dot = name.lastIndexOf('.'), stem = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : '';
     for (let n = 1; children(m[1]).some((c) => c.name.toLowerCase() === name.toLowerCase()); n++) name = `${stem} ${n}${ext}`;
-    const item = { id: 'item' + ++ms.seq, name, parent: m[1], content: Buffer.from(init.body).toString() }; ms.items.set(item.id, item); return json(view(item), 201);
+    const item = { id: 'item' + ++ms.seq, name, parent: m[1], content: Buffer.from(init.body).toString() }; ms.items.set(item.id, item);
+    if (ms.storeThenFail) { ms.storeThenFail = false; return json({ error: 'gatewayTimeout' }, 504); } // stored, but the answer is lost
+    return json(view(item), 201);
   }
   return json({ error: 'unexpected ' + method + ' ' + path }, 400);
 };
@@ -63,8 +66,8 @@ globalThis.fetch = async (input, init = {}) => {
 /* ---------- Workflow VAPS API ---------- */
 const { mf, DB, api, call } = await startSitesApi({
   login: 'app/api/auth/login/route.ts', password: 'app/api/auth/password/route.ts', job: 'app/api/jobs/[id]/route.ts',
-  files: 'app/api/files/route.ts', admin: 'app/api/admin/onedrive/route.ts', jobCopy: 'app/api/jobs/[id]/onedrive/route.ts',
-}, 'export * as auth from "./server/auth.ts"; export { resetOneDriveCache } from "./server/onedrive.ts";', ENV);
+  files: 'app/api/files/route.ts', admin: 'app/api/admin/onedrive/route.ts', jobCopy: 'app/api/jobs/[id]/onedrive/route.ts', trash: 'app/api/jobs/[id]/trash/route.ts',
+}, 'export * as auth from "./server/auth.ts"; export { resetOneDriveCache, oneDriveConfig } from "./server/onedrive.ts"; export { settleBackground } from "./server/background.ts";', ENV);
 
 const cookieOf = (c) => c.split(';')[0];
 async function account(employeeId, password) {
@@ -177,7 +180,8 @@ test('OneDrive unavailable: the original stays saved in Workflow VAPS, the job s
   assert.equal(up.status, 201, 'stored in Workflow VAPS');
   assert.deepEqual([up.data.copy.status, up.data.copy.savedInVaps], ['error', true]); assert.match(up.data.copy.message, /OneDrive/);
   const failed = (await jobCopy()).files.find((f) => f.id === up.data.id);
-  assert.deepEqual([failed.status, failed.savedInVaps, failed.folder], ['error', true, 'Lab']);
+  // A 5xx during the upload may still have stored the file, so the copy is "uncertain": the retry checks the folder first.
+  assert.deepEqual([failed.status, failed.savedInVaps, failed.folder], ['uncertain', true, 'Lab']);
   assert.equal((await admin({ action: 'retry', jobId: id }, salim)).status, 403, 'retry is MA001 only');
   ms.down = false;
   const retry = await admin({ action: 'retry', jobId: id });
@@ -232,6 +236,84 @@ test('every upload point in the app names its job and the right purpose', async 
   for (const c of calls) assert.match(c, /jobId: ?job\.id/, c);
   assert.ok(calls.some((c) => c.includes("kind==='sampling'?'sampling-sheet':'final-report'")));
   for (const p of ['lab-workbook', 'external-results', 'sampling-report']) assert.ok(calls.some((c) => c.includes(`'${p}'`)), p);
+});
+
+/* ---------- Reliability fixes (review of PR #68: O1, O2, O3, O4, O6, O9) ---------- */
+const sampling = () => inFolder(id + '/Sampling'), lab = () => inFolder(id + '/Lab');
+const connectAgain = async () => { ms.approved = true; await admin({ action: 'connect' }); assert.equal((await admin({ action: 'poll' })).data.status, 'connected'); };
+
+test('O1: a Retry and a save at the same moment copy a failed file once (no "name 1" duplicate)', async () => {
+  ms.down = true;
+  const up = await upload('Concurrent.csv', 'lab-workbook');
+  ms.down = false;
+  await Promise.all([admin({ action: 'retry', jobId: id }), save({ ...sampleJob, description: 'Concurrent save.' })]);
+  await api.settleBackground();
+  assert.deepEqual(lab().filter((n) => n.startsWith('Concurrent')), ['Concurrent.csv']);
+  assert.equal((await jobCopy()).files.find((f) => f.id === up.data.id).status, 'ok');
+});
+
+test('O1: an upload that reached OneDrive but whose answer was lost is recorded on the next save, not uploaded again', async () => {
+  ms.storeThenFail = true;
+  const up = await upload('Unconfirmed.csv', 'sampling-sheet');
+  assert.equal(up.status, 201, 'stored in Workflow VAPS');
+  assert.equal((await jobCopy()).files.find((f) => f.id === up.data.id).status, 'uncertain');
+  await save({ ...sampleJob, description: 'After a lost upload answer.' });
+  await api.settleBackground();
+  assert.deepEqual(sampling().filter((n) => n.startsWith('Unconfirmed')), ['Unconfirmed.csv']);
+  assert.equal((await jobCopy()).files.find((f) => f.id === up.data.id).status, 'ok');
+});
+
+test('O2: a job error from a save while disconnected clears once OneDrive works again', async () => {
+  await admin({ action: 'disconnect' });
+  await save({ ...sampleJob, description: 'Saved while disconnected.' });
+  assert.equal((await jobCopy()).job.status, 'error');
+  await connectAgain();
+  await save({ ...sampleJob, description: 'Saved after reconnecting.' });
+  await api.settleBackground();
+  const after = await jobCopy();
+  assert.equal(after.job.status, 'ok'); assert.equal(after.job.error, null);
+});
+
+test('O4: disconnecting stops copies everywhere at once, even where an access token is still cached', async () => {
+  // Another Worker instance disconnected: only the stored connection changes; this instance keeps its cached token.
+  await DB.prepare("UPDATE onedrive_auth SET status = 'not-connected', sealed = NULL").run();
+  const up = await upload('After-disconnect.csv', 'sampling-sheet');
+  assert.match(up.data.copy.message, /not connected/);
+  assert.ok(!sampling().includes('After-disconnect.csv'));
+  await connectAgain();
+});
+
+test('O3: a slow OneDrive does not hold the upload: the reply says "queued" and the copy finishes afterwards', async () => {
+  ms.delayMs = 3500;
+  const started = Date.now();
+  const up = await upload('Slow.csv', 'lab-workbook');
+  const waited = Date.now() - started;
+  ms.delayMs = 0;
+  assert.equal(up.status, 201); assert.equal(up.data.copy.status, 'queued');
+  assert.ok(waited < 3500, `the reply did not wait for OneDrive (${waited} ms)`);
+  await api.settleBackground();
+  assert.ok(lab().includes('Slow.csv'));
+  assert.equal((await jobCopy()).files.find((f) => f.id === up.data.id).status, 'ok');
+});
+
+test('O9: trashing a job never creates its OneDrive folders', async () => {
+  const other = 'OM-P-26-903', env = globalThis.__vapsTestEnv, keep = env.ONEDRIVE_CLIENT_ID;
+  delete env.ONEDRIVE_CLIENT_ID; // created while the pilot is off: no folders yet
+  const made = await call('job', 'PUT', '/', { cookie: salim, params: { id: other }, json: { job: { ...sampleJob, id: other, jobNumber: other, globalSequence: 903 }, revision: 0 } });
+  env.ONEDRIVE_CLIENT_ID = keep;
+  assert.equal(made.status, 200, JSON.stringify(made.data));
+  const trashed = await call('trash', 'POST', '/', { cookie: ma, params: { id: other }, json: { mode: 'trash', revision: made.data.revision } });
+  assert.equal(trashed.status, 200, JSON.stringify(trashed.data));
+  await api.settleBackground();
+  assert.ok(!folders().some((f) => f === other || f.startsWith(other + '/')), 'no folders for a trashed job');
+});
+
+test('O6: the account and the VAPS tenant are required; "common" and "organizations" are refused', () => {
+  const base = { ...ENV };
+  assert.ok(api.oneDriveConfig(base));
+  assert.equal(api.oneDriveConfig({ ...base, ONEDRIVE_ACCOUNT: '' }), null);
+  assert.equal(api.oneDriveConfig({ ...base, ONEDRIVE_TENANT_ID: '' }), null);
+  for (const t of ['common', 'organizations', 'consumers']) assert.equal(api.oneDriveConfig({ ...base, ONEDRIVE_TENANT_ID: t }), null, t);
 });
 
 test('not configured: Workflow VAPS works as before and no Microsoft service is contacted', async () => {

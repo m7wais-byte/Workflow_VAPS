@@ -20,7 +20,8 @@ import { audit } from "./auth";
 import { filePurposes, sectionFolder, type FilePurpose, type FileSection } from "../app/file-routing";
 
 export type OneDriveConfig = { tenant: string; clientId: string; parentUrl: string; key: string; expectedAccount: string };
-export type SyncStatus = { status: "off" | "ok" | "error"; message?: string };
+/** "queued": the copy continues after the reply (Microsoft was slow); the job's OneDrive panel shows the outcome. */
+export type SyncStatus = { status: "off" | "ok" | "error" | "queued"; message?: string };
 type Who = { accountId: string; employeeId: string };
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
@@ -33,12 +34,18 @@ const GRAPH = "https://graph.microsoft.com/v1.0";
 const SCOPE = "offline_access User.Read Files.ReadWrite";
 const text = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
-/** Null when the pilot is not configured: Workflow VAPS then works exactly as before. */
+/**
+ * Null when the pilot is not configured: Workflow VAPS then works exactly as before. All five settings are required.
+ * The tenant must be the VAPS directory (ID or domain): the app registration is single-tenant, so "common",
+ * "organizations" and "consumers" are refused. The account is required so that only the VAPS account can connect.
+ */
 export function oneDriveConfig(env: Record<string, unknown>): OneDriveConfig | null {
   const clientId = text(env.ONEDRIVE_CLIENT_ID), parentUrl = text(env.ONEDRIVE_PARENT_URL), key = text(env.ONEDRIVE_TOKEN_KEY);
-  if (!clientId || !parentUrl || key.length < 32) return null;
+  const tenant = text(env.ONEDRIVE_TENANT_ID), expectedAccount = text(env.ONEDRIVE_ACCOUNT).toLowerCase();
+  if (!clientId || !parentUrl || key.length < 32 || !expectedAccount.includes("@")) return null;
+  if (!tenant || ["common", "organizations", "consumers"].includes(tenant.toLowerCase())) return null;
   try { if (new URL(parentUrl).protocol !== "https:") return null; } catch { return null; }
-  return { tenant: text(env.ONEDRIVE_TENANT_ID) || "organizations", clientId, parentUrl, key, expectedAccount: text(env.ONEDRIVE_ACCOUNT).toLowerCase() };
+  return { tenant, clientId, parentUrl, key, expectedAccount };
 }
 
 class GraphError extends Error { constructor(readonly status: number, message: string) { super(message); } }
@@ -81,9 +88,11 @@ async function tokenRequest(c: OneDriveConfig, params: Record<string, string>) {
 let cached: { key: string; token: string; expires: number } | null = null;
 /** A current access token from the stored refresh token; the rotated refresh token is stored again, encrypted. */
 async function accessToken(c: OneDriveConfig, db: D1Database): Promise<string> {
-  if (cached && cached.key === c.clientId && cached.expires > Date.now() + 60_000) return cached.token;
+  // The stored connection is checked on every use, so "Disconnect" in one Worker instance also stops every other
+  // instance at once, even one still holding a valid access token in memory.
   const row = await authRow(db);
-  if (!row?.sealed || row.status !== "connected") throw new GraphError(412, "not connected");
+  if (!row?.sealed || row.status !== "connected") { cached = null; throw new GraphError(412, "not connected"); }
+  if (cached && cached.key === c.clientId && cached.expires > Date.now() + 60_000) return cached.token;
   const { ok, data } = await tokenRequest(c, { grant_type: "refresh_token", refresh_token: await open(c.key, row.sealed), scope: SCOPE });
   if (!ok || !data.access_token) {
     // Revoked, expired or consent withdrawn: the account must sign in again. Nothing else is changed.
@@ -95,15 +104,19 @@ async function accessToken(c: OneDriveConfig, db: D1Database): Promise<string> {
   return data.access_token;
 }
 
-async function graph<T = Record<string, unknown>>(c: OneDriveConfig, db: D1Database, method: string, path: string, body?: unknown): Promise<T> {
+/**
+ * One Graph call. `resend: false` (file uploads) never repeats a request that may already have reached OneDrive:
+ * a 429/5xx or timeout after OneDrive stored the file would otherwise create a second, renamed copy.
+ */
+async function graph<T = Record<string, unknown>>(c: OneDriveConfig, db: D1Database, method: string, path: string, body?: unknown, options: { resend?: boolean } = {}): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     const raw = body instanceof ArrayBuffer;
     const r = await fetch(GRAPH + path, {
-      method, signal: AbortSignal.timeout(30_000), body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
+      method, signal: AbortSignal.timeout(raw ? 25_000 : 15_000), body: body === undefined ? undefined : raw ? body : JSON.stringify(body),
       headers: { Authorization: "Bearer " + await accessToken(c, db), ...(body === undefined ? {} : { "Content-Type": raw ? "application/octet-stream" : "application/json" }) },
     });
-    if (r.status === 401 && attempt === 0) { cached = null; continue; } // Access token expired early: refresh once.
-    if ((r.status === 429 || r.status >= 500) && attempt === 0) { await new Promise((ok) => setTimeout(ok, Math.min(2000, 1000 * Number(r.headers.get("Retry-After") || 1)))); continue; }
+    if (r.status === 401 && attempt === 0) { cached = null; continue; } // Access token expired early: refresh once (401: nothing was stored).
+    if ((r.status === 429 || r.status >= 500) && attempt === 0 && options.resend !== false) { await new Promise((ok) => setTimeout(ok, Math.min(2000, 1000 * Number(r.headers.get("Retry-After") || 1)))); continue; }
     if (!r.ok) throw new GraphError(r.status, `${method} ${path.split("?")[0]}`);
     return (r.status === 204 ? {} : await r.json()) as T;
   }
@@ -211,8 +224,12 @@ async function saveJobRow(db: D1Database, id: string, fields: Partial<JobRow> & 
 /** The job's folders: from D1 when already created, otherwise created (or found) in OneDrive and recorded. */
 async function jobFolders(c: OneDriveConfig, db: D1Database, jobId: string, at: string) {
   const { driveId, id: parentId } = await parentFolder(c, db);
-  const row = await db.prepare("SELECT folder_id, sampling_id, lab_id, folder_url FROM onedrive_jobs WHERE job_id = ?").bind(jobId).first<JobRow>();
-  if (row?.folder_id && row.sampling_id && row.lab_id) return { driveId, row };
+  const row = await db.prepare("SELECT folder_id, sampling_id, lab_id, folder_url, status FROM onedrive_jobs WHERE job_id = ?").bind(jobId).first<JobRow & { status: string }>();
+  if (row?.folder_id && row.sampling_id && row.lab_id) {
+    // OneDrive answered again after an earlier failure (for example a save while disconnected): clear the job's error.
+    if (row.status !== "ok") await saveJobRow(db, jobId, { status: "ok", last_error: null }, at);
+    return { driveId, row };
+  }
   const root = await ensureFolder(c, db, driveId, parentId, folderName(jobId));
   const sampling = await ensureFolder(c, db, driveId, root.id, sectionFolder.sampling), lab = await ensureFolder(c, db, driveId, root.id, sectionFolder.lab);
   const fields = { folder_id: root.id, sampling_id: sampling.id, lab_id: lab.id, folder_url: root.webUrl || null };
@@ -250,48 +267,78 @@ async function scopeBytes(db: D1Database, jobId: string, fileId: string): Promis
 const safeName = (n: string) => n.replace(/["*:<>?/\\|#%]/g, "_").replace(/^[.\s~$]+/, "_");
 export type FileStatus = SyncStatus & { name?: string; renamed?: boolean; savedInVaps?: boolean };
 
+const REPLACED = "This version is no longer in Workflow VAPS (it was replaced), so it was not copied.";
+/** A copy that started but never finished (the Worker stopped mid-copy) is picked up again after this long. */
+export const STALE_COPY_MS = 2 * 60_000;
+/** The upload may have reached OneDrive (no answer, timeout, 5xx): the next attempt checks the folder before uploading. */
+class UploadUncertain extends Error {}
+
 /**
- * Copies one routed file to <Job ID>/<Sampling|Lab>. Idempotent. `conflictBehavior=rename` keeps any existing file
- * with the same name and gives this copy a numbered name, which is stored and returned (never a silent overwrite).
+ * Copies one routed file to <Job ID>/<Sampling|Lab>, at most once:
+ *  - The row is claimed first ("copying"), so a Retry and a save at the same moment cannot both upload it.
+ *  - The upload is never re-sent automatically. If its outcome is unknown, the row becomes "uncertain" and the next
+ *    attempt first looks in the folder for the same name and size, and records that file instead of uploading again.
+ *  - `conflictBehavior=rename` keeps any different file with the same name; this copy gets a numbered name, which is
+ *    stored and returned (never a silent overwrite).
  */
 export async function mirrorFile(env: Record<string, unknown>, db: D1Database, bucket: R2Bucket | undefined, fileId: string, who: Who, at = new Date().toISOString()): Promise<FileStatus> {
   const c = oneDriveConfig(env);
   if (!c) return { status: "off" };
-  const routed = await db.prepare("SELECT job_id, section, source, status, name, copy_name FROM onedrive_files WHERE file_id = ?").bind(fileId).first<{ job_id: string; section: FileSection; source: string; status: string; name: string; copy_name: string | null }>();
-  if (!routed) return { status: "off" };
-  if (routed.status === "ok") return { status: "ok", name: routed.copy_name || routed.name, renamed: !!routed.copy_name && routed.copy_name !== safeName(routed.name), savedInVaps: true };
+  type Routed = { job_id: string; section: FileSection; source: string; status: string; name: string; copy_name: string | null };
+  let routed: Routed | null = null;
   try {
+    routed = await db.prepare("SELECT job_id, section, source, status, name, copy_name FROM onedrive_files WHERE file_id = ?").bind(fileId).first<Routed>();
+    if (!routed) return { status: "off" };
+    if (routed.status === "ok") return { status: "ok", name: routed.copy_name || routed.name, renamed: !!routed.copy_name && routed.copy_name !== safeName(routed.name), savedInVaps: true };
+    if (routed.status === "replaced") return { status: "error", message: REPLACED, savedInVaps: true };
+    const now = new Date().toISOString(), staleBefore = new Date(Date.now() - STALE_COPY_MS).toISOString();
+    const claim = await db.prepare("UPDATE onedrive_files SET status = 'copying', updated_at = ? WHERE file_id = ? AND (status IN ('pending', 'error', 'uncertain') OR (status = 'copying' AND updated_at < ?))").bind(now, fileId, staleBefore).run();
+    if (claim.meta.changes !== 1) return { status: "queued", message: "The OneDrive copy is already in progress.", savedInVaps: true };
+    const checkFirst = routed.status === "uncertain" || routed.status === "copying";
     const { driveId, row } = await jobFolders(c, db, routed.job_id, at);
     const bytes = routed.source === "job" ? await scopeBytes(db, routed.job_id, fileId) : await (await bucket?.get(fileId))?.arrayBuffer();
     if (!bytes) throw new GraphError(410, "file bytes");
-    const name = safeName(routed.name);
-    const put = (f: typeof row) => graph<Item>(c, db, "PUT", `/drives/${driveId}/items/${routed.section === "lab" ? f.lab_id : f.sampling_id}:/${seg(name)}:/content?@microsoft.graph.conflictBehavior=rename`, bytes);
+    const name = safeName(routed.name), section = routed.section;
+    const folderOf = (f: typeof row) => (section === "lab" ? f.lab_id : f.sampling_id);
+    // After an unknown outcome: the same name and size already in the folder is the earlier upload.
+    const earlier = async (f: typeof row) => {
+      try { const it = await graph<Item & { size?: number; file?: unknown }>(c, db, "GET", `/drives/${driveId}/items/${folderOf(f)}:/${seg(name)}?$select=id,name,size,file`); return it.file && it.size === bytes.byteLength ? it : null; }
+      catch (e) { if (e instanceof GraphError && e.status === 404) return null; throw e; }
+    };
+    const put = async (f: typeof row) => {
+      try { return await graph<Item>(c, db, "PUT", `/drives/${driveId}/items/${folderOf(f)}:/${seg(name)}:/content?@microsoft.graph.conflictBehavior=rename`, bytes, { resend: false }); }
+      catch (e) { if (!(e instanceof GraphError) || e.status >= 500) throw new UploadUncertain(); throw e; }
+    };
+    const copy = async (f: typeof row) => (checkFirst ? await earlier(f) : null) ?? await put(f);
     let item: Item;
-    try { item = await put(row); }
+    try { item = await copy(row); }
     catch (e) {
       // The recorded folder was deleted or moved in OneDrive: forget it, find or re-create the job folders, try once more.
       if (!(e instanceof GraphError && e.status === 404)) throw e;
       await db.prepare("DELETE FROM onedrive_jobs WHERE job_id = ?").bind(routed.job_id).run();
       parent = null;
-      item = await put((await jobFolders(c, db, routed.job_id, at)).row);
+      item = await copy((await jobFolders(c, db, routed.job_id, at)).row);
     }
-    await db.prepare("UPDATE onedrive_files SET status = 'ok', item_id = ?, copy_name = ?, last_error = NULL, updated_at = ? WHERE file_id = ?").bind(item.id, item.name, at, fileId).run();
+    await db.prepare("UPDATE onedrive_files SET status = 'ok', item_id = ?, copy_name = ?, last_error = NULL, updated_at = ? WHERE file_id = ?").bind(item.id, item.name, new Date().toISOString(), fileId).run();
     const renamed = item.name !== name;
-    await audit(db, { ...who, action: "onedrive.file.copied", target: fileId, detail: { jobId: routed.job_id, section: routed.section, name: item.name, renamed } }, at);
+    // The copy is recorded; a failure to audit it must not mark it for copying again.
+    await audit(db, { ...who, action: "onedrive.file.copied", target: fileId, detail: { jobId: routed.job_id, section, name: item.name, renamed } }, at).catch(() => {});
     return { status: "ok", name: item.name, renamed, savedInVaps: true };
   } catch (e) {
-    const replaced = e instanceof GraphError && e.status === 410;
-    const message = replaced ? "This version is no longer in Workflow VAPS (it was replaced), so it was not copied." : safeMessage(e);
-    await db.prepare("UPDATE onedrive_files SET status = ?, last_error = ?, updated_at = ? WHERE file_id = ?").bind(replaced ? "replaced" : "error", message, at, fileId).run().catch(() => {});
+    const replaced = e instanceof GraphError && e.status === 410, unsure = e instanceof UploadUncertain;
+    const message = replaced ? REPLACED : unsure ? "OneDrive did not confirm the copy. It is checked and finished on the next save or Retry, without a second copy." : safeMessage(e);
+    if (routed) await db.prepare("UPDATE onedrive_files SET status = ?, last_error = ?, updated_at = ? WHERE file_id = ?").bind(replaced ? "replaced" : unsure ? "uncertain" : "error", message, new Date().toISOString(), fileId).run().catch(() => {});
     return { status: "error", message, savedInVaps: true };
   }
 }
 
 /**
  * After a job is saved in D1: ensure its folders (first save creates them), route its scope-of-work attachment, then
- * copy its files that have not reached OneDrive yet. Never throws; returns a status for the API reply.
+ * copy its files that have not reached OneDrive yet, within a time budget (the rest wait for the next save or Retry).
+ * Never throws; returns a status for the API reply.
  */
-export async function syncJob(env: Record<string, unknown>, db: D1Database, bucket: R2Bucket | undefined, job: JobRecord, who: Who, at = new Date().toISOString()): Promise<SyncStatus> {
+export async function syncJob(env: Record<string, unknown>, db: D1Database, bucket: R2Bucket | undefined, job: JobRecord, who: Who, at = new Date().toISOString(), budgetMs = 20_000): Promise<SyncStatus> {
+  const started = Date.now();
   await routeScopeAttachment(db, job, at).catch(() => {});
   const c = oneDriveConfig(env);
   if (!c) return { status: "off" };
@@ -302,10 +349,17 @@ export async function syncJob(env: Record<string, unknown>, db: D1Database, buck
     await audit(db, { ...who, action: "onedrive.failed", target: job.id, detail: { step: "folders", message } }, at).catch(() => {});
     return { status: "error", message: message + " The job was saved in Workflow VAPS; OneDrive will be retried on the next save." };
   }
-  const { results } = await db.prepare("SELECT file_id FROM onedrive_files WHERE job_id = ? AND status IN ('pending', 'error') ORDER BY updated_at LIMIT 20").bind(job.id).all<{ file_id: string }>();
-  let failed = 0;
-  for (const f of results) if ((await mirrorFile(env, db, bucket, f.file_id, who, at)).status === "error") failed++;
-  return failed ? { status: "error", message: `${failed} file${failed === 1 ? "" : "s"} could not be copied to OneDrive. The originals are saved in Workflow VAPS.` } : { status: "ok" };
+  try {
+    const staleBefore = new Date(Date.now() - STALE_COPY_MS).toISOString();
+    const { results } = await db.prepare("SELECT file_id FROM onedrive_files WHERE job_id = ? AND (status IN ('pending', 'error', 'uncertain') OR (status = 'copying' AND updated_at < ?)) ORDER BY updated_at LIMIT 20").bind(job.id, staleBefore).all<{ file_id: string }>();
+    let failed = 0, left = 0;
+    for (const f of results) {
+      if (Date.now() - started > budgetMs) { left++; continue; }
+      if ((await mirrorFile(env, db, bucket, f.file_id, who, at)).status === "error") failed++;
+    }
+    if (failed) return { status: "error", message: `${failed} file${failed === 1 ? "" : "s"} could not be copied to OneDrive. The originals are saved in Workflow VAPS.` };
+    return left ? { status: "queued", message: `${left} file${left === 1 ? "" : "s"} will be copied to OneDrive on the next save or Retry.` } : { status: "ok" };
+  } catch (e) { return { status: "error", message: safeMessage(e) + " The originals are saved in Workflow VAPS." }; }
 }
 
 /** What the job page shows. The folder link is shown only to people who can open the job; OneDrive's own sharing decides who can open it. */

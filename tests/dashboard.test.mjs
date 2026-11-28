@@ -73,6 +73,9 @@ test('the dashboard follows the whole journey with one next responsible person a
  assert.deepEqual(acts(j,'WILFRED'),['Approve final laboratory report v1']);assert.equal(items(j,'SHEREIQI').waiting[0].waitingOn,'Wilfred Mendonca');
  j=step(j,{type:'report-action',kind:'final',action:'approve',comments:''},'WILFRED');
  for(const id of ['MOHSIN','SHEREIQI','BAHRI','WILFRED','RANJITH','NASSER','YAQEEN','ALI'])assert.deepEqual(acts(j,id),[],id+' has nothing left');
+ assert.deepEqual(acts(j,'SALIM'),['Record that the final report was issued to the client'],'approval is internal: the client approval holder first records the issue to the client');assert.deepEqual(acts(j,'WILFRED'),[],'no one else gets the issue task');
+ assert.throws(()=>step(j,{type:'client-disposal'},'SALIM'),/Record first that the final report was issued/);
+ j=step(j,{type:'report-issue',note:'Emailed to the focal point'},'SALIM');
  assert.deepEqual(acts(j,'SALIM'),['Record the client’s approval of the final report and the sample disposal instruction'],'the client approval holder records the client’s approval; no release task yet');assert.deepEqual(acts(j,'WILFRED'),[],'no one else gets the client approval task');
  j=step(j,{type:'client-disposal'},'SALIM');
  assert.deepEqual(acts(j,'SALIM'),['Job finished: assign a sampling employee to release and redress 1 cylinder'],'after the client approves and instructs disposal, the coordinator assigns the redress');

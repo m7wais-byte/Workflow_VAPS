@@ -55,7 +55,7 @@ export function mailerFrom(env: Record<string, unknown>): Mailer | null {
             body: JSON.stringify({ from, to: [mail.to], subject: mail.subject, text: mail.text, html: mail.html, ...(typeof env.MAIL_REPLY_TO === "string" && env.MAIL_REPLY_TO ? { reply_to: env.MAIL_REPLY_TO } : {}) }),
           });
         } catch { throw uncertain("The mail service did not answer, so it is not known whether the email was sent."); }
-        if (response.status >= 500 && response.status !== 503) throw uncertain(`The mail service answered ${response.status}, so it is not known whether the email was sent.`);
+        if (response.status >= 500) throw uncertain(`The mail service answered ${response.status}, so it is not known whether the email was sent.`);
         if (!response.ok) { console.error("Mail provider refused a message", response.status); throw fail(502, "The invitation email could not be sent. No invitation was issued; please retry or check the mail settings."); }
       },
     };
@@ -122,8 +122,10 @@ async function graphSend(c: GraphConfig, mail: Mail) {
     throw uncertain(`Microsoft 365 did not answer, so it is not known whether the email was sent. Check the Sent Items of ${c.sender} before retrying.`);
   }
   if (r.status === 202) return;
-  // 500/502/504: Microsoft may have accepted the message before the error. 503 and 429 are refusals before processing.
-  if (r.status >= 500 && r.status !== 503) { console.error("Graph sendMail outcome unknown", r.status); throw uncertain(`Microsoft 365 answered ${r.status}, so it is not known whether the email was sent. Check the Sent Items of ${c.sender} before retrying.`); }
+  // Any 5xx (500/502/503/504): Microsoft may have accepted the message before the error, so the outcome is unknown.
+  // Microsoft documents 503 only as "temporarily unavailable or overloaded", which does not prove nothing was sent.
+  // 429 (throttling) is a refusal before processing: the request failed and can be retried.
+  if (r.status >= 500) { console.error("Graph sendMail outcome unknown", r.status); throw uncertain(`Microsoft 365 answered ${r.status}, so it is not known whether the email was sent. Check the Sent Items of ${c.sender} before retrying.`); }
   if (r.status === 401) cachedToken = null;
   console.error("Graph sendMail refused", r.status);
   throw fail(502, r.status === 403 ? "Microsoft 365 did not allow the app to send as " + c.sender + " (Mail.Send or the Exchange mailbox scope is not in place). Nothing was sent."

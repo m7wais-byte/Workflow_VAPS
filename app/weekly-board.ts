@@ -5,7 +5,7 @@
  * Chemistry tests are not shown.
  */
 import type { JobRecord } from './page';
-import { operationsFor, labStatus, isTrashed, type ActivityRecord } from './operations-model';
+import { operationsFor, labStatus, isTrashed, omanDay, type ActivityRecord } from './operations-model';
 import { addDays } from './local-date';
 import { daysBetween } from './schedule-estimate';
 import { normalizeFluid, type FluidType } from './scope-catalogue';
@@ -38,10 +38,15 @@ function fluidGroup(job: JobRecord): string {
 const groupOrder = ['Black Oil', 'Gas Condensate'];
 const groupRank = (g: string) => { const i = groupOrder.indexOf(g); return i < 0 ? (g === 'Other' ? 99 : 50) : i; };
 
-/** Planned report submission date: the report estimate; once the final report is approved, the date it was issued. */
+/**
+ * Planned report submission date: the report estimate; once the final report is issued to the client, the day it was
+ * issued. Approval alone is internal and keeps the planned date. Jobs whose client approval was recorded before the
+ * issue step existed use the approval day.
+ */
 export function reportDate(job: JobRecord, closed: boolean): BoardReport | undefined {
   const o = operationsFor(job);
-  const issued = o.finalReports.filter((r) => r.status === 'Approved' && r.approvedAt).at(-1)?.approvedAt?.slice(0, 10);
+  const approved = o.finalReports.filter((r) => r.status === 'Approved' && r.approvedAt).at(-1);
+  const issued = approved?.issuedAt ? omanDay(approved.issuedAt) : (o.clientDisposal || o.cylindersReleased) ? approved?.approvedAt?.slice(0, 10) : undefined;
   if (closed && issued) return { date: issued, kind: 'issued' };
   const plan = o.progressPlan?.report;
   return plan?.finish ? { date: plan.finish, kind: 'planned' } : undefined;
